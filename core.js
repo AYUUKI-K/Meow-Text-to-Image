@@ -30,7 +30,7 @@ export function validateFolder(value) {
     return value.trim();
 }
 export function imageTimestamp(filename) {
-    const match=/^(?:miao|test)-(\d{13})(?:-[\da-f-]+)?\.png$/i.exec(filename);
+    const match=/^(?:miao|test|sample)-(\d{13})(?:-[\da-f-]+)?\.png$/i.exec(filename);
     if(!match)return null;
     return Number(match[1]);
 }

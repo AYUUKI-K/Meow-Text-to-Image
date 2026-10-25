@@ -1,0 +1,39 @@
+import {buildRequest} from './core.js';
+import {randomId} from './browser-crypto.js';
+import {selectVibes} from './vibe.js';
+
+export const SAMPLE_PROMPT='1girl, adult woman, solo, upper body, looking at viewer, long black hair, blue eyes, white blouse, holding a small bouquet of flowers, gentle smile, garden, daylight, simple background';
+export function ensureProfileIds(profiles){
+    const used=new Set();for(const profile of profiles){if(!profile.id||used.has(profile.id)){profile.id=randomId();delete profile.preview;}used.add(profile.id);}
+}
+export function sampleRequest(profile,library=[],prompt=SAMPLE_PROMPT){
+    if(typeof prompt!=='string'||!prompt.trim())throw Error('请填写例图提示词');
+    const request=buildRequest({...profile,width:512,height:512,seed:246813579},prompt);
+    request.vibes=selectVibes(profile,library,()=>0);return request;
+}
+export function sampleSignature(profile,library=[],prompt=SAMPLE_PROMPT){const request=sampleRequest(profile,library,prompt);request.vibes=request.vibes.map(({id,key,strength})=>({id,key,strength}));return JSON.stringify(request);}
+export function createProfilePreviews({profiles,library,prompt=()=>SAMPLE_PROMPT,onQueued=()=>{},enqueue,generate,saveImage,persist,onChange=()=>{},onError=()=>{}}){
+    const jobs=new Map();
+    const current=(id,signature)=>{const p=profiles().find(item=>item.id===id);try{return p&&sampleSignature(p,library(),prompt())===signature?p:null;}catch{return null;}};
+    return {
+        state(profile){const job=jobs.get(profile.id);let fresh=false;try{fresh=profile.preview?.signature===sampleSignature(profile,library(),prompt());}catch{}
+            return {url:profile.preview?.url,busy:!!job?.busy,status:job?.busy?job.status:job?.error?'生成失败':profile.preview?.url?(fresh?'':'待更新'):''};},
+        refresh(profile,{ifChanged=false,scope}={}){
+            let signature,request;try{signature=sampleSignature(profile,library(),prompt());request=sampleRequest(profile,library(),prompt());}catch(error){onError(error);return Promise.resolve();}
+            if(ifChanged&&profile.preview?.url&&profile.preview.signature===signature){if(jobs.get(profile.id)?.error){jobs.delete(profile.id);onChange();}return Promise.resolve();}
+            const previous=jobs.get(profile.id);if(previous?.busy&&previous.signature===signature)return previous.promise;
+            if(!ifChanged)request.seed=Math.floor(Math.random()*4294967296);
+            const job={busy:true,status:'排队中',signature};jobs.set(profile.id,job);onChange();onQueued();
+            const valid=()=>{if(!current(profile.id,signature)||jobs.get(profile.id)!==job)throw Error('配置已变化，例图已取消');return true;};
+            job.promise=enqueue(async()=>{
+                if(!current(profile.id,signature)||jobs.get(profile.id)!==job)return;
+                const data=await generate(request,{...scope,onStatus:status=>{job.status=status;onChange();}},valid);
+                const url=await saveImage(data,scope);
+                const target=current(profile.id,signature);if(!target||jobs.get(profile.id)!==job)return;
+                target.preview={url,signature,created:Date.now()};onChange();
+                try{await persist();}catch(error){throw Error('例图已生成，但配置保存失败，请再次保存配置：'+error.message);}
+            }).catch(error=>{job.error=String(error.message||error);onError(error);}).finally(()=>{job.busy=false;onChange();});
+            return job.promise;
+        },
+    };
+}

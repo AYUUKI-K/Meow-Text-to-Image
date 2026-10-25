@@ -26,6 +26,8 @@ import {appendImageVersion,imageVersions,selectImageVersion,markImageVersionsDel
 import {selectVibes,profileVibeEnabled} from './vibe.js';
 import {createExtensionUpdater} from './updates.js';
 import {createResourceUpdater} from './resource-updates.js';
+import {createArchiveClient,archiveFolder,archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation} from './image-archives.js';
+import {createProfilePreviews,ensureProfileIds,SAMPLE_PROMPT} from './profile-previews.js';
 import {downloadImageSelection} from './downloads.js';
 import {migrateSwipeImages,readSwipeImage,writeSwipeImage,swipeImageRecords,removeSwipeImages} from './swipe-history.js';
 import { defaults, parseBodyBlocks, maskReasoning, renderedBlockRange, buildRequest, latestImageMessage, canAutoGenerate, validateFolder, imageDay, imageURL, normalizeProfile, delimiterPattern } from './core.js';
@@ -41,6 +43,8 @@ settings.mode ??= settings.stream ? 'stream' : 'manual';
 settings.theme = 'auto';
 settings.folder ??= 'miao-nai';
 settings.folders ??= ['miao-nai'];
+settings.archiveMode??='flat';
+settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
 settings.cloudQueue ??= false;
 settings.retryQueue ??= true;
@@ -65,6 +69,9 @@ let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDisp
 const save=()=>ctx().saveSettingsDebounced();
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-resources-changed')),onAvailable:({latest})=>toastr.info(`${latest.worldName} 可更新，点此查看`,'喵喵文生图',{escapeHtml:true,timeOut:10000,onclick:()=>openSettings('resources')})});
+ensureProfileIds(settings.profiles);
+const archives=createArchiveClient({getHeaders:()=>ctx().getRequestHeaders(),isTT});
+const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>toastr.info('例图已加入生图队列','喵喵文生图'),enqueue:run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;},generate:requestImage,saveImage:(data,scope)=>inStage('image-save',()=>saveBase64AsFile(data,scope.folder,`sample-${Date.now()}-${randomId()}`,'png')),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHeaders(),getKey:async expectedKeyHash=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
@@ -188,7 +195,7 @@ function startGeneration(message,block,{automatic=false}={}) {
     const profile=settings.profiles[settings.active],profileName=profile.name;
     const request=buildRequest(profile,block.prompt);
     request.vibes=selectVibes(settings.profiles[settings.active],settings.vibeLibrary);
-    const folder=validateFolder(settings.folder);
+    const storage={root:validateFolder(settings.folder),mode:settings.archiveMode,context:archiveContext(ctx())};
     attempted.add(taskId);
     const task={status:'排队中',keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl,message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
     const waiting=running.size>0||settings.cloudQueue;running.set(taskId,task);renderAll();
@@ -196,9 +203,10 @@ function startGeneration(message,block,{automatic=false}={}) {
     queue=queue.then(async()=>{
         let target=taskTarget(task);if((automatic&&!settings.enabled)||!target)return;
         if(automatic && !canAutoGenerate(ctx().chat,target.message,settings.mode,streamActive))return;
+        const folder=await archiveFolder(storage.root,storage.mode,storage.context);if(folder.includes('/'))await archives.requireBackend();
         task.status='正在生图'; renderAll();
         const data=await requestImage(request,task,()=>{const target=taskTarget(task);return !!target&&(!automatic||canAutoGenerate(ctx().chat,target.message,settings.mode,streamActive));});
-        const url=await inStage('image-save',()=>saveBase64AsFile(data,folder,`miao-${Date.now()}-${randomId()}`,'png'));
+        const url=await inStage('image-save',()=>folder.includes('/')?archives.save(data,folder,`miao-${Date.now()}-${randomId()}.png`):saveBase64AsFile(data,folder,`miao-${Date.now()}-${randomId()}`,'png'));
         // Switching swipes does not invalidate an image already being generated.
         target=taskTarget(task,true);if(!target) { toastr.info('图片已保存，但原消息已删除或修改：'+url); return; }
         writeSwipeImage(target.message,task.swipe,blockSlot(target.block),appendImageVersion(task.previousRecord,{url,request,profileName,created:Date.now()}));
@@ -267,9 +275,7 @@ function makeCard(message,block) {
         const remove=button('删除',async()=>{
             if(remove.disabled)return;remove.disabled=true;
             try{
-                const url=new URL(current.url,location.href),match=url.pathname.match(/^\/user\/images\/([^/]+)\/([^/]+)$/);
-                if(url.origin!==location.origin||!match)throw Error('这张图片不在酒馆图片目录');
-                await deleteImages(decodeURIComponent(match[1]),[decodeURIComponent(match[2])]);
+                const {folder,name}=imageArchiveLocation(current.url,location.href);await deleteImages(folder,[name]);
             }catch(error){toastr.error(String(error.message||error),'删除失败',{escapeHtml:true});}
             finally{remove.disabled=false;}
         },operations);remove.setAttribute('aria-label','删除当前图');remove.title='删除当前图';
@@ -540,7 +546,7 @@ async function requestImage(request,task,canContinue) {
     const assertKey=()=>{if(settings.keyHash!==scope.keyHash)throw Error('NAI Key 已更换，请重新生成');};
     const generate=async()=>{
         assertKey();
-        if(task){task.status='正在生图';renderAll();}
+        onStatus('正在生图');
         toastr.info('正在生图','喵喵文生图');
         if(isTT()||request.vibes?.length)return direct.generate(request,{expectedKeyHash:scope.keyHash});
         const response=await checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(request),signal:AbortSignal.timeout(180000)});
@@ -549,7 +555,7 @@ async function requestImage(request,task,canContinue) {
         return data;
     };
     const valid=()=>{assertKey();return canContinue?.()??true;};
-    const onStatus=status=>{if(task){task.status=status;renderAll();}};
+    const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
     const run=attempt=>(scope.cloudQueue||attempt>0)?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,generate,canContinue:valid,onStatus,
         onReleaseError:()=>toastr.info('队列连接中断，占用将自动到期释放')}):generate();
     let notified=false;
@@ -593,30 +599,31 @@ async function imageAPI(endpoint,body) {
     return res;
 }
 async function listImages(folder) {
-    folder=validateFolder(folder);
-    const names=await (await imageAPI('list',{folder,sortField:'date',sortOrder:'desc'})).json();
-    return names.filter(name=>typeof name==='string'&&imageDay(name)).map(name=>({name,day:imageDay(name),url:imageURL(folder,name)}));
+    folder=validateArchivePath(folder);
+    const names=folder.includes('/')?await archives.list(folder):await (await imageAPI('list',{folder,sortField:'date',sortOrder:'desc'})).json();
+    return names.filter(name=>typeof name==='string'&&imageDay(name)).map(name=>({name,day:imageDay(name),url:archiveImageURL(folder,name)}));
 }
 async function deleteImages(folder,names) {
-    folder=validateFolder(folder);
+    folder=validateArchivePath(folder);
     const allowed=new Set((await listImages(folder)).map(item=>item.name));
     if(!names.length)return;
     if(names.some(name=>!allowed.has(name)))throw new Error('清理列表已变化，请刷新后重试');
     const question=el('div');question.append(el('p',`删除 ${names.length} 张图片？目录：${folder}`),el('p','永久删除后，聊天中引用的原图也将失效。'));
     const previews=el('div',undefined,'miao-history-grid');
-    for(const name of names.slice(0,24)){const image=el('img');image.src=imageURL(folder,name);image.alt=name;image.loading='lazy';previews.append(image);}
+    for(const name of names.slice(0,24)){const image=el('img');image.src=archiveImageURL(folder,name);image.alt=name;image.loading='lazy';previews.append(image);}
     if(names.length>24)question.append(el('p',`共 ${names.length} 张，下方预览前 24 张。`));
     question.append(previews);
     if(!await confirmSettings(question,'删除图片'))return false;
     const removed=[];let failure;
     for(const name of names) {
-        try {await imageAPI('delete',{path:`user/images/${folder}/${name}`});removed.push(name);}
+        try {if(folder.includes('/'))await archives.remove(folder,name);else await imageAPI('delete',{path:`user/images/${folder}/${name}`});removed.push(name);}
         catch(error){failure=error;break;}
     }
     const paths=removed.map(name=>`user/images/${folder}/${name}`);let changed=false;
     for(const message of ctx().chat)for(const {swipe,slot,record} of swipeImageRecords(message)) {
         if(markImageVersionsDeleted(record,paths)){changed=true;writeSwipeImage(message,swipe,slot,record);}
     }
+    for(const p of settings.profiles)if(p.preview?.url){try{const loc=imageArchiveLocation(p.preview.url,location.href);if(loc.folder===folder&&removed.includes(loc.name)){delete p.preview;save();settingsHost?.dispatchEvent(new Event('miao-profile-previews'));}}catch{}}
     if(changed)await ctx().saveChat();renderAll();
     if(removed.length)toastr.success(`已清理 ${removed.length} 张图片`);
     if(failure)throw failure;
@@ -626,6 +633,8 @@ async function openSettings(initialTab) {
     if(initialTab!=='resources')initialTab=undefined;
     if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:initialTab}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
+        refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl}}),getPreviewState:profile=>profilePreviews.state(profile),
+        listArchiveFolders:async root=>{try{return await archives.folders(root);}catch(error){if(settings.archiveMode==='flat')return [root];throw error;}},changeStorage:async({folder,mode})=>{folder=validateFolder(folder);if(!['flat','card','chat'].includes(mode))throw Error('归档方式无效');if(mode!=='flat'){validateArchivePath(folder);await archives.requireBackend();}changeFolder(folder);settings.archiveMode=mode;save();},
         exportPromptFile:profile=>{const data=promptFileData(profile),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});if(blob.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');return saveFile(blob,promptFilename(data.name));},
         onChange:async action=>{
             if(action==='confirm-delete')return confirmSettings(`删除配置「${settings.profiles[settings.active].name}」？`,'删除配置');

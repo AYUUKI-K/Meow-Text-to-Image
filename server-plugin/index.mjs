@@ -4,8 +4,9 @@ import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {buildRequest,varietyBoostSigma} from '../core.js';
 import {importVibeData,vibeSummary,vibeModelKeys,resolveVibes,stripImage} from '../vibe.js';
+import {registerArchiveRoutes} from './archives.mjs';
 
-export const info={id:'miao-nai-image',name:'喵喵文生图 · Vibe',description:'用户隔离的 Vibe 文件管理与 NovelAI 转发'};
+export const info={id:'miao-nai-image',name:'喵喵文生图 · 文件管理',description:'用户隔离的图片归档、Vibe 管理与 NovelAI 转发'};
 export async function init(router){
     const secrets=await import(pathToFileURL(path.resolve('src/endpoints/secrets.js')).href);
     const util=await import(pathToFileURL(path.resolve('src/util.js')).href);
@@ -27,7 +28,8 @@ export function registerRoutes(router,{readKey,extractPNG,fetchImpl=fetch}){
         if(!response.ok){const text=await response.text();const err=Error(`NAI HTTP ${response.status}\n${text.slice(0,1200)}`);err.status=502;throw err;}
         return response;
     };
-    router.get('/health',safe(async(req,res)=>res.json({ready:true,vibe:true,version:'0.5.0'})));
+    registerArchiveRoutes(router,safe);
+    router.get('/health',safe(async(req,res)=>res.json({ready:true,vibe:true,archives:1,version:'1.3.0'})));
     router.get('/vibes',safe(async(req,res)=>res.json(await library(req))));
     router.post('/vibes/import',safe(async(req,res)=>{
         if(JSON.stringify(req.body).length>24*1024*1024)throw Error('单次导入不能超过 24 MB');
