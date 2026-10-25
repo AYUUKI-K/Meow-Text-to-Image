@@ -21,6 +21,21 @@ test('stale holders expire and heartbeats keep a waiter alive',()=>{
  q.join(a);q.join(b);now=50;assert.equal(q.turn(b).your_turn,false);now=101;assert.equal(q.turn(b).your_turn,true);
 });
 test('key hashing is stable and trims spaces',async()=>assert.equal(await fingerprintKey(' demo-key '),hash('demo-key')));
+
+test('temporary queue failures retry the same identity without duplicating generation',async()=>{
+ const joins=[];let generated=0;
+ const result=await runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async(url,options)=>{
+  if(url.endsWith('/join-queue')){joins.push(JSON.parse(options.body));if(joins.length===1)throw new TypeError('response lost');if(joins.length===2)return new Response('busy',{status:503});}
+  return Response.json({your_turn:true,lock_token:'lease'});
+ },generate:async()=>{generated++;return 'image';}});
+ assert.equal(result,'image');assert.equal(generated,1);assert.equal(joins.length,3);assert.deepEqual(joins[0],joins[1]);assert.deepEqual(joins[1],joins[2]);
+});
+
+test('queue outage is bounded and never calls the image service before a confirmed lease',async()=>{
+ let joins=0,generated=0;
+ await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async url=>{if(url.endsWith('/join-queue')){joins++;return new Response('unavailable',{status:503});}return Response.json({released:true});},generate:async()=>{generated++;}}),/503/);
+ assert.equal(joins,4);assert.equal(generated,0);
+});
 test('real HTTP coordination: same-key waits, different-key runs; no raw key or prompt sent',async()=>{
  const queue=new LeaseQueue(),server=createQueueServer({queue});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const url='http://127.0.0.1:'+server.address().port,started=[],bodies=[];let finishA;

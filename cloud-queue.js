@@ -9,13 +9,25 @@ export function validateQueueURL(value) {
 export async function fingerprintKey(key) {
     return sha256(key.trim());
 }
-export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()=>{},canContinue=()=>true,onReleaseError=()=>{},fetchImpl=fetch,pollMs=5000,heartbeatMs=15000}) {
+export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()=>{},canContinue=()=>true,onReleaseError=()=>{},fetchImpl=fetch,pollMs=5000,heartbeatMs=15000,retryDelays=[1000,3000,5000],sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
     url=validateQueueURL(url);
     if(!/^[a-f0-9]{64}$/i.test(keyHash||''))throw new Error('请在本插件重新保存一次 NAI Key，用于自动识别队列；Key 不会发送给排队服务。');
     const identity={key_hash:keyHash,user_id:randomId(),task_id:randomId()};
     const call=async(path,extra={})=>{
-        const response=await checkedFetch('queue',url+path,{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({...identity,...extra})},{fetchImpl});
-        return response.json();
+        // Queue operations are idempotent for this identity. Retrying them never
+        // resubmits an image request, including when the join response was lost.
+        for(let attempt=0;;attempt++){
+            if(!['/complete','/leave-queue'].includes(path)&&!canContinue())throw Error('原消息已变化，已退出待生成队列');
+            try{
+                const response=await checkedFetch('queue',url+path,{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({...identity,...extra})},{fetchImpl});
+                return await response.json();
+            }catch(error){
+                const transient=[429,500,502,503,504].includes(error.status)||['TypeError','TimeoutError','AbortError'].includes(error.name);
+                if(!transient||attempt>=retryDelays.length)throw error;
+                onStatus(`队列连接重试 · ${attempt+1}/${retryDelays.length}`);
+                await sleep(Math.max(retryDelays[attempt],Math.min(error.retryAfterMs||0,120000)));
+            }
+        }
     };
     let lockToken,heartbeat,renewing=false,uncertain=false;
     try {
@@ -25,7 +37,7 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
             if(!canContinue())throw new Error('原消息已变化，已退出待生成队列');
             if(lockToken)break;
             onStatus(`云端排队 · 前面 ${state.position||1} 张`);
-            await new Promise(resolve=>setTimeout(resolve,pollMs));state=await call('/my-turn');
+            await sleep(pollMs);state=await call('/my-turn');
         }
         onStatus('正在生图');
         heartbeat=setInterval(async()=>{

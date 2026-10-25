@@ -18,18 +18,26 @@ function responseDetail(body,secrets){
     if(/^(?:internal\s*server\s*error|bad gateway|service unavailable|gateway timeout|error|http\s*\d+|\d{3})\.?$/i.test(value))return '';
     return redactErrorText(value,secrets).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').slice(0,500);
 }
-export function httpRequestError({source,status,body='',secrets=[]}){
+export function parseRetryAfter(value,now=Date.now()){
+    if(!value?.trim())return 0;
+    const seconds=Number(value),delay=Number.isFinite(seconds)?seconds*1000:Date.parse(value)-now;
+    return Number.isFinite(delay)&&delay>0?Math.min(delay,120000):0;
+}
+export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=0}){
     const label=labels[source]||source||'请求',detail=responseDetail(body,secrets),generation=['tavern-generation','nai-generation','nai-encode'].includes(source);
     let reason='请求失败，请稍后重试',code='http';
     if(generation){
         if(/(?:insufficient|not enough).{0,35}(?:anlas|credits|balance)|(?:anlas|credits|balance).{0,35}(?:insufficient|not enough)|余额不足|额度不足/i.test(detail)){reason='账号额度不足，请检查 Anlas 余额';code='balance';}
         else if(/invalid (?:access )?token|invalid api.?key|expired token/i.test(detail)||status===401&&source!=='tavern-generation'){reason='Key 验证失败，请重新填写并保存 Key';code='auth';}
         else if(status===401||/\bunauthorized\b|authentication failed/i.test(detail)){reason=source==='tavern-generation'?'身份验证失败，请检查酒馆登录状态和 NAI Key':'Key 验证失败，请重新填写并保存 Key';code='auth';}
-        else if(/concurren(?:t|cy)|already generating|generation.{0,20}in progress|并发|正在生成/i.test(detail)){reason='服务提示有并发任务，请等待已有任务结束';code='busy';}
+        else if(/invalid (?:width|height|dimensions?|steps|seed|sampler|noise schedule|model|parameters?)|unsupported model|尺寸无效|参数无效|不支持.{0,8}模型/i.test(detail)){reason='生成参数被拒绝，请检查模型、尺寸或 Vibe';code='parameters';}
+        else if(/access denied|permission denied|account.{0,15}(?:disabled|banned|suspended)/i.test(detail)){reason='访问被拒绝，请检查账号权限';code='permission';}
+        else if(/concurren(?:t|cy)|already generating|generation.{0,20}in progress|并发|正在生成|占线|任务进行中/i.test(detail)||[409,423].includes(status)){reason='服务提示有并发任务，请等待已有任务结束';code='busy';}
         else if(status===403){reason='访问被拒绝，请检查账号权限及网络';code='permission';}
         else if(status===402){reason='生成被拒绝，请检查账号额度';code='balance';}
+        else if(status===429||/too many requests|rate.?limit|限流|请求.{0,10}频繁/i.test(detail)){reason='请求过于频繁或并发受限，请稍后重试';code='rate-limit';}
+        else if(/server.{0,15}busy|overloaded|queue.{0,15}(?:full|busy)|capacity.{0,15}(?:limit|exceed)|服务繁忙|排队|队列已满/i.test(detail)){reason='服务暂时繁忙，请稍后重试';code='busy';}
         else if(status===400||status===422){reason='生成参数被拒绝，请检查模型、尺寸或 Vibe';code='parameters';}
-        else if(status===429){reason='请求过于频繁或并发受限，请稍后重试';code='rate-limit';}
         else if(status===500){reason=source==='tavern-generation'&&!detail?'酒馆未返回具体原因，请查看运行酒馆的终端日志':'服务返回内部错误，请稍后重试';code='server';}
         else if([502,503,504].includes(status)){reason='服务或代理暂时不可用，请检查网络或稍后重试';code='unavailable';}
     }else{
@@ -39,7 +47,10 @@ export function httpRequestError({source,status,body='',secrets=[]}){
         else if(status>=500)reason='服务处理失败，请检查该服务的日志或稍后重试';
     }
     const error=Error(`${label}：${reason}（HTTP ${status}）${detail?'\n服务返回：'+detail:''}`);
-    return Object.assign(error,{source,status,code,detail,retryableGeneration:generation&&status===500&&!['auth','balance','parameters','permission'].includes(code)});
+    // Only explicit image endpoint refusals can be resubmitted. A gateway timeout
+    // may have left a billable generation running, so its result stays uncertain.
+    const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&['busy','rate-limit','server','unavailable'].includes(code)&&![408,504].includes(status);
+    return Object.assign(error,{source,status,code,detail,retryAfterMs,retryableGeneration});
 }
 export function stageError(source,error){
     if(error?.source)return error;
@@ -57,7 +68,7 @@ export function stageError(source,error){
 export async function inStage(source,run){try{return await run();}catch(error){throw stageError(source,error);}}
 export async function checkedFetch(source,url,options={}, {fetchImpl=fetch,secrets=[]}={}){
     let response;try{response=await fetchImpl(url,options);}catch(error){throw stageError(source,error);}
-    if(!response.ok){let body;try{body=await response.text();}catch(error){throw stageError(source,error);}throw httpRequestError({source,status:response.status,body,secrets});}
+    if(!response.ok){let body;try{body=await response.text();}catch(error){throw stageError(source,error);}throw httpRequestError({source,status:response.status,body,secrets,retryAfterMs:parseRetryAfter(response.headers.get('Retry-After'))});}
     return response;
 }
 export function errorTitle(error,fallback='操作失败'){return error?.source?(labels[error.source]||fallback)+'失败':fallback;}

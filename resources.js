@@ -1,6 +1,7 @@
 import {randomId} from './browser-crypto.js';
-export const RESOURCE_VERSION='2.1-1024';
-export const WORLD_NAME='[喵喵]文生图 2.1';
+export const BUNDLED_RESOURCES={"schema":1,"version":"2.2-1025","revision":2026102501,"worldName":"[喵喵]文生图 2.2","worldSHA256":"5c7fc0767b6bfc11f48d1819a3cd90085a624667773bfed8dfe4ed4e3dacc7ed","regexSHA256":"d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"};
+export const RESOURCE_VERSION=BUNDLED_RESOURCES.version;
+export const WORLD_NAME=BUNDLED_RESOURCES.worldName;
 const validEntries=book=>book&&book.entries&&typeof book.entries==='object'&&!Array.isArray(book.entries)&&Object.values(book.entries).every(entry=>entry&&typeof entry==='object'&&!Array.isArray(entry));
 export function mergeWorldEntries(existing,incoming){
     if(!validEntries(incoming)||!validEntries(existing))throw Error('世界书需要有效的 entries 字段');
@@ -33,9 +34,10 @@ export function mergeRegexRules(existing,incoming,makeId=randomId){
     }
     return merged;
 }
-export function bundledWorldTargets(names,preferred){
-    const existing=names.filter(name=>/^\[喵喵\]文生图\s*2\.[01]$/.test(name));
-    const primary=existing.includes(preferred)?preferred:existing.find(name=>/2\.0$/.test(name))||existing[0]||WORLD_NAME;
+export function bundledWorldTargets(names,preferred,newName=WORLD_NAME){
+    const minor=Number(newName.match(/2\.(\d+)$/)?.[1]);
+    const existing=names.filter(name=>{const match=name.match(/^\[喵喵\]文生图\s*2\.(\d+)$/);return match&&Number(match[1])<=minor;});
+    const primary=existing.includes(preferred)?preferred:existing.find(name=>/2\.0$/.test(name))||existing[0]||newName;
     return [primary,...existing.filter(name=>name!==primary)];
 }
 export function migrateWorldBindings({selected=[],worldInfo={},powerUser={},chatMetadata={}},oldNames,newName=WORLD_NAME){

@@ -13,7 +13,7 @@ import * as hostUtils from '../../../utils.js';
 import {bindImageGesture,createFloatingEntry,bindImageZoom} from './interactions.js';
 import {persistHostSettings} from './settings-save.js';
 import {createPromptTranslator} from './translation.js';
-import {RESOURCE_VERSION,WORLD_NAME,mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings} from './resources.js';
+import {WORLD_NAME,mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings} from './resources.js';
 import { writeSecret, SECRET_KEYS } from '../../../secrets.js';
 import { getCurrentUserHandle } from '../../../user.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
@@ -25,6 +25,7 @@ import {createKeyVault,saveCurrentKey} from './direct-key.js';
 import {appendImageVersion,imageVersions,selectImageVersion,markImageVersionsDeleted} from './image-history.js';
 import {selectVibes,profileVibeEnabled} from './vibe.js';
 import {createExtensionUpdater} from './updates.js';
+import {createResourceUpdater} from './resource-updates.js';
 import {downloadImageSelection} from './downloads.js';
 import {migrateSwipeImages,readSwipeImage,writeSwipeImage,swipeImageRecords,removeSwipeImages} from './swipe-history.js';
 import { defaults, parseBodyBlocks, maskReasoning, renderedBlockRange, buildRequest, latestImageMessage, canAutoGenerate, validateFolder, imageDay, imageURL, normalizeProfile, delimiterPattern } from './core.js';
@@ -42,7 +43,7 @@ settings.folder ??= 'miao-nai';
 settings.folders ??= ['miao-nai'];
 settings.profiles=settings.profiles.map(normalizeProfile);
 settings.cloudQueue ??= false;
-settings.retry500 ??= false;
+settings.retryQueue ??= true;
 settings.exportFormat=settings.exportFormat==='jpg'?'jpg':'png';
 settings.queueUrl ||= 'https://miao-image-queue.savlu329.workers.dev';
 settings.keyHash ??= '';
@@ -63,6 +64,7 @@ let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, gen
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
 const save=()=>ctx().saveSettingsDebounced();
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
+const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-resources-changed')),onAvailable:({latest})=>toastr.info(`${latest.worldName} 可更新，点此查看`,'喵喵文生图',{escapeHtml:true,timeOut:10000,onclick:()=>openSettings('resources')})});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHeaders(),getKey:async expectedKeyHash=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
@@ -423,20 +425,20 @@ async function installRegex(rules) {
     const existing=getScriptsByType(SCRIPT_TYPES.GLOBAL,{allowedOnly:false});
     await saveScriptsByType(mergeRegexRules(existing,rules),SCRIPT_TYPES.GLOBAL);
 }
-async function migrateResourceBindings(oldNames){
+async function migrateResourceBindings(oldNames,newName=WORLD_NAME){
     const c=ctx();
     for(const character of c.characters||[]){
         if(!oldNames.includes(character.data?.extensions?.world))continue;
-        const response=await fetch('/api/characters/merge-attributes',{method:'POST',headers:c.getRequestHeaders(),body:JSON.stringify({avatar:character.avatar,data:{extensions:{world:WORLD_NAME}}})});
+        const response=await fetch('/api/characters/merge-attributes',{method:'POST',headers:c.getRequestHeaders(),body:JSON.stringify({avatar:character.avatar,data:{extensions:{world:newName}}})});
         if(!response.ok)throw Error(`世界书绑定更新失败：HTTP ${response.status}`);
-        character.data.extensions.world=WORLD_NAME;
+        character.data.extensions.world=newName;
     }
     const characterWorld=document.getElementById('character_world');
-    if(characterWorld&&oldNames.includes(characterWorld.value))characterWorld.value=WORLD_NAME;
+    if(characterWorld&&oldNames.includes(characterWorld.value))characterWorld.value=newName;
     const previousChatWorld=c.chatMetadata?.world_info;
-    const chatChanged=migrateWorldBindings({selected:wi.selected_world_info,worldInfo:wi.world_info,powerUser:c.powerUserSettings,chatMetadata:c.chatMetadata},oldNames);
-    settings.world=WORLD_NAME;
-    settings.worldAliases={...settings.worldAliases,...Object.fromEntries(oldNames.map(name=>[name,WORLD_NAME]))};
+    const chatChanged=migrateWorldBindings({selected:wi.selected_world_info,worldInfo:wi.world_info,powerUser:c.powerUserSettings,chatMetadata:c.chatMetadata},oldNames,newName);
+    settings.world=newName;
+    settings.worldAliases={...Object.fromEntries(Object.entries(settings.worldAliases||{}).map(([old,next])=>[old,oldNames.includes(next)?newName:next])),...Object.fromEntries(oldNames.map(name=>[name,newName]))};
     if(chatChanged){
         try{if(!c.saveMetadata)throw Error('酒馆不支持保存聊天世界书绑定');if(await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}
         catch(error){c.chatMetadata.world_info=previousChatWorld;throw error;}
@@ -451,23 +453,26 @@ async function restoreResourceChatBinding(){
     try{if(await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}
     catch(error){c.chatMetadata.world_info=name;throw error;}
 }
-async function installDefaults() {
-    const [w,r]=await Promise.all([fetch(new URL('assets/worldbook.json',base),{cache:'no-store'}),fetch(new URL('assets/regex.json',base),{cache:'no-store'})]);
-    if(!w.ok||!r.ok)throw new Error('内置资源读取失败');
-    const world=await w.text(),rules=await r.json();
+let resourceInstallPromise=null;
+function installDefaults(){
+    if(!resourceInstallPromise)resourceInstallPromise=installResourcePack().finally(()=>{resourceInstallPromise=null;resourceUpdater.changed();});
+    return resourceInstallPromise;
+}
+async function installResourcePack(){
+    const {manifest,world,rules}=await resourceUpdater.load(),worldName=manifest.worldName;
     // Validate the entire pack before the first write.
     mergeWorldEntries({entries:{}},JSON.parse(world));mergeRegexRules([],rules);
-    const targets=bundledWorldTargets(wi.world_names,settings.world);
+    const targets=bundledWorldTargets(wi.world_names,settings.world,worldName);
     let existing={entries:{}};
     for(const name of targets.filter(name=>wi.world_names.includes(name))){
         const data=await wi.loadWorldInfo(name);if(!data)throw Error('无法读取原世界书，请重试');
         existing=mergeWorldEntries(existing,data);
     }
-    await installWorld(new File([world],WORLD_NAME+'.json',{type:'application/json'}),{targetName:WORLD_NAME,existing,activate:!targets.some(name=>wi.world_names.includes(name))});
+    await installWorld(new File([world],worldName+'.json',{type:'application/json'}),{targetName:worldName,existing,activate:!targets.some(name=>wi.world_names.includes(name))});
     await installRegex(rules);
-    const oldNames=targets.filter(name=>name!==WORLD_NAME);
+    const oldNames=targets.filter(name=>name!==worldName);
     if(oldNames.length){
-        await migrateResourceBindings(oldNames);
+        await migrateResourceBindings(oldNames,worldName);
         for(const name of oldNames){
             const response=await fetch('/api/worldinfo/delete',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name})});
             if(!response.ok)throw Error(`旧版世界书替换失败：HTTP ${response.status}`);
@@ -476,14 +481,14 @@ async function installDefaults() {
         await wi.updateWorldInfoList();
         if(oldNames.some(name=>wi.world_names.includes(name)))throw Error('世界书列表刷新失败');
         const editor=document.getElementById('world_editor_select');
-        const option=editor&&[...editor.options].find(option=>option.text===WORLD_NAME);
+        const option=editor&&[...editor.options].find(option=>option.text===worldName);
         if(option){editor.value=option.value;editor.dispatchEvent(new Event('change',{bubbles:true}));}
     }
-    settings.world=WORLD_NAME;
-    const previous={installed:settings.installed,resourceVersion:settings.resourceVersion};
-    settings.installed=true;settings.resourceVersion=RESOURCE_VERSION;
+    settings.world=worldName;
+    const previous={installed:settings.installed,resourceVersion:settings.resourceVersion,resourceRevision:settings.resourceRevision};
+    settings.installed=true;settings.resourceVersion=manifest.version;settings.resourceRevision=manifest.revision;
     try{await persistSettings();}catch(error){Object.assign(settings,previous);throw error;}
-    save();renderAll();toastr.success('资源已更新','喵喵文生图');
+    save();renderAll();toastr.success(`${worldName} 已更新`,'喵喵文生图');
 }
 function resolvedTheme(){return 'host';}
 function applyTheme() {
@@ -545,11 +550,11 @@ async function requestImage(request,task,canContinue) {
     };
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;renderAll();}};
-    const run=()=>scope.cloudQueue?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,generate,canContinue:valid,onStatus,
+    const run=attempt=>(scope.cloudQueue||attempt>0)?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,generate,canContinue:valid,onStatus,
         onReleaseError:()=>toastr.info('队列连接中断，占用将自动到期释放')}):generate();
     let notified=false;
-    return retryGeneration({run,enabled:!!settings.retry500,canContinue:valid,onStatus:status=>{
-        onStatus(status);if(!notified){notified=true;toastr.info('收到 500，稍后重试，最多 3 次','喵喵文生图');}
+    return retryGeneration({run,enabled:!!settings.retryQueue,canContinue:valid,onStatus:(status,error)=>{
+        onStatus(status);if(!notified){notified=true;toastr.info(`生图请求失败（HTTP ${error.status}），等待云端排队重试`,'喵喵文生图');}
     }});
 }
 const translatePrompt=createPromptTranslator({getHeaders:()=>ctx().getRequestHeaders()});
@@ -617,9 +622,10 @@ async function deleteImages(folder,names) {
     if(failure)throw failure;
     return true;
 }
-async function openSettings() {
-    if(settingsHost?.isConnected)return;
-    const panel=createSettingsPanel({settings,save,persistSettings,theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
+async function openSettings(initialTab) {
+    if(initialTab!=='resources')initialTab=undefined;
+    if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:initialTab}));return;}
+    const panel=createSettingsPanel({settings,save,persistSettings,initialTab,getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
         exportPromptFile:profile=>{const data=promptFileData(profile),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});if(blob.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');return saveFile(blob,promptFilename(data.name));},
         onChange:async action=>{
             if(action==='confirm-delete')return confirmSettings(`删除配置「${settings.profiles[settings.active].name}」？`,'删除配置');
@@ -704,5 +710,8 @@ async function init() {
     for(const event of ['SECRET_WRITTEN','SECRET_DELETED','SECRET_ROTATED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],key=>{if(key===SECRET_KEYS.NOVEL){settings.keyHash='';save();}});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
     if(settings.enabled&&!settings.installed)await installDefaults();renderAll();autoLatest();
+    resourceUpdater.check().catch(()=>{});
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)resourceUpdater.check().catch(()=>{});});
+    setInterval(()=>{if(!document.hidden)resourceUpdater.check().catch(()=>{});},900000);
 }
 jQuery(()=>guard(init)());

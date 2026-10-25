@@ -19,7 +19,7 @@ test('invalid world resources fail before merging and bundled world names retain
     assert.deepEqual(bundledWorldTargets([],''),[WORLD_NAME]);
     assert.deepEqual(bundledWorldTargets(['其他书','[喵喵]文生图 2.0'],'其他书'),['[喵喵]文生图 2.0']);
     assert.deepEqual(bundledWorldTargets(['[喵喵]文生图 2.0',WORLD_NAME],WORLD_NAME),[WORLD_NAME,'[喵喵]文生图 2.0']);
-    assert.deepEqual(bundledWorldTargets(['自定义 2.0','[喵喵]文生图 2.2'],''),[WORLD_NAME]);
+    assert.deepEqual(bundledWorldTargets(['自定义 2.0','[喵喵]文生图 2.9'],''),[WORLD_NAME]);
 });
 
 test('world upgrade retargets global, character, persona and chat links without duplicate activation',()=>{
@@ -52,7 +52,7 @@ test('regex also replaces by ID or exact name, without conflating unrelated date
     assert.equal(dated.length,2);assert.equal(dated[1].id,'new-id');
     assert.throws(()=>mergeRegexRules([], [{findRegex:'x',replaceString:''},{findRegex:'y'}]),/正则/);
 });
-test('bundled pack is exactly world 2.1 and the four supplied regex versions',async()=>{
+test('bundled pack is exactly world 2.2 and the four supplied regex versions',async()=>{
     const book=JSON.parse(await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8'));
     const rules=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
     assert.equal(Object.keys(book.entries).length,13);
