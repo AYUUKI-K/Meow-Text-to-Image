@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {LeaseQueue} from '../queue-service/queue.mjs';
 import {createQueueServer} from '../queue-service/service.mjs';
 import {runWithQueue,fingerprintKey,queuePollMs} from '../cloud-queue.js';
+import {httpRequestError} from '../request-errors.js';
 const hash=key=>createHash('sha256').update(key).digest('hex');
 const identity=(key,user)=>({key_hash:hash(key),user_id:'user-id-'+user,task_id:'task-id-'+user});
 test('A/B share key one; C with key two is granted independently',()=>{
@@ -73,6 +74,23 @@ test('generation errors release the lock without retrying NAI',async()=>{
  const queue=new LeaseQueue(),server=createQueueServer({queue});await new Promise(r=>server.listen(0,'127.0.0.1',r));let calls=0;
  try{await assert.rejects(()=>runWithQueue({url:'http://127.0.0.1:'+server.address().port,keyHash:hash('one'),generate:async()=>{calls++;throw new Error('upstream failed');}}),/upstream failed/);assert.equal(calls,1);assert.deepEqual(queue.stats(),{active:0,waiting:0});}
  finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
+});
+
+test('HTTP timeouts retain the lease because a billable request may still be running',async()=>{
+ for(const status of [408,504]){
+  const paths=[];let attempts=0;
+  await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),fetchImpl:async url=>{paths.push(new URL(url).pathname);return Response.json({your_turn:true,lock_token:'lease'});},generate:async()=>{attempts++;throw httpRequestError({source:'nai-generation',status});}}),error=>error.status===status&&error.retryableGeneration===false);
+  assert.equal(attempts,1);assert.deepEqual(paths,['/join-queue']);
+ }
+});
+
+test('after an uncertain response the next same-key task waits for expiry while another key is independent',async()=>{
+ let now=0;const queue=new LeaseQueue({now:()=>now}),calls=[];
+ const fetchImpl=async(url,options)=>{const input=JSON.parse(options.body),path=new URL(url).pathname;calls.push(path);return Response.json(path==='/join-queue'?queue.join(input):path==='/my-turn'?queue.turn(input):queue.release(input));};
+ await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),fetchImpl,generate:async()=>{throw httpRequestError({source:'tavern-generation',status:504});}}));
+ assert.equal(queue.join(identity('one','next')).your_turn,false);assert.equal(queue.join(identity('two','other')).your_turn,true);
+ now=80000;queue.turn(identity('one','next'));now=160000;queue.turn(identity('one','next'));assert.equal(queue.stats().waiting,1);
+ now=240001;assert.equal(queue.turn(identity('one','next')).your_turn,true);assert.deepEqual(calls,['/join-queue']);
 });
 
 test('HTTP burst with 12 keys and 48 clients never overlaps the same key and allows parallel keys',async()=>{

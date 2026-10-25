@@ -1,8 +1,13 @@
 import {bindButtonPress} from './button-press.js';
+const activeViewers=new WeakMap();
 
 // TT content viewers use a page layer, avoiding the host's native modal lifecycle.
 export function showPagePopup(content,{parent,onOpen}={}){
-    const doc=content.ownerDocument,win=doc.defaultView,previous=doc.activeElement;
+    const doc=content.ownerDocument;
+    // A second viewer replaces the first before capturing inert/scroll state.
+    // Otherwise out-of-order closes can leave the entire page inert on TT.
+    activeViewers.get(doc)?.();
+    const win=doc.defaultView,previous=doc.activeElement;
     const make=(tag,cls)=>{const element=doc.createElement(tag);element.className=cls;return element;};
     const layer=make('div','miao-page-overlay'),card=make('section','miao-page-popup miao-content-dialog');
     card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label',content.querySelector('h3')?.textContent||'图片预览');card.tabIndex=-1;
@@ -24,6 +29,7 @@ export function showPagePopup(content,{parent,onOpen}={}){
         const back=()=>{if(!done&&layer.isConnected){finish();return true;}return previousBack?.();};
         const finish=error=>{
             if(done)return;done=true;observer.disconnect();doc.removeEventListener('keydown',key,true);parent?.removeEventListener('close',parentClosed);
+            activeViewers.delete(doc);
             viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);win.removeEventListener('resize',fit);
             if(win.__TAURITAVERN_HANDLE_BACK__===back)win.__TAURITAVERN_HANDLE_BACK__=previousBack;
             layer.remove();for(const [element,value] of inert)element.inert=value;if(!nested)doc.body.style.overflow=overflow;
@@ -40,6 +46,7 @@ export function showPagePopup(content,{parent,onOpen}={}){
             }
         };
         const observer=new win.MutationObserver(()=>{if(!layer.isConnected)finish();});observer.observe(doc.body,{childList:true,subtree:true});
+        activeViewers.set(doc,()=>finish());
         if(typeof previousBack==='function')win.__TAURITAVERN_HANDLE_BACK__=back;
         doc.addEventListener('keydown',key,true);parent?.addEventListener('close',parentClosed);bindButtonPress(close,()=>finish());
         try{onOpen?.({dlg:card,completeAffirmative:()=>finish()});close.focus({preventScroll:true});}catch(error){finish(error);}

@@ -50,7 +50,7 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
             try {await call('/my-turn',{lock_token:lockToken});}catch {onStatus('排队连接暂时中断');}finally{renewing=false;}
         },heartbeatMs);
         try{generationStarted=true;return await generate();}
-        catch(error){uncertain=['AbortError','TimeoutError','TypeError'].includes(error.name);throw error;}
+        catch(error){uncertain=['AbortError','TimeoutError','TypeError'].includes(error.name)||[408,504].includes(error.status);throw error;}
     }catch(error){
         if(error.source==='queue'&&!generationStarted)error.message+='\n尚未取得排队权限，未发送新的生图请求。请检查当前浏览器能否访问队列地址。';
         throw error;

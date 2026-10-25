@@ -39,6 +39,7 @@ if(url==='/api/translate/bing'){p.translations.push({...JSON.parse(options.body)
 const previousFetch=window.fetch;p.vibeFiles={};p.vibeFiles['/user/files/miao-vibe-00000000-0000-0000-0000-000000000001.json']={id:'00000000-0000-0000-0000-000000000001',name:'测试氛围',encodings:{'v4-5full':{hash:{encoding:'YWJj',params:{information_extracted:0.7}}}}};
 p.updates=[];
 window.fetch=async(url,options)=>{
+await p.beforeRequest?.(url,options);
 if(url==='/api/characters/merge-attributes'){if(p.failLinks)return new Response('fixture failed link',{status:500});(p.characterWrites??=[]).push(JSON.parse(options.body));return Response.json({ok:true});}
 if(url==='/api/worldinfo/delete'){if(p.failWorldDelete)return new Response('fixture failed delete',{status:500});const {name}=JSON.parse(options.body);if(p.settings.resourceVersion==='old'&&p.failSettingsSave)throw Error('delete before binding save');(p.worldDeletes??=[]).push(name);delete p.worlds[name];return Response.json({ok:true});}
 if(url==='/api/worldinfo/edit'){if(p.failWorldWrite)return new Response('fixture failed write',{status:500});const body=JSON.parse(options.body);(p.worldWrites??=[]).push(body);p.worlds[body.name]=structuredClone(body.data);return Response.json({ok:true});}
@@ -67,12 +68,36 @@ close().click();await settle(()=>!document.querySelector('.miao-prompt-view'));
 check(!layer()&&document.body.style.overflow===overflow&&!document.querySelector('[inert]'),'关闭后恢复页面滚动与交互，不残留遮罩');
 for(let i=0;i<8;i++){prompt().click();await settle(()=>document.querySelector('.miao-prompt-view'));if(window.__TAURITAVERN__)document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));else close().click();await settle(()=>!document.querySelector('.miao-prompt-view'));}
 check(!layer()&&!document.querySelector('[inert]')&&!p.calls.length,'连续开关与 Escape 不残留锁定，也不触发生图');
+if(window.__TAURITAVERN__){
+const {showPagePopup}=await import('${prefix}page-popup.js');const first=document.createElement('section');first.className='miao-prompt-view';first.textContent='连续预览';
+const a=showPagePopup(first),b=showPagePopup(first.cloneNode(true));
+check(document.querySelectorAll('.miao-page-overlay').length===1,'快速重复打开预览只保留一个浮层');
+close().click();await Promise.all([a,b]);check(!document.querySelector('[inert]')&&document.body.style.overflow===overflow,'重复预览关闭后完整恢复背景交互与滚动');
+}
 if(window.__TAURITAVERN__){prompt().click();await settle(()=>layer());check(window.__TAURITAVERN_HANDLE_BACK__()===true&&!p.hostBackCalls&&!layer()&&window.__TAURITAVERN_HANDLE_BACK__===hostBack,'TT 系统返回只关闭当前浮层，随后恢复原宿主返回处理');}
 document.getElementById('miao-nai-menu').click();await settle(()=>document.querySelector('.miao-settings'));if(getComputedStyle(document.querySelector('.miao-tabs')).display==='none')document.querySelector('[aria-label="图片"].miao-overview-row').click();else document.querySelectorAll('.miao-tabs>button')[4].click();await settle(()=>document.querySelector('.miao-history-tile a'));
 document.querySelector('.miao-history-tile a').click();await settle(()=>document.querySelector('.miao-image-viewer'));
 if(window.__TAURITAVERN__)check(layer()?.dataset.nested==='true'&&document.querySelectorAll('dialog[open]').length===1,'设置内图片预览挂在原窗口内，不叠加宿主原生弹窗');
 close().click();await settle(()=>!document.querySelector('.miao-image-viewer'));check(!document.querySelector('.miao-settings').closest('.popup-content').inert&&!document.querySelector('.miao-zoom-reset'),'关闭图片预览后设置恢复可操作，缩放控件释放');
 document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));check(!document.querySelector('[inert]')&&!layer(),'关闭设置后聊天恢复可用');
+if(new URL(location.href).searchParams.has('local-queue')){
+const openGeneration=async()=>{document.getElementById('miao-nai-menu').click();await settle(()=>document.querySelector('.miao-settings'));if(getComputedStyle(document.querySelector('.miao-tabs')).display==='none')document.querySelector('[aria-label="生成"].miao-overview-row').click();else document.querySelectorAll('.miao-tabs>button')[0].click();};
+const action=text=>[...document.querySelectorAll('.miao-settings button')].find(button=>button.textContent===text);
+await openGeneration();document.querySelector('input[type=password]').value='fixture-audit-key';action('保存密钥').click();await settle(()=>p.settings.keyHash?.length===64);document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));
+let release,started=0;
+p.beforeRequest=async url=>{if(String(url).includes('/generate-image')||String(url).endsWith('/encode-vibe')){started++;if(started===1)await new Promise(resolve=>release=resolve);}};
+try{
+document.querySelector('[mesid="3"] .miao-image-tools button').click();await settle(()=>release);await openGeneration();action('测试生成').click();await wait();
+check(started===1,'测试生成与聊天图片共用本地队列，不并发发送 NAI 请求');release();release=null;await settle(()=>document.querySelector('.miao-image-viewer'));check(started===2,'前一张完成后测试图片才开始，生成成功打开预览');
+close().click();await settle(()=>!document.querySelector('.miao-image-viewer'));document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));
+started=0;document.querySelector('[mesid="5"] .miao-image-tools button').click();await settle(()=>release);await openGeneration();action('测试生成').click();await wait();const priorHash=p.settings.keyHash;p.settings.keyHash='b'.repeat(64);release();release=null;await settle(()=>window.miaoTestToasts.some(toast=>toast.type==='error'&&String(toast.message).includes('Key 已更换')));p.settings.keyHash=priorHash;
+check(started===1,'测试图片等待期间更换 Key，轮到时取消且不发送第二次请求');document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));
+const item=p.settings.vibeLibrary[0],file=p.vibeFiles['/user/files/miao-vibe-'+item.id+'.json'];item.hasImage=true;file.image='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=';
+started=0;p.chat.push({name:'Vibe queue fixture',mes:'image###encode queue###',extra:{}});draw();await p.emit('MESSAGE_UPDATED');await wait();document.querySelector('#chat .mes:last-child .miao-image-tools button').click();await settle(()=>release);await openGeneration();
+if(getComputedStyle(document.querySelector('.miao-tabs')).display==='none'){document.querySelector('.miao-drawer-back').click();document.querySelector('[aria-label="Vibe"].miao-overview-row').click();}else document.querySelectorAll('.miao-tabs>button')[2].click();
+await settle(()=>action('编码并保存（2 Anlas）'));action('编码并保存（2 Anlas）').click();await wait();check(started===1,'Vibe 编码等待聊天图片，不绕过本地队列并发');release();release=null;await settle(()=>p.vibeFiles['/user/files/miao-vibe-'+item.id+'.json'].encodings?.['v4-5full']?.['miao-1']);check(started===2,'聊天图片完成后执行一次 Vibe 编码并保存');document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));
+}finally{release?.();delete p.beforeRequest;}
+}
 }catch(error){results.push('FAIL '+error.stack);}document.getElementById('report').textContent=results.join(String.fromCharCode(10));
 if(new URL(location.href).searchParams.has('queue-network'))try{
 const {queueJSON}=await import('${prefix}queue-network.js'),{runWithQueue}=await import('${prefix}cloud-queue.js');

@@ -38,3 +38,9 @@ test('download, deletion and translation errors are labeled with the failing ser
 test('tavern authentication failures do not automatically blame the NAI key',()=>{
     const error=httpRequestError({source:'tavern-generation',status:401});assert.match(error.message,/酒馆登录状态/);assert.equal(error.retryableGeneration,false);
 });
+
+test('HTTP 408 and 504 report an uncertain result instead of suggesting an ordinary busy retry',()=>{
+    for(const source of ['tavern-generation','nai-generation','nai-encode'])for(const status of [408,504]){
+        const error=httpRequestError({source,status});assert.equal(error.code,'timeout');assert.equal(error.retryableGeneration,false);assert.match(error.message,/结果尚不确定/);assert.match(error.message,new RegExp('HTTP '+status));
+    }
+});

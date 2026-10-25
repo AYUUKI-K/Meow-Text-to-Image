@@ -27,7 +27,8 @@ export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=
     const label=labels[source]||source||'请求',detail=responseDetail(body,secrets),generation=['tavern-generation','nai-generation','nai-encode'].includes(source);
     let reason='请求失败，请稍后重试',code='http';
     if(generation){
-        if(/(?:insufficient|not enough).{0,35}(?:anlas|credits|balance)|(?:anlas|credits|balance).{0,35}(?:insufficient|not enough)|余额不足|额度不足/i.test(detail)){reason='账号额度不足，请检查 Anlas 余额';code='balance';}
+        if([408,504].includes(status)){reason='请求超时，生成结果尚不确定，请先检查再重试';code='timeout';}
+        else if(/(?:insufficient|not enough).{0,35}(?:anlas|credits|balance)|(?:anlas|credits|balance).{0,35}(?:insufficient|not enough)|余额不足|额度不足/i.test(detail)){reason='账号额度不足，请检查 Anlas 余额';code='balance';}
         else if(/invalid (?:access )?token|invalid api.?key|expired token/i.test(detail)||status===401&&source!=='tavern-generation'){reason='Key 验证失败，请重新填写并保存 Key';code='auth';}
         else if(status===401||/\bunauthorized\b|authentication failed/i.test(detail)){reason=source==='tavern-generation'?'身份验证失败，请检查酒馆登录状态和 NAI Key':'Key 验证失败，请重新填写并保存 Key';code='auth';}
         else if(/invalid (?:width|height|dimensions?|steps|seed|sampler|noise schedule|model|parameters?)|unsupported model|尺寸无效|参数无效|不支持.{0,8}模型/i.test(detail)){reason='生成参数被拒绝，请检查模型、尺寸或 Vibe';code='parameters';}

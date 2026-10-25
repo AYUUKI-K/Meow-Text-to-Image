@@ -73,10 +73,11 @@ let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
 const save=()=>ctx().saveSettingsDebounced();
+const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-resources-changed')),onAvailable:({latest})=>toastr.info(`${latest.worldName} 可更新，点此查看`,'喵喵文生图',{escapeHtml:true,timeOut:10000,onclick:()=>openSettings('resources')})});
 ensureProfileIds(settings.profiles);
-const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>toastr.info('例图已加入生图队列','喵喵文生图'),enqueue:run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;},generate:requestImage,saveImage:(data,scope)=>inStage('image-save',()=>saveBase64AsFile(data,scope.folder,`sample-${Date.now()}-${randomId()}`,'png')),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
+const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>toastr.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>inStage('image-save',()=>saveBase64AsFile(data,scope.folder,`sample-${Date.now()}-${randomId()}`,'png')),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHeaders(),getKey:async expectedKeyHash=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
@@ -511,8 +512,11 @@ async function testImage() {
     try{
     const request=buildRequest(settings.profiles[settings.active],'1girl, adult woman, white dress, flower garden, sunlight');
     request.vibes=selectVibes(settings.profiles[settings.active],settings.vibeLibrary);
-    const data=await requestImage(request);
-    const url=await inStage('image-save',()=>saveBase64AsFile(data,validateFolder(settings.folder),`test-${Date.now()}-${randomId()}`,'png'));
+    const folder=validateFolder(settings.folder),scope={keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
+    const url=await enqueue(async()=>{
+        const data=await requestImage(request,scope);
+        return inStage('image-save',()=>saveBase64AsFile(data,folder,`test-${Date.now()}-${randomId()}`,'png'));
+    });
     await openImage(url);
     }catch(error){generationError(error);}
 }
@@ -682,7 +686,7 @@ async function openSettings(initialTab) {
         directKeyStatus:async()=>{const status=await directVault.status(),key=await directVault.get();return {...status,ready:Boolean(key&&settings.keyHash&&await fingerprintKey(key)===settings.keyHash),serverSaved:!!settings.keyHash};},clearDirectKey:()=>directVault.clear(),
         closeSettings:()=>settingsPopup?.completeAffirmative?settingsPopup.completeAffirmative():settingsPopup?.dlg.close(),
         setRememberDirectKey:async value=>{await directVault.remember(value);settings.rememberDirectKey=value;save();},
-        encodeVibe:async body=>{const keyHash=settings.keyHash,generate=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return direct.encode(body,{expectedKeyHash:keyHash});};return settings.cloudQueue?runWithQueue({url:settings.queueUrl,keyHash,generate}):generate();},renameVibe:body=>direct.rename(body),
+        encodeVibe:async body=>{const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;},generate=()=>{valid();return direct.encode(body,{expectedKeyHash:keyHash});};return enqueue(()=>cloudQueue?runWithQueue({url,keyHash,generate,canContinue:valid}):generate());},renameVibe:body=>direct.rename(body),
         deleteVibe:async id=>{if(!await confirmSettings('删除这个 Vibe？所有配置中的引用也会移除。','删除 Vibe'))return false;await direct.delete(id);for(const p of settings.profiles)p.vibes=(p.vibes||[]).filter(v=>v.id!==id);save();return true;}});
     settingsHost=panel;
     try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}return true;},onOpen:popup=>{settingsPopup=popup;popup.dlg.classList.add('miao-settings-dialog');}});}
