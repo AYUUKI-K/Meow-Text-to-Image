@@ -43,9 +43,9 @@ settings.mode ??= settings.stream ? 'stream' : 'manual';
 settings.theme = 'auto';
 settings.folder ??= 'miao-nai';
 settings.folders ??= ['miao-nai'];
-settings.libraryView??=settings.archiveMode==='card'?'card':'chat';
 settings.imageArchive??={};
 delete settings.archiveMode;
+delete settings.libraryView;
 settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
 settings.cloudQueue ??= false;
@@ -645,7 +645,6 @@ async function openSettings(initialTab) {
     if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:initialTab}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
         refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl}}),getPreviewState:profile=>profilePreviews.state(profile),
-        changeStorage:({folder,mode})=>{if(!['flat','card','chat'].includes(mode))throw Error('图片分类无效');changeFolder(folder);settings.libraryView=mode;save();},
         exportPromptFile:profile=>{const data=promptFileData(profile),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});if(blob.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');return saveFile(blob,promptFilename(data.name));},
         onChange:async action=>{
             if(action==='confirm-delete')return confirmSettings(`删除配置「${settings.profiles[settings.active].name}」？`,'删除配置');

@@ -1,15 +1,15 @@
 import {validateQueueURL} from './cloud-queue.js';
 import {bindButtonPress} from './button-press.js';
 import {readPromptFile} from './prompt-files.js';
-import {ensureProfileIds} from './profile-previews.js';
+import {ensureProfileIds,moveProfile} from './profile-previews.js';
 import {browseArchive} from './image-archives.js';
 import {sizePresets,pageItems,defaults,compareImagesNewest,supportsVarietyBoost} from './core.js';
 import {vibeModelKeys} from './vibe.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createSettingsPanel({settings,save,persistSettings,exportPromptFile,refreshProfilePreview,getPreviewState,changeStorage,initialTab,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFile,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,exportPromptFile,refreshProfilePreview,getPreviewState,initialTab,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFile,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
-    let activeTab=initialTab||(matchMedia('(max-width:680px), (max-height:500px)').matches?'overview':'generation'),fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft;
+    let activeTab=initialTab||(matchMedia('(max-width:680px), (max-height:500px)').matches?'overview':'generation'),fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft,sortingProfiles=false;
     const safe=fn=>async()=>{try{await fn();}catch(e){onError(e);}};
     const updateBox=node('div',undefined,'miao-update-status');updateBox.setAttribute('aria-live','polite');
     let paintResources=()=>{},paintPreviews=()=>{};
@@ -134,6 +134,13 @@ export function createSettingsPanel({settings,save,persistSettings,exportPromptF
             action(actions,'新增配置',()=>{let number=1;while(settings.profiles.some(profile=>profile.name===`新配置 ${number}`))number++;settings.profiles.push({...structuredClone(defaults),name:`新配置 ${number}`,vibes:[]});settings.active=settings.profiles.length-1;save();render();},true);
             action(actions,'复制配置',()=>{const copy={...structuredClone(p),name:p.name+' · 副本'};delete copy.id;delete copy.preview;settings.profiles.push(copy);settings.active=settings.profiles.length-1;save();render();});
             action(actions,'删除配置',async()=>{if(settings.profiles.length===1)throw new Error('至少保留一个配置');if(!await onChange('confirm-delete'))return;settings.profiles.splice(settings.active,1);settings.active=0;save();render();});
+            const orderButton=action(actions,sortingProfiles?'完成排序':'排序',()=>{sortingProfiles=!sortingProfiles;render();});orderButton.setAttribute('aria-expanded',String(sortingProfiles));orderButton.setAttribute('aria-controls','miao-profile-order');
+            if(sortingProfiles){
+                const order=node('div',undefined,'miao-profile-order');order.id='miao-profile-order';order.setAttribute('role','list');order.setAttribute('aria-label','配置排序');profiles.append(order);
+                settings.profiles.forEach((profile,index)=>{const row=node('div',undefined,'miao-order-row');row.dataset.profileId=profile.id;row.dataset.active=String(profile===p);row.setAttribute('role','listitem');row.append(node('span',profile.name));order.append(row);
+                    for(const [offset,label,symbol] of [[-1,'上移','↑'],[1,'下移','↓']]){const control=action(row,symbol,()=>{if(!moveProfile(settings,profile.id,offset))return;save();render();const next=[...root.querySelectorAll('.miao-order-row')].find(item=>item.dataset.profileId===profile.id);(next?.querySelector(`[data-direction="${offset}"]:not(:disabled)`)||next?.querySelector('button:not(:disabled)'))?.focus();});control.dataset.direction=String(offset);control.setAttribute('aria-label',label+'配置 '+profile.name);control.title=label;control.disabled=offset<0?index===0:index===settings.profiles.length-1;}
+                });
+            }
             const samples=node('section',undefined,'miao-profile-samples'),sampleHeading=node('div',undefined,'miao-section-toolbar');sampleHeading.append(node('h3','例图'));
             const refreshSample=node('button','刷新例图','miao-button');refreshSample.type='button';sampleHeading.append(refreshSample);samples.append(sampleHeading);
             const gallery=node('div',undefined,'miao-sample-gallery'),views=[];samples.append(gallery);profiles.append(samples);
@@ -237,13 +244,12 @@ export function createSettingsPanel({settings,save,persistSettings,exportPromptF
         if(activeTab==='images') {
             const storage=section(body,'存储');
             const folder=field(storage,'存储目录',settings.folder,()=>{});folder.placeholder='miao-nai';
-            const archiveMode=field(storage,'图片分类',settings.libraryView,()=>{},{options:[['flat','全部图片'],['card','按角色卡'],['chat','按聊天存档']]});
             field(storage,'导出格式',settings.exportFormat==='jpg'?'jpg':'png',value=>{settings.exportFormat=value;save();},{options:[['png','PNG'],['jpg','JPG']]});
-            commitPage=async()=>{if(folder.value!==settings.folder||archiveMode.value!==settings.libraryView){await changeStorage({folder:folder.value,mode:archiveMode.value});render();}};
+            commitPage=async()=>{if(folder.value!==settings.folder){await changeFolder(folder.value);render();}};
             const cleanup=section(body,'历史图片');
             let selectedFolder=settings.folder,selection=[],allImages=[],folderEpoch=0;
             const folders=node('nav',undefined,'miao-folder-browser');folders.setAttribute('aria-label','图片文件夹');
-            const paintFolders=()=>{folders.replaceChildren();const view=browseArchive(allImages,settings.libraryView,selection),crumbs=node('div',undefined,'miao-folder-breadcrumbs');images=view.items;
+            const paintFolders=()=>{folders.replaceChildren();const view=browseArchive(allImages,selection),crumbs=node('div',undefined,'miao-folder-breadcrumbs');images=view.items;
                 const enter=path=>{selection=path;page=0;selected.clear();selectedImages.clear();paintFolders();draw();};
                 const current=action(crumbs,'全部图片',()=>enter([]));current.setAttribute('aria-current',selection.length?'false':'page');for(const crumb of view.crumbs)action(crumbs,crumb.label,()=>enter(crumb.path));folders.append(crumbs);
                 const row=node('div',undefined,'miao-folder-children');for(const child of view.children)action(row,child.label+' · '+child.count,()=>enter(child.path));folders.append(row);};
@@ -288,7 +294,7 @@ export function createSettingsPanel({settings,save,persistSettings,exportPromptF
             const refresh=async()=>{
                 const epoch=++folderEpoch,target=selectedFolder;list.replaceChildren(node('p','读取中…','miao-muted'));selected.clear();selectedImages.clear();updateSelection();
                 try{
-                    const nextImages=await listImages(target);if(epoch!==folderEpoch)return;allImages=nextImages.sort(compareImagesNewest);while(selection.length&&!browseArchive(allImages,settings.libraryView,selection).items.length)selection.pop();paintFolders();draw();
+                    const nextImages=await listImages(target);if(epoch!==folderEpoch)return;allImages=nextImages.sort(compareImagesNewest);while(selection.length&&!browseArchive(allImages,selection).items.length)selection.pop();paintFolders();draw();
                 }catch(error){if(epoch!==folderEpoch)return;list.replaceChildren(node('p','读取失败，请刷新重试。'));onError(error);}
             };
             action(controls,'刷新列表',refresh);
@@ -296,7 +302,7 @@ export function createSettingsPanel({settings,save,persistSettings,exportPromptF
             refresh();
         }
         paintResourceEntries();
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.3.3'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.3.4'),updateBox);root.append(footer);
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});
     root.addEventListener('miao-resources-changed',paintResourceEntries);

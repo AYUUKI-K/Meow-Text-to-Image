@@ -30,13 +30,12 @@ export function archiveItems(images,catalog){
     return images.map(image=>{const owner=catalog[archiveImageURL(image.folder,image.name)];return {...image,cardId:owner?.cardId||'',cardName:owner?.cardName||'未分类',chatId:owner?.chatId||'',kind:image.name.startsWith('sample-')?'sample':'image'};});
 }
 const cardKey=image=>image.kind==='sample'?'@samples':image.cardId||'@unclassified';
-export function browseArchive(images,mode,selection=[]){
-    if(mode==='flat')return {items:images,children:[],crumbs:[]};
+export function browseArchive(images,selection=[]){
     let items=images;const crumbs=[];
     if(selection.length){items=images.filter(image=>cardKey(image)===selection[0]);crumbs.push({label:selection[0]==='@samples'?'例图':items[0]?.cardName||'未分类',path:[selection[0]]});}
     if(selection.length>1){items=items.filter(image=>(image.chatId||'@unknown')===selection[1]);crumbs.push({label:selection[1]==='@unknown'?'未分类聊天':selection[1],path:selection.slice(0,2)});}
     const children=new Map();
     if(!selection.length)for(const image of items){const key=cardKey(image);if(!children.has(key))children.set(key,{label:key==='@samples'?'例图':image.cardName,path:[key],count:0});children.get(key).count++;}
-    else if(mode==='chat'&&selection.length===1&&!selection[0].startsWith('@'))for(const image of items){const key=image.chatId||'@unknown';if(!children.has(key))children.set(key,{label:image.chatId||'未分类聊天',path:[selection[0],key],count:0});children.get(key).count++;}
+    else if(selection.length===1&&!selection[0].startsWith('@'))for(const image of items){const key=image.chatId||'@unknown';if(!children.has(key))children.set(key,{label:image.chatId||'未分类聊天',path:[selection[0],key],count:0});children.get(key).count++;}
     return {items,children:[...children.values()].sort((a,b)=>a.label.localeCompare(b.label,'zh-CN')),crumbs};
 }

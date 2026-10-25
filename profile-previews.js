@@ -6,6 +6,11 @@ export const SAMPLE_PROMPT='1girl, adult woman, solo, upper body, looking at vie
 export function ensureProfileIds(profiles){
     const used=new Set();for(const profile of profiles){if(!profile.id||used.has(profile.id)){profile.id=randomId();delete profile.preview;}used.add(profile.id);}
 }
+export function moveProfile(settings,id,offset){
+    const list=settings.profiles,from=list.findIndex(profile=>profile.id===id),to=from+offset;
+    if(from<0||![-1,1].includes(offset)||to<0||to>=list.length)return false;
+    const active=list[settings.active],[profile]=list.splice(from,1);list.splice(to,0,profile);settings.active=Math.max(0,list.indexOf(active));return true;
+}
 export function sampleRequest(profile,library=[],prompt=SAMPLE_PROMPT){
     if(typeof prompt!=='string'||!prompt.trim())throw Error('请填写例图提示词');
     const request=buildRequest({...profile,width:512,height:512,seed:246813579},prompt);
