@@ -1,7 +1,7 @@
 import {validateQueueURL} from './cloud-queue.js';
 import {bindButtonPress} from './button-press.js';
 import {readPromptFile} from './prompt-files.js';
-import {sizePresets,pageItems,defaults,compareImagesNewest} from './core.js';
+import {sizePresets,pageItems,defaults,compareImagesNewest,supportsVarietyBoost} from './core.js';
 import {vibeModelKeys} from './vibe.js';
 import {RESOURCE_VERSION} from './resources.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
@@ -154,6 +154,9 @@ export function createSettingsPanel({settings,save,persistSettings,exportPromptF
                 control.placeholder=key==='positive'?'风格、质量、画师':key==='positiveSuffix'?'可留空':'负面标签';fields.set(key,control);
             }sync();
             const params=section(workspace,'生成参数');
+            const varietyToggle=node('label',undefined,'miao-switch-row'),varietyCheck=node('input');varietyCheck.type='checkbox';varietyCheck.disabled=!supportsVarietyBoost(p.model);varietyCheck.checked=!varietyCheck.disabled&&p.varietyBoost===true;
+            varietyCheck.onchange=()=>{p.varietyBoost=varietyCheck.checked;save();};varietyToggle.append(node('span','多样性'),varietyCheck);params.append(varietyToggle);
+            if(varietyCheck.disabled)params.append(node('p','当前模型不支持多样性','miao-muted'));
             const sizes=node('div',undefined,'miao-size-options');params.append(sizes);
             for(const preset of sizePresets){const b=action(sizes,preset.name,()=>{p.width=preset.width;p.height=preset.height;save();render();});b.append(node('small',`${preset.width}×${preset.height}`));b.classList.add('miao-size-preset');b.dataset.selected=String(p.width===preset.width&&p.height===preset.height);b.setAttribute('aria-pressed',b.dataset.selected);}
             const grid=node('div',undefined,'miao-grid');params.append(grid);
@@ -267,7 +270,7 @@ export function createSettingsPanel({settings,save,persistSettings,exportPromptF
             action(controls,'清理选中日期',async()=>{if(!selected.size)throw new Error('请先勾选需要清理的日期');if(await deleteImages(selectedFolder,images.filter(i=>selected.has(i.day)).map(i=>i.name)))await refresh();});
             refresh();
         }
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.2.5'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.2.6'),updateBox);root.append(footer);
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});
     render();checkLatest(false);return root;

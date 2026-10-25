@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {buildRequest} from '../core.js';
+import {buildRequest,varietyBoostSigma} from '../core.js';
 import {importVibeData,vibeSummary,vibeModelKeys,resolveVibes,stripImage} from '../vibe.js';
 
 export const info={id:'miao-nai-image',name:'喵喵文生图 · Vibe',description:'用户隔离的 Vibe 文件管理与 NovelAI 转发'};
@@ -52,12 +52,12 @@ export function registerRoutes(router,{readKey,extractPNG,fetchImpl=fetch}){
         await write(req,item);res.json(vibeSummary(item));
     }));
     router.post('/generate-image',safe(async(req,res)=>{
-        const input=req.body,request=buildRequest({...input,positive:input.prompt||'',negative:input.negative_prompt||''},'');
+        const input=req.body,request=buildRequest({...input,positive:input.prompt||'',negative:input.negative_prompt||'',varietyBoost:input.variety_boost===true},'');
         if(!vibeModelKeys[request.model])throw Error('Vibe 生图只支持 V4 / V4.5');
         if(!Array.isArray(input.vibes)||input.vibes.length>4)throw Error('Vibe 列表格式错误，本插件最多启用 4 个');
         const selected=[];for(const binding of input.vibes){const item=await read(req,binding.id);selected.push({id:item.id,name:item.name,encodings:item.encodings});}
         const references=resolveVibes(request.model,input.vibes,selected);
-        const data={action:'generate',input:request.prompt,model:request.model,parameters:{params_version:3,width:request.width,height:request.height,steps:request.steps,scale:request.scale,seed:request.seed,sampler:request.sampler,noise_schedule:request.scheduler,n_samples:1,negative_prompt:request.negative_prompt,qualityToggle:false,ucPreset:0,sm:false,sm_dyn:false,dynamic_thresholding:false,legacy:false,legacy_v3_extend:false,add_original_image:false,controlnet_strength:1,deliberate_euler_ancestral_bug:false,prefer_brownian:true,cfg_rescale:0,uncond_scale:1,use_coords:false,characterPrompts:[],...references,v4_prompt:{caption:{base_caption:request.prompt,char_captions:[]},use_coords:false,use_order:true},v4_negative_prompt:{caption:{base_caption:request.negative_prompt,char_captions:[]}}}};
+        const data={action:'generate',input:request.prompt,model:request.model,parameters:{params_version:3,width:request.width,height:request.height,steps:request.steps,scale:request.scale,seed:request.seed,sampler:request.sampler,noise_schedule:request.scheduler,n_samples:1,negative_prompt:request.negative_prompt,qualityToggle:false,ucPreset:0,sm:false,sm_dyn:false,dynamic_thresholding:false,legacy:false,legacy_v3_extend:false,add_original_image:false,controlnet_strength:1,deliberate_euler_ancestral_bug:false,prefer_brownian:true,cfg_rescale:0,uncond_scale:1,skip_cfg_above_sigma:varietyBoostSigma(request),use_coords:false,characterPrompts:[],...references,v4_prompt:{caption:{base_caption:request.prompt,char_captions:[]},use_coords:false,use_order:true},v4_negative_prompt:{caption:{base_caption:request.negative_prompt,char_captions:[]}}}};
         const response=await nai(req,'generate-image',data),png=await extractPNG(Buffer.from(await response.arrayBuffer()));
         if(!png)throw Error('NAI 返回结果中没有 PNG 图片');res.type('text/plain').send(png.toString('base64'));
     }));

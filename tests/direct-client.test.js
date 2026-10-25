@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDirectClient,naiPayload} from '../direct-client.js';
-import {buildRequest,defaults} from '../core.js';
+import {buildRequest,defaults,varietyBoostSigma} from '../core.js';
 import {createKeyVault} from '../direct-key.js';
 
 test('frontend-only Vibe uses existing ST file API and sends key only to NovelAI',async()=>{
@@ -54,4 +54,17 @@ test('queued direct generation passes its original key fingerprint and stops bef
  let calls=0;
  const client=createDirectClient({settings:{vibeLibrary:[]},save(){},getHeaders:()=>({}),getKey:async expected=>{assert.equal(expected,'original-key-hash');throw Error('NAI Key 已更换');},unzipPNG:async()=>'',fetchImpl:async()=>{calls++;return new Response('not expected');}});
  await assert.rejects(client.generate({model:'nai-diffusion-4-5-full',vibes:[]},{expectedKeyHash:'original-key-hash'}),/Key 已更换/);assert.equal(calls,0);
+});
+
+test('Variety Boost is snapshotted per profile and matches the ST resolution scaling in direct requests',()=>{
+ for(const [model,base] of [['nai-diffusion-4-5-full',58],['nai-diffusion-4-5-curated',58],['nai-diffusion-4-full',19],['nai-diffusion-3',19]]){
+  const profile={...defaults,model,width:832,height:1216,seed:7,varietyBoost:true};
+  const request=buildRequest(profile,'scene');profile.varietyBoost=false;
+  assert.equal(request.variety_boost,true);assert.equal(naiPayload(request).parameters.skip_cfg_above_sigma,base);
+  const square=buildRequest({...profile,width:512,height:512,varietyBoost:true},'scene');
+  assert.equal(varietyBoostSigma(square),Math.sqrt(512*512/1011712)*base);
+ }
+ for(const profile of [defaults,{...defaults,varietyBoost:false},{...defaults,model:'nai-diffusion-5-full',varietyBoost:true}]){
+  const request=buildRequest(profile,'scene');assert.equal(request.variety_boost,false);assert.equal(naiPayload(request).parameters.skip_cfg_above_sigma,null);
+ }
 });
