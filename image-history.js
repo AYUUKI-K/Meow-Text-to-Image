@@ -1,6 +1,6 @@
 export function imageVersions(record){
     if(!record)return [];
-    return record.versions?.length?record.versions:record.url?[{url:record.url,request:record.request,profileName:record.profileName,created:record.created,deleted:record.deleted||false}]:[];
+    return record.versions?.length?record.versions:record.url?[{url:record.url,request:record.request,profileName:record.profileName,archive:record.archive,created:record.created,deleted:record.deleted||false}]:[];
 }
 export function appendImageVersion(record,image){
     const versions=[...imageVersions(record),image];

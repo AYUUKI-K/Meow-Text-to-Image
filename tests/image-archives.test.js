@@ -1,28 +1,32 @@
-import test from 'node:test';import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
-import {archiveFolder,archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation,createArchiveClient} from '../image-archives.js';
-import {registerRoutes} from '../server-plugin/index.mjs';
-test('archive folders distinguish same-name cards, chats and groups with safe deterministic segments',async()=>{
- const a=archiveContext({characterId:0,characters:[{name:'Alice / 猫猫',avatar:'one.png'}],getCurrentChatId:()=> 'Chat 1.jsonl'}),b={...a,cardId:'card:two.png'};
- const first=await archiveFolder('miao-nai','chat',a);assert.equal(first.split('/').length,3);assert.equal(first,await archiveFolder('miao-nai','chat',a));assert.notEqual(first,await archiveFolder('miao-nai','chat',b));assert.notEqual(first,await archiveFolder('miao-nai','chat',{...a,chatId:'Chat 2'}));
- assert.equal((await archiveFolder('root','card',a)).split('/').length,2);assert.equal(await archiveFolder('root','flat',{}),'root');await assert.rejects(archiveFolder('root','chat',{...a,chatId:undefined}),/聊天存档/);
- for(const value of ['../bad','root/../bad','/absolute','root\\escape','root//chat','CON/chat','root/a/b/c'])assert.throws(()=>validateArchivePath(value));
- const url=archiveImageURL(first,'miao-1792737847709.png');assert.deepEqual(imageArchiveLocation(url,'https://tavern/'),{folder:first,name:'miao-1792737847709.png'});assert.throws(()=>imageArchiveLocation('https://elsewhere'+url,'https://tavern/'));
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {archiveContext,rememberImage,archiveItems,browseArchive,archiveImageURL,imageArchiveLocation,validateArchivePath} from '../image-archives.js';
+const origin='https://tavern/';
+const image=(number,extra={})=>({folder:'miao-nai',name:'miao-179273784770'+number+'.png',...extra});
+
+test('frontend classification distinguishes same-name cards, groups and chats without changing physical paths',()=>{
+ const a=archiveContext({characterId:0,characters:[{name:'猫猫',avatar:'one.png'}],getCurrentChatId:()=> 'Chat 1'});
+ const b=archiveContext({characterId:0,characters:[{name:'猫猫',avatar:'two.png'}],getCurrentChatId:()=> 'Chat 1'});
+ const group=archiveContext({groupId:12,groups:[{id:12,name:'群聊'}],getCurrentChatId:()=> 'Chat 1'});
+ assert.notEqual(a.cardId,b.cardId);assert.notEqual(a.cardId,group.cardId);
+ const catalog={},files=[image(1),image(2),image(3),image(4)];for(const [i,owner] of [a,b,{...a,chatId:'Chat 2'},group].entries())rememberImage(catalog,archiveImageURL(files[i].folder,files[i].name),owner,origin);
+ const items=archiveItems(files,catalog);assert.ok(items.every(item=>item.folder==='miao-nai'));
+ assert.equal(browseArchive(items,'chat').children.length,3);const card=browseArchive(items,'chat',[a.cardId]);assert.equal(card.items.length,2);assert.deepEqual(card.children.map(child=>child.label),['Chat 1','Chat 2']);assert.equal(browseArchive(items,'chat',[a.cardId,'Chat 1']).items.length,1);
+ assert.equal(browseArchive(items,'card',[a.cardId]).children.length,0);assert.equal(browseArchive(items,'flat').items.length,4);
 });
-test('archive backend writes real nested directories, discovers them and isolates users',async()=>{
- const root=await fs.mkdtemp(path.join(os.tmpdir(),'miao-archives-'));const routes=new Map();
- registerRoutes({get:(p,fn)=>routes.set('GET '+p,fn),post:(p,fn)=>routes.set('POST '+p,fn)},{readKey:()=>'',extractPNG:async()=>null});
- const call=async(endpoint,body,user='a')=>{let data,status=200;const res={status(n){status=n;return this;},json(value){data=value;return this;}};await routes.get('POST /images/'+endpoint)({body,user:{directories:{root:path.join(root,user)}}},res);return {data,status};};
- try{
-  const folder='miao-nai/Alice--0123456789ab/Chat--abcdef012345',name='miao-1792737847709-12345678.png',image=Buffer.from('89504e470d0a1a0a00000000','hex').toString('base64');
-  assert.equal((await call('save',{folder,name,image})).status,200);assert.ok((await fs.stat(path.join(root,'a/user/images',folder,name))).isFile());assert.deepEqual((await call('list',{folder})).data,[name]);assert.deepEqual((await call('list',{folder},'b')).data,[]);
-  assert.deepEqual((await call('folders',{root:'miao-nai'})).data,['miao-nai','miao-nai/Alice--0123456789ab',folder]);
-  assert.notEqual((await call('save',{folder,name,image})).status,200);for(const bad of ['../outside','miao-nai/../outside','C:/outside'])assert.notEqual((await call('save',{folder:bad,name,image})).status,200);
-  assert.notEqual((await call('delete',{folder,name:'user.png'})).status,200);assert.equal((await call('delete',{folder,name})).status,200);assert.deepEqual((await call('list',{folder})).data,[]);
- }finally{assert.ok(root.startsWith(path.join(os.tmpdir(),'miao-archives-')));await fs.rm(root,{recursive:true,force:true});}
+test('saved ownership survives reload, rerolls and copied chats, while unknown images remain unclassified',()=>{
+ let catalog={};const file=image(1),url=archiveImageURL(file.folder,file.name),owner={cardId:'card:a',cardName:'A',chatId:'original'};
+ assert.equal(rememberImage(catalog,url,owner,origin),true);catalog=JSON.parse(JSON.stringify(catalog));
+ assert.equal(rememberImage(catalog,url,{...owner,chatId:'fork'},origin),false);assert.equal(catalog[url].chatId,'original');
+ assert.equal(rememberImage(catalog,url,{cardId:'card:b',cardName:'B',chatId:'other'},origin),false);
+ assert.equal(rememberImage(catalog,url,{...owner,cardName:'renamed'},origin),true);assert.equal(catalog[url].cardName,'renamed');
+ assert.equal(rememberImage(catalog,'https://outside'+url,owner,origin),false);
+ assert.equal(rememberImage(catalog,archiveImageURL(file.folder,image(2).name),{},origin),false);
+ const items=archiveItems([file,image(2),image(3,{name:'sample-1792737847703.png'})],catalog),root=browseArchive(items,'chat');
+ assert.deepEqual(root.children.map(child=>child.path[0]).sort(),['@samples','@unclassified','card:a'].sort());assert.equal(browseArchive(items,'chat',['@unclassified']).items[0].name,image(2).name);assert.equal(browseArchive(items,'chat',['@samples']).children.length,0);
 });
-test('TT uses native archive commands and old clients fail before an image is generated',async()=>{
- const calls=[],client=createArchiveClient({getHeaders:()=>({}),isTT:()=>true,invoke:()=>async(command,args)=>{calls.push({command,args});if(command==='get_user_archive_capabilities')return {version:1};if(command==='upload_user_archive_image')return {path:'user/images/root/a/b/miao-1792737847709.png'};return [];}});
- await client.save('png','root/a/b','miao-1792737847709.png');await client.folders('root');await client.list('root/a/b');await client.remove('root/a/b','miao-1792737847709.png');assert.deepEqual(calls.map(c=>c.command),['get_user_archive_capabilities','upload_user_archive_image','list_user_archive_folders','list_user_archive_images','delete_user_image']);
- const old=createArchiveClient({getHeaders:()=>({}),isTT:()=>true,invoke:()=>async()=>{throw Error('unknown command');}});await assert.rejects(old.requireBackend(),/TT.*实体归档/);
+test('owned image URL validation keeps legacy nested links usable and rejects traversal and outside origins',()=>{
+ for(const folder of ['root','root/card/chat']){const url=archiveImageURL(folder,image(1).name);assert.deepEqual(imageArchiveLocation(url,origin),{folder,name:image(1).name});}
+ for(const folder of ['../bad','/absolute','root//chat','root/a/b/c','root\\escape'])assert.throws(()=>validateArchivePath(folder));
+ assert.throws(()=>imageArchiveLocation('https://outside/user/images/root/'+image(1).name,origin));assert.throws(()=>archiveImageURL('root','user.png'));
 });

@@ -1,53 +1,42 @@
 import {validateFolder,imageDay} from './core.js';
-import {sha256} from './browser-crypto.js';
-import {checkedFetch} from './request-errors.js';
-import {hostFetch} from './host-fetch.js';
 
-export function validateArchivePath(value){
-    if(typeof value!=='string'||value.length>220)throw Error('归档目录无效');
-    const parts=value.split('/');
-    if(parts.length<1||parts.length>3||parts.some(part=>validateFolder(part)!==part||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(part)))throw Error('归档目录无效');
-    return value;
-}
 export function archiveContext(context){
     const group=context.groupId!==undefined&&context.groupId!==null&&String(context.groupId)!=='';
     const character=context.characters?.[context.characterId],selectedGroup=context.groups?.find(item=>String(item.id)===String(context.groupId));
-    return {cardId:group?'group:'+context.groupId:character?.avatar?'card:'+character.avatar:'',cardName:group?selectedGroup?.name||'群聊':character?.name||'',chatId:context.getCurrentChatId?.()};
+    return {cardId:group?'group:'+context.groupId:character?.avatar?'card:'+character.avatar:'',cardName:group?selectedGroup?.name||'群聊':character?.name||'',chatId:String(context.getCurrentChatId?.()??'')};
 }
-export async function archiveFolder(root,mode,context){
-    root=validateFolder(root);if(mode==='flat')return root;
-    if(!['card','chat'].includes(mode)||!context?.cardId)throw Error('请先打开角色卡或群聊');
-    const segment=async(label,id)=>{const name=String(label).normalize('NFKC').replace(/[^\p{L}\p{N}_ -]/gu,'_').trim().slice(0,40)||'未命名';return name+'--'+(await sha256(String(id))).slice(0,12);};
-    const card=await segment(context.cardName,context.cardId);
-    if(mode==='card')return validateArchivePath(root+'/'+card);
-    if(context.chatId===undefined||context.chatId===null||!String(context.chatId).trim()||['undefined','null'].includes(String(context.chatId)))throw Error('请先打开聊天存档');
-    return validateArchivePath(root+'/'+card+'/'+await segment(context.chatId,context.cardId+'\n'+context.chatId));
+// Nested paths are accepted only to keep images made by 1.3.0/1.3.1 accessible.
+export function validateArchivePath(value){
+    if(typeof value!=='string'||value.length>220)throw Error('图片目录无效');
+    const parts=value.split('/');if(parts.length>3||parts.some(part=>validateFolder(part)!==part))throw Error('图片目录无效');return value;
 }
-export const archiveLabel=folder=>folder.split('/').map(part=>part.replace(/--[a-f0-9]{12}$/,'')).join(' / ');
 export function archiveImageURL(folder,name){
-    validateArchivePath(folder);if(!imageDay(name))throw Error('不是可管理的生成图片');
-    return '/user/images/'+folder.split('/').map(encodeURIComponent).join('/')+'/'+encodeURIComponent(name);
+    validateArchivePath(folder);if(!imageDay(name))throw Error('不是可管理的生成图片');return '/user/images/'+folder.split('/').map(encodeURIComponent).join('/')+'/'+encodeURIComponent(name);
 }
 export function imageArchiveLocation(value,origin){
     const url=new URL(value,origin),base=new URL(origin),parts=url.pathname.split('/');
     if(url.origin!==base.origin||parts[1]!=='user'||parts[2]!=='images'||parts.length<5)throw Error('这张图片不在酒馆图片目录');
     const name=decodeURIComponent(parts.pop()),folder=parts.slice(3).map(decodeURIComponent).join('/');archiveImageURL(folder,name);return {folder,name};
 }
-export function createArchiveClient({getHeaders,isTT=()=>false,invoke=()=>globalThis.window?.__TAURITAVERN__?.invoke?.safeInvoke,fetchImpl=fetch}){
-    let pending;
-    const call=async(endpoint,body)=>{const response=await checkedFetch(endpoint==='delete'?'image-delete':endpoint==='save'?'image-save':'image-list','/api/plugins/miao-nai-image/images/'+endpoint,{method:'POST',headers:getHeaders(),body:JSON.stringify(body)},{fetchImpl:(url,options)=>hostFetch(url,options,{fetchImpl})});return response.json();};
-    const native=async(command,args)=>{const fn=invoke();if(!fn)throw Error('当前 TT 缺少实体归档接口，请更新含归档适配的 TT 客户端');let timer;try{return await Promise.race([Promise.resolve().then(()=>fn(command,args)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('TT 归档请求超时，请检查目录后重试')),15000);})]);}finally{clearTimeout(timer);}};
-    const requireBackend=async()=>{
-        if(!pending)pending=(async()=>{
-            if(isTT()){try{const status=await native('get_user_archive_capabilities');if(status?.version!==1)throw Error('unsupported');}catch{throw Error('当前 TT 缺少实体归档接口，请更新含归档适配的 TT 客户端');}}
-            else {const response=await hostFetch('/api/plugins/miao-nai-image/health',{}, {fetchImpl});if(!response.ok||(await response.json()).archives!==1)throw Error('请安装或更新喵喵归档后端，并重启酒馆');}
-        })().catch(error=>{pending=null;throw error;});return pending;
-    };
-    return {
-        requireBackend,
-        async save(data,folder,name){validateArchivePath(folder);archiveImageURL(folder,name);await requireBackend();const result=isTT()?await native('upload_user_archive_image',{imageBase64:data,folder,filename:name}):await call('save',{image:data,folder,name});return result.url||result.path;},
-        async list(folder){validateArchivePath(folder);await requireBackend();return isTT()?native('list_user_archive_images',{folder}):call('list',{folder});},
-        async folders(root){validateFolder(root);await requireBackend();return isTT()?native('list_user_archive_folders',{root}):call('folders',{root});},
-        async remove(folder,name){archiveImageURL(folder,name);await requireBackend();if(isTT())await native('delete_user_image',{path:'user/images/'+folder+'/'+name});else await call('delete',{folder,name});},
-    };
+export function rememberImage(catalog,url,context,origin){
+    let location;try{location=imageArchiveLocation(url,origin);}catch{return false;}
+    if(!context?.cardId)return false;
+    const key=archiveImageURL(location.folder,location.name),previous=catalog[key];
+    // A copied/forked chat must not steal the ownership of an existing image.
+    if(previous){if(previous.cardId===context.cardId&&previous.cardName!==context.cardName){previous.cardName=context.cardName;return true;}return false;}
+    catalog[key]={...location,cardId:context.cardId,cardName:context.cardName||'未命名角色',chatId:String(context.chatId??'')};return true;
+}
+export function archiveItems(images,catalog){
+    return images.map(image=>{const owner=catalog[archiveImageURL(image.folder,image.name)];return {...image,cardId:owner?.cardId||'',cardName:owner?.cardName||'未分类',chatId:owner?.chatId||'',kind:image.name.startsWith('sample-')?'sample':'image'};});
+}
+const cardKey=image=>image.kind==='sample'?'@samples':image.cardId||'@unclassified';
+export function browseArchive(images,mode,selection=[]){
+    if(mode==='flat')return {items:images,children:[],crumbs:[]};
+    let items=images;const crumbs=[];
+    if(selection.length){items=images.filter(image=>cardKey(image)===selection[0]);crumbs.push({label:selection[0]==='@samples'?'例图':items[0]?.cardName||'未分类',path:[selection[0]]});}
+    if(selection.length>1){items=items.filter(image=>(image.chatId||'@unknown')===selection[1]);crumbs.push({label:selection[1]==='@unknown'?'未分类聊天':selection[1],path:selection.slice(0,2)});}
+    const children=new Map();
+    if(!selection.length)for(const image of items){const key=cardKey(image);if(!children.has(key))children.set(key,{label:key==='@samples'?'例图':image.cardName,path:[key],count:0});children.get(key).count++;}
+    else if(mode==='chat'&&selection.length===1&&!selection[0].startsWith('@'))for(const image of items){const key=image.chatId||'@unknown';if(!children.has(key))children.set(key,{label:image.chatId||'未分类聊天',path:[selection[0],key],count:0});children.get(key).count++;}
+    return {items,children:[...children.values()].sort((a,b)=>a.label.localeCompare(b.label,'zh-CN')),crumbs};
 }
