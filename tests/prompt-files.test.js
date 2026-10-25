@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaults} from '../core.js';
-import {promptFileData,promptFilename,importPromptData,readPromptFile,PROMPT_FILE_LIMIT} from '../prompt-files.js';
+import {promptFileData,promptFilename,importPromptData,readPromptFile,readPreviewData,PROMPT_FILE_LIMIT,PREVIEW_DATA_LIMIT} from '../prompt-files.js';
 
 const profile={...defaults,name:'猫猫',positive:'year 2025,\n1.5::artist:猫::, ',positiveSuffix:'\nno text,',negative:'lowres, bad hands',vibes:[{id:'private-vibe',strength:0.8}],key:'private-key',model:'nai-diffusion-4-5-curated',width:1216,height:832,steps:28,scale:6.5,seed:12345,sampler:'k_dpmpp_2m',scheduler:'exponential',varietyBoost:true};
 test('prompt files round trip all three strings and generation parameters without Vibes or keys',async()=>{
@@ -38,4 +38,23 @@ test('invalid parameter files fail without silently replacing the configuration'
     assert.throws(()=>importPromptData({...data,parameters:null}),/缺少生成参数/);
     for(const patch of [{width:513},{height:0},{steps:51},{scale:11},{seed:-2},{width:2048,height:2048},{model:''},{sampler:{}},{scheduler:' '.repeat(3)},{varietyBoost:'true'},{width:null}])assert.throws(()=>importPromptData({...data,parameters:{...data.parameters,...patch}}));
     assert.equal(importPromptData({...data,parameters:{...data.parameters,seed:-1}}).seed,-1);
+});
+
+const png={mime:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII='};
+test('portable examples contain only raster bytes and restore before the new configuration is returned',async()=>{
+    const source={...profile,preview:{url:'/user/images/local/sample-123.png',signature:'private-vibe'}},data=promptFileData(source,{...png,url:'private URL',signature:'private signature'});
+    assert.deepEqual(data.preview,png);assert.ok(!JSON.stringify(data).includes('private'));assert.ok(!JSON.stringify(data).includes('/user/'));
+    const existing=[source],before=JSON.stringify(existing),file=new File([JSON.stringify(data)],'randomhash.json');let calls=0;
+    const restored=await readPromptFile(file,existing,{restorePreview:async(image,p)=>{calls++;assert.deepEqual(image,png);assert.equal(p.name,'猫猫 (2)');assert.deepEqual(p.vibes,[]);assert.equal(p.preview,undefined);return {url:'/user/images/new/sample-456.png',signature:'fresh'};}});
+    assert.equal(calls,1);assert.equal(restored.preview.url,'/user/images/new/sample-456.png');assert.equal(JSON.stringify(existing),before);
+    await assert.rejects(readPromptFile(file,existing),/更新插件/);
+    await assert.rejects(readPromptFile(file,existing,{restorePreview:async()=>{throw Error('storage failed');}}),/storage failed/);assert.equal(JSON.stringify(existing),before);
+});
+test('example data rejects links, scripts, invalid encodings, oversized payloads and excessive dimensions',async()=>{
+    const huge=Buffer.from(png.data,'base64');huge.writeUInt32BE(100000,16);
+    for(const preview of [null,{url:'https://remote/image.png'},{mime:'image/svg+xml',data:btoa('<svg/>')},{mime:'image/png',data:btoa('<html>text</html>')},{...png,data:png.data+'==='},{...png,data:'A'.repeat(PREVIEW_DATA_LIMIT+4)},{...png,data:huge.toString('base64')},{mime:'image/jpeg',data:png.data}]){
+        assert.throws(()=>readPreviewData(preview),/例图/);
+        let called=false;await assert.rejects(readPromptFile(new File([JSON.stringify({...promptFileData(profile),preview})],'invalid.json'),[],{restorePreview:async()=>{called=true;}}),/例图/);assert.equal(called,false);
+    }
+    assert.equal(promptFilename('白发猫猫 · 串'),'喵喵NAI-白发猫猫 · 串.json');
 });

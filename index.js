@@ -1,11 +1,13 @@
 import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
 import {retryGeneration} from './generation-retry.js';
+import {waitForGeneration} from './generation-delay.js';
 import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
 import {prepareImageExport} from './image-export.js';
 import {promptFileData,promptFilename,PROMPT_FILE_LIMIT} from './prompt-files.js';
+import {exportPreview,previewPNG} from './prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
 import { saveBase64AsFile } from '../../../utils.js';
@@ -27,7 +29,7 @@ import {selectVibes,profileVibeEnabled} from './vibe.js';
 import {createExtensionUpdater} from './updates.js';
 import {createResourceUpdater} from './resource-updates.js';
 import {archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation,rememberImage,archiveItems} from './image-archives.js';
-import {createProfilePreviews,ensureProfileIds,SAMPLE_PROMPT} from './profile-previews.js';
+import {createProfilePreviews,ensureProfileIds,sampleSignature,SAMPLE_PROMPT} from './profile-previews.js';
 import {downloadImageSelection} from './downloads.js';
 import {migrateSwipeImages,readSwipeImage,writeSwipeImage,swipeImageRecords,removeSwipeImages} from './swipe-history.js';
 import { defaults, parseBodyBlocks, maskReasoning, renderedBlockRange, buildRequest, latestImageMessage, canAutoGenerate, validateFolder, imageDay, imageURL, normalizeProfile, delimiterPattern } from './core.js';
@@ -528,6 +530,23 @@ async function saveFile(blob,name){
     const objectURL=URL.createObjectURL(blob);
     const link=el('a');link.href=objectURL;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(objectURL),60000);
 }
+async function exportPromptFile(profile){
+    // Snapshot before reading the image so edits during export cannot mix two configurations.
+    const snapshot=structuredClone(profile),preview=await exportPreview(snapshot.preview?.url);
+    const data=promptFileData(snapshot,preview),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),name=promptFilename(data.name);
+    if(blob.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');
+    const ios=isTT()&&(window.__TAURITAVERN_HOST__?.platform==='ios'||/iPad|iPhone|iPod/.test(navigator.userAgent)||navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    if(!ios)return saveFile(blob,name);
+    const file=new File([blob],name,{type:blob.type}),result={name,save:()=>saveFile(file,name),copy:async()=>{
+        if(typeof hostUtils.copyText==='function')await hostUtils.copyText(name);else await navigator.clipboard.writeText(name);
+        toastr.success('文件名已复制');
+    }};
+    // Start Web Share from the prepared file's button to retain the required user gesture.
+    try{if(typeof navigator.share==='function'&&navigator.canShare?.({files:[file]}))result.share=async()=>{
+        try{await navigator.share({files:[file],title:name});}catch(error){if(error.name!=='AbortError')throw error;}
+    };}catch{}
+    return result;
+}
 async function downloadImages(images){
     const format=settings.exportFormat;
     await downloadImageSelection(images,{saveBlob:(blob,name)=>saveDownload(blob,name,format)});
@@ -547,7 +566,7 @@ async function requestImage(request,task,canContinue) {
     const scope=task||{keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
     const assertKey=()=>{if(settings.keyHash!==scope.keyHash)throw Error('NAI Key 已更换，请重新生成');};
     const generate=async()=>{
-        assertKey();
+        await waitForGeneration({canContinue:valid,onStatus});
         onStatus('正在生图');
         toastr.info('正在生图','喵喵文生图');
         if(isTT()||request.vibes?.length)return direct.generate(request,{expectedKeyHash:scope.keyHash});
@@ -645,7 +664,11 @@ async function openSettings(initialTab) {
     if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:initialTab}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
         refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl}}),getPreviewState:profile=>profilePreviews.state(profile),
-        exportPromptFile:profile=>{const data=promptFileData(profile),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});if(blob.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');return saveFile(blob,promptFilename(data.name));},
+        exportPromptFile,restorePromptPreview:async(preview,profile)=>{
+            const data=await previewPNG(preview);ensureProfileIds([profile]);
+            const url=await inStage('image-save',()=>saveBase64AsFile(data,validateFolder(settings.folder),`sample-${Date.now()}-${randomId()}`,'png'));
+            return {url,signature:sampleSignature(profile,settings.vibeLibrary,settings.samplePrompt),created:Date.now()};
+        },
         onChange:async action=>{
             if(action==='confirm-delete')return confirmSettings(`删除配置「${settings.profiles[settings.active].name}」？`,'删除配置');
             autoSession=null;refreshFloating();renderAll();

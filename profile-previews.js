@@ -2,7 +2,16 @@ import {buildRequest} from './core.js';
 import {randomId} from './browser-crypto.js';
 import {selectVibes} from './vibe.js';
 
-export const SAMPLE_PROMPT='1girl, adult woman, solo, upper body, looking at viewer, long black hair, blue eyes, white blouse, holding a small bouquet of flowers, gentle smile, garden, daylight, simple background';
+export const SAMPLE_PROMPT=`a  girl, (16-year-old:1.1),(flat breasts:0.7)
+
+(white hair:1.3),  (waist-length hair:1.1),
+(slightly messy hair:0.5), (long uneven bangs:1.3),(split bangs:1.1),hair down,
+
+(face-framing strands clearly separated from main hair:1.3),
+
+(Grey-blue eyes:1.2), ​:3,
+
+(gray-blue striped sweater:1.3), Loose-fitting sweater,black shorts,(horizontal stripes:1.2),​(dark blue ribbon choker:0.4),`;
 export function ensureProfileIds(profiles){
     const used=new Set();for(const profile of profiles){if(!profile.id||used.has(profile.id)){profile.id=randomId();delete profile.preview;}used.add(profile.id);}
 }

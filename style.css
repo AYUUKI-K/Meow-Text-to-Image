@@ -1,4 +1,5 @@
 /* Follow the active tavern theme. Flat controls, one border per section. */
+.miao-prompt-export-ready{display:grid;gap:8px;margin:12px 0;padding:12px 0;border-bottom:1px solid var(--mi-line)}.miao-prompt-export-ready[hidden]{display:none}.miao-prompt-export-ready .miao-actions{flex-wrap:wrap}.miao-prompt-export-ready input{min-width:0}
 .miao-settings,.miao-settings-dialog,.miao-confirm-dialog,.miao-image-card,.miao-image-viewer,.miao-prompt-view,.miao-content-dialog{
  --mi-bg:var(--SmartThemeBlurTintColor,Canvas);--mi-surface:var(--mi-bg);--mi-ink:var(--SmartThemeBodyColor,CanvasText);--mi-muted:color-mix(in srgb,var(--mi-ink) 68%,transparent);--mi-line:var(--SmartThemeBorderColor,color-mix(in srgb,var(--mi-ink) 20%,transparent));--mi-blue:var(--SmartThemeQuoteColor,Highlight);--mi-soft:color-mix(in srgb,var(--mi-ink) 7%,transparent);--mi-field:color-mix(in srgb,var(--mi-ink) 4%,transparent);color:var(--mi-ink);font-family:inherit;box-sizing:border-box;
 }

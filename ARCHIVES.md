@@ -14,6 +14,8 @@
 
 图片显示在配置卡片中，点击卡片切换串。普通保存以固定种子比较画风；随机 Vibe 使用首个候选。重复保存不重复生图，后台排队时会检查配置是否仍存在且未改变。例图按正常 NAI 图片计费。
 
+「导出 NAI 串」会把当前例图嵌入 JSON，与提示词和参数一起分享；不带 Vibe 或 Key。导入时例图另存到当前酒馆的存储目录并立即显示，不额外生成；原配置及通用例图提示词保持原样。没有例图的旧文件仍可导入。内嵌例图会压缩为最长边不超过 512 像素的 JPEG，不修改原图；导入后保存为可管理的 PNG。
+
 ## 图片实际位置
 
 以下按默认用户 `default-user` 和插件默认存储目录 `miao-nai` 举例。更改过存储目录时，替换最后一段；多用户时替换用户目录。
@@ -23,5 +25,11 @@
 - TT：`TT 数据根目录/default-user/user/images/miao-nai/`。安卓通常在内部存储的 `Android/data/com.tauritavern.client/` 下寻找 `data/default-user/user/images/miao-nai/`；部分版本位于其 `files/` 下。TT 优先使用系统提供的外部应用目录，必要时有内部目录回退，不同版本和平台可能不同。安卓系统可能限制文件管理器读取 `Android/data`，可使用 TT 内置导出或插件下载功能。
 
 手机通过局域网连接电脑酒馆时，原图保存在电脑酒馆目录，只有点击下载／导出后才另存到手机。
+
+iOS TT 原图位于 App 私有数据目录下的 `data/default-user/user/images/miao-nai/`，不会自动进入相册，「文件」App 通常也不能直接浏览这个目录。使用插件下载，在系统分享面板选择「存储到文件」；图片也可以按系统提供的选项「存储图像」。实际选项由 iOS 与 TT 版本决定。
+
+iOS TT 若将导出的 JSON 命名为随机字符，可在插件导出区复制完整文件名后重命名；支持「分享文件」时优先使用该按钮。JSON 内的配置名称不受外部文件名影响。
+
+文件名行为参考 TT 的 [iOS 原生分享实现](https://github.com/Darkatse/TauriTavern/blob/main/src-tauri/crates/tauritavern/src/platform/ios_share_sheet.rs)：文件 URL 使用暂存路径，导出名称作为 `suggestedName` 提供；是否采用该名称取决于分享目标。
 
 TT 路径依据：[用户图片目录](https://github.com/Darkatse/TauriTavern/blob/main/src-tauri/crates/tt-domain/src/models/user_directory.rs)、[运行时数据目录](https://github.com/Darkatse/TauriTavern/blob/main/src-tauri/crates/tauritavern/src/infrastructure/paths.rs)。

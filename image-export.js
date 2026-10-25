@@ -1,4 +1,4 @@
-async function decodeImage(blob){
+export async function decodeImage(blob){
     if(typeof createImageBitmap==='function'){try{return await createImageBitmap(blob);}catch{}}
     const url=URL.createObjectURL(blob),image=new Image();
     try{return await new Promise((resolve,reject)=>{image.onload=()=>resolve(image);image.onerror=()=>reject(Error('无法读取图片，请重新下载'));image.src=url;});}
