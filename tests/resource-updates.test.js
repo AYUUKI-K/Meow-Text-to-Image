@@ -7,11 +7,11 @@ import {createResourceUpdater,validateResourceManifest,RESOURCE_REMOTE_BASE} fro
 
 test('resource notifications cover bundled and remote upgrades, deduplicate and never downgrade',async()=>{
     const settings={installed:true,resourceVersion:'2.1-1024'},notices=[],calls=[];let revision=BUNDLED_RESOURCES.revision+1,time=0;
-    const updater=createResourceUpdater({settings,localBase:'https://tavern/plugin/',now:()=>time,onAvailable:state=>notices.push(state.latest.revision),fetchImpl:async(url,options)=>{calls.push({url:String(url),options});return Response.json({...BUNDLED_RESOURCES,revision,version:'2.2.1-1025b'});}});
+    const updater=createResourceUpdater({settings,localBase:'https://tavern/plugin/',now:()=>time,onAvailable:state=>notices.push(state.latest.revision),fetchImpl:async(url,options)=>{calls.push({url:String(url),options});return Response.json({...BUNDLED_RESOURCES,revision,version:'2.2.2-1026b'});}});
     await Promise.all([updater.check(),updater.check()]);await updater.check();
     assert.deepEqual(notices,[BUNDLED_RESOURCES.revision,revision]);assert.equal(calls.length,1);
     assert.equal(calls[0].options.credentials,'omit');assert.equal(calls[0].options.headers,undefined);assert.equal(calls[0].url,RESOURCE_REMOTE_BASE+'assets/resource-manifest.json');
-    Object.assign(settings,{resourceVersion:'2.2.1-1025b',resourceRevision:revision});updater.changed();assert.equal(updater.snapshot().available,false);
+    Object.assign(settings,{resourceVersion:'2.2.2-1026b',resourceRevision:revision});updater.changed();assert.equal(updater.snapshot().available,false);
     revision--;time+=600001;await updater.check();assert.equal(updater.snapshot().latest.revision,BUNDLED_RESOURCES.revision+1);assert.equal(notices.length,2);
     settings.resourceRevision++;assert.equal(updater.snapshot().available,false);await assert.rejects(updater.load(),/版本较新/);
 });
@@ -41,7 +41,7 @@ test('bundled resource metadata matches the shipped files across line endings',a
 });
 
 test('resource manifests accept patch versions and reject mismatched version labels',()=>{
-    const patch={...BUNDLED_RESOURCES,worldName:'[喵喵]文生图 2.2.1',version:'2.2.1-1025'};
+    const patch={...BUNDLED_RESOURCES,worldName:'[喵喵]文生图 2.2.2',version:'2.2.2-1026'};
     assert.deepEqual(validateResourceManifest(patch),patch);
     assert.throws(()=>validateResourceManifest({...patch,version:'2.2-1025'}),/版本信息/);
     assert.throws(()=>validateResourceManifest({...patch,worldName:'[喵喵]文生图 2.2.1.1'}),/版本信息/);

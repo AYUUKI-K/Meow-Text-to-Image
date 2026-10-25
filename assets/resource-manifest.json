@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "version": "2.2.1-1025",
-  "revision": 2026102502,
-  "worldName": "[喵喵]文生图 2.2.1",
-  "worldSHA256": "5484e1fed3318f3bdc9643a2b85a1fbf8a57d43890c9527ff9d89435190ecf85",
+  "version": "2.2.2-1026",
+  "revision": 2026102601,
+  "worldName": "[喵喵]文生图 2.2.2",
+  "worldSHA256": "1a87a4f9d54b2a45217d2ef644d4dac30a1b48a7f5e51216a6487c45d40a1d35",
   "regexSHA256": "d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"
 }
