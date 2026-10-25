@@ -5,6 +5,7 @@ import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
 import {prepareImageExport} from './image-export.js';
+import {promptFileData,promptFilename,PROMPT_FILE_LIMIT} from './prompt-files.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
 import { saveBase64AsFile } from '../../../utils.js';
@@ -507,6 +508,9 @@ async function downloadImage(url,name='miao-image.png') {
 }
 async function saveDownload(blob,name,format=settings.exportFormat){
     ({blob,name}=await inStage('image-export',()=>prepareImageExport(blob,name,format)));
+    return saveFile(blob,name);
+}
+async function saveFile(blob,name){
     if(isTT()&&typeof hostUtils.download==='function')return hostUtils.download(blob,name,blob.type,{throwOnFailure:true});
     const objectURL=URL.createObjectURL(blob);
     const link=el('a');link.href=objectURL;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(objectURL),60000);
@@ -616,6 +620,7 @@ async function deleteImages(folder,names) {
 async function openSettings() {
     if(settingsHost?.isConnected)return;
     const panel=createSettingsPanel({settings,save,persistSettings,theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
+        exportPromptFile:profile=>{const data=promptFileData(profile),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});if(blob.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');return saveFile(blob,promptFilename(data.name));},
         onChange:async action=>{
             if(action==='confirm-delete')return confirmSettings(`删除配置「${settings.profiles[settings.active].name}」？`,'删除配置');
             autoSession=null;refreshFloating();renderAll();
