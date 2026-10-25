@@ -4,7 +4,7 @@ export async function retryGeneration({run,enabled=false,canContinue=()=>true,on
         if(!canContinue())throw Error('原消息已变化，已退出待生成队列');
         try{return await run();}
         catch(error){
-            if(!enabled||error.status!==500||attempt>=delays.length)throw error;
+            if(!enabled||error.status!==500||error.retryableGeneration===false||attempt>=delays.length)throw error;
             let remaining=delays[attempt];
             while(remaining>0){
                 if(!canContinue())throw Error('原消息已变化，已退出待生成队列');

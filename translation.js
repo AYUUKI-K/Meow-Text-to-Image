@@ -1,4 +1,5 @@
 // TT forwards text in a query string; bound encoded size, not JS string length.
+import {checkedFetch} from './request-errors.js';
 export function splitTranslationText(text,limit=1800){
     const chunks=[];let chunk='',size=0,boundary=0;
     for(const char of String(text)){
@@ -22,17 +23,13 @@ export function createPromptTranslator({getHeaders,fetchImpl=fetch,wait=ms=>new 
         const task=(async()=>{
             for(let attempt=0;attempt<2;attempt++){
                 try{
-                    const response=await fetchImpl(provider==='bing'?'/api/translate/bing':'/api/translate/google',{method:'POST',headers:getHeaders(),body:JSON.stringify({text,lang:'zh-CN'}),signal:AbortSignal.timeout(15000)});
-                    if(!response.ok){
-                        const error=Error(`翻译失败（HTTP ${response.status}）`);
-                        error.retryable=[408,429,500,502,503,504].includes(response.status);throw error;
-                    }
+                    const response=await checkedFetch('translation-'+provider,provider==='bing'?'/api/translate/bing':'/api/translate/google',{method:'POST',headers:getHeaders(),body:JSON.stringify({text,lang:'zh-CN'}),signal:AbortSignal.timeout(15000)},{fetchImpl});
                     const result=await response.text();
                     if(!result.trim()||/^\s*(?:<!doctype|<html)/i.test(result))throw Error('未收到有效译文');
                     if(cache.size>=50)cache.delete(cache.keys().next().value);
                     cache.set(key,result);return result;
                 }catch(error){
-                    const retryable=error.retryable||error instanceof TypeError||['TimeoutError','AbortError'].includes(error.name);
+                    const retryable=[408,429,500,502,503,504].includes(error.status)||error.name==='TypeError'||['TimeoutError','AbortError'].includes(error.name);
                     if(attempt||!retryable)throw error;
                     await wait(600);
                 }

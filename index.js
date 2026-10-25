@@ -3,6 +3,7 @@ import {randomId} from './browser-crypto.js';
 import {retryGeneration} from './generation-retry.js';
 import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
+import {checkedFetch,inStage,errorTitle} from './request-errors.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
 import { saveBase64AsFile } from '../../../utils.js';
@@ -86,8 +87,9 @@ async function showPopup(content,type,input='',options={}){
 }
 
 async function errorPopup(error) {
-    if(isTT()){toastr.error(String(error.message||error),'操作失败',{escapeHtml:true});return;}
-    const box=el('div',undefined,'miao-prompt-view'); box.append(el('h3','喵喵文生图：操作失败'),el('pre',String(error.message||error)));
+    const title=errorTitle(error);
+    if(isTT()){toastr.error(String(error.message||error),title,{escapeHtml:true});return;}
+    const box=el('div',undefined,'miao-prompt-view'); box.append(el('h3','喵喵文生图：'+title),el('pre',String(error.message||error)));
     await showPopup(box,POPUP_TYPE.TEXT);
 }
 const guard=fn=>(...args)=>Promise.resolve().then(()=>fn(...args)).catch(errorPopup);
@@ -134,7 +136,7 @@ async function confirmSettings(question,title='确认删除'){
         if(standalone)cancel.focus();
     });
 }
-const generationError=error=>toastr.error(String(error.message||error),'生图失败',{escapeHtml:true,timeOut:8000});
+const generationError=error=>toastr.error(String(error.message||error),errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:12000});
 function reasoningFormat(){const r=ctx().powerUserSettings?.reasoning||{};return {prefix:ctx().substituteParams?.(r.prefix||'')??r.prefix,suffix:ctx().substituteParams?.(r.suffix||'')??r.suffix};}
 function blocks(message) { return parseBodyBlocks(message.mes,settings.pattern,reasoningFormat()); }
 const blockSlot=block=>`body:${block.bodyIndex}:${block.prompt}`;
@@ -191,7 +193,7 @@ function startGeneration(message,block,{automatic=false}={}) {
         if(automatic && !canAutoGenerate(ctx().chat,target.message,settings.mode,streamActive))return;
         task.status='正在生图'; renderAll();
         const data=await requestImage(request,task,()=>{const target=taskTarget(task);return !!target&&(!automatic||canAutoGenerate(ctx().chat,target.message,settings.mode,streamActive));});
-        const url=await saveBase64AsFile(data,folder,`miao-${Date.now()}-${randomId()}`,'png');
+        const url=await inStage('image-save',()=>saveBase64AsFile(data,folder,`miao-${Date.now()}-${randomId()}`,'png'));
         // Switching swipes does not invalidate an image already being generated.
         target=taskTarget(task,true);if(!target) { toastr.info('图片已保存，但原消息已删除或修改：'+url); return; }
         writeSwipeImage(target.message,task.swipe,blockSlot(target.block),appendImageVersion(task.previousRecord,{url,request,profileName,created:Date.now()}));
@@ -202,7 +204,7 @@ function startGeneration(message,block,{automatic=false}={}) {
             const card=[...(root?.querySelectorAll('.miao-image-card')||[])].find(n=>n.dataset.miaoKey===identity(target.message,target.block));
             if(card)card.querySelector('.miao-image-tools').hidden=false;
         }
-        imageSaves++;try{await ctx().saveChat();}finally{imageSaves--;}
+        imageSaves++;try{await inStage('chat-save',()=>ctx().saveChat());}finally{imageSaves--;}
         toastr.success('生图完成','喵喵文生图');
     }).catch(error=>{
         task.status='失败，点击重试'; task.error=String(error.message||error);
@@ -489,7 +491,7 @@ async function testImage() {
     const request=buildRequest(settings.profiles[settings.active],'1girl, adult woman, white dress, flower garden, sunlight');
     request.vibes=selectVibes(settings.profiles[settings.active],settings.vibeLibrary);
     const data=await requestImage(request);
-    const url=await saveBase64AsFile(data,validateFolder(settings.folder),`test-${Date.now()}-${randomId()}`,'png');
+    const url=await inStage('image-save',()=>saveBase64AsFile(data,validateFolder(settings.folder),`test-${Date.now()}-${randomId()}`,'png'));
     await openImage(url);
     }catch(error){generationError(error);}
 }
@@ -497,7 +499,7 @@ function saveCapture(start,end) {
     const pattern=delimiterPattern(start,end);settings.startTag=start;settings.endTag=end;settings.pattern=pattern;save();renderAll();toastr.success('捕捉标签已保存');
 }
 async function downloadImage(url,name='miao-image.png') {
-    const response=await fetch(url);if(!response.ok)throw new Error(`图片下载失败：HTTP ${response.status}`);
+    const response=await checkedFetch('image-download',url);
     return saveDownload(await response.blob(),name);
 }
 async function saveDownload(blob,name){
@@ -516,8 +518,7 @@ async function openImage(url,name='miao-image.png') {
 }
 async function queueStatus() {
     const url=validateQueueURL(settings.queueUrl);
-    const response=await fetch(url+'/ping',{credentials:'omit',signal:AbortSignal.timeout(60000)});
-    if(!response.ok)throw new Error(`队列连接失败：HTTP ${response.status}`);
+    const response=await checkedFetch('queue',url+'/ping',{credentials:'omit',signal:AbortSignal.timeout(60000)});
     return response.json();
 }
 async function requestImage(request,task,canContinue) {
@@ -528,8 +529,7 @@ async function requestImage(request,task,canContinue) {
         if(task){task.status='正在生图';renderAll();}
         toastr.info('正在生图','喵喵文生图');
         if(isTT()||request.vibes?.length)return direct.generate(request,{expectedKeyHash:scope.keyHash});
-        const response=await fetch('/api/novelai/generate-image',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(request),signal:AbortSignal.timeout(180000)});
-        if(!response.ok)throw Object.assign(new Error(`NAI HTTP ${response.status}\n${(await response.text()).slice(0,1600)}`),{status:response.status});
+        const response=await checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(request),signal:AbortSignal.timeout(180000)});
         const data=(await response.text()).trim();
         if(!data||data.startsWith('{')||data.startsWith('<'))throw new Error('酒馆生图接口未返回有效图片');
         return data;
@@ -575,8 +575,7 @@ function changeFolder(value) {
     save();
 }
 async function imageAPI(endpoint,body) {
-    const res=await hostFetch('/api/images/'+endpoint,{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(body)});
-    if(!res.ok)throw new Error(`图片管理 HTTP ${res.status}\n${(await res.text()).slice(0,500)}`);
+    const res=await checkedFetch(endpoint==='delete'?'image-delete':'image-list','/api/images/'+endpoint,{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(body)},{fetchImpl:hostFetch});
     return res;
 }
 async function listImages(folder) {

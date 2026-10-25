@@ -1,6 +1,7 @@
 import {importVibeData,resolveVibes,vibeSummary,vibeModelKeys,stripImage} from './vibe.js';
 import {randomId} from './browser-crypto.js';
 import {hostFetch} from './host-fetch.js';
+import {checkedFetch} from './request-errors.js';
 
 export function base64Bytes(bytes){let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(binary);}
 export function naiPayload(request,references={}){
@@ -11,12 +12,11 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
     const filename=id=>{if(!/^[a-f0-9-]{36}$/i.test(id||''))throw Error('无效 Vibe ID');return `miao-vibe-${id}.json`;};
     const filePath=id=>'/user/files/'+filename(id);
     const st=async(endpoint,body)=>{
-        const response=await hostFetch('/api/files/'+endpoint,{method:'POST',headers:getHeaders(),body:JSON.stringify(body)},{fetchImpl});
-        if(!response.ok)throw Error(`酒馆文件接口 HTTP ${response.status}，请更新酒馆后重试`);return response;
+        return checkedFetch('vibe-file','/api/files/'+endpoint,{method:'POST',headers:getHeaders(),body:JSON.stringify(body)},{fetchImpl:(url,options)=>hostFetch(url,options,{fetchImpl})});
     };
     const read=async id=>{
         if(!settings.vibeLibrary.some(item=>item.id===id))throw Error('Vibe 已从列表删除');
-        const response=await fetchImpl(filePath(id),{cache:'no-store'});if(!response.ok)throw Error('Vibe 文件读取失败，请重新导入');
+        const response=await checkedFetch('vibe-file',filePath(id),{cache:'no-store'},{fetchImpl});
         const item=await response.json();if(item.id!==id)throw Error('Vibe 文件标识不匹配');return item;
     };
     const write=async item=>{
@@ -28,10 +28,7 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
     };
     const nai=async(endpoint,body,{expectedKeyHash}={})=>{
         const key=await getKey(expectedKeyHash);if(!key)throw Error('请先在「生成」页重新填写并保存 NAI Key，用于当前浏览器直连');
-        let response;
-        try{response=await fetchImpl('https://image.novelai.net/ai/'+endpoint,{method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(180000)});}
-        catch(error){if(error.name==='TypeError'){const friendly=Error('无法从当前设备连接 NovelAI，请检查设备网络。请求结果不确定，不会自动重试。');friendly.name='TypeError';throw friendly;}throw error;}
-        if(!response.ok){const text=(await response.text()).split(key).join('[已隐藏]');throw Object.assign(Error(`NAI HTTP ${response.status}\n${text.slice(0,1200)}`),{status:response.status});}return response;
+        return checkedFetch(endpoint==='encode-vibe'?'nai-encode':'nai-generation','https://image.novelai.net/ai/'+endpoint,{method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(180000)},{fetchImpl,secrets:[key]});
     };
     return {
         async list(){return structuredClone(settings.vibeLibrary);},

@@ -1,4 +1,5 @@
 import {randomId,sha256} from './browser-crypto.js';
+import {checkedFetch} from './request-errors.js';
 export function validateQueueURL(value) {
     const url=new URL(value);
     if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['127.0.0.1','localhost'].includes(url.hostname)))throw new Error('队列地址需要 HTTPS 喵');
@@ -13,8 +14,7 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
     if(!/^[a-f0-9]{64}$/i.test(keyHash||''))throw new Error('请在本插件重新保存一次 NAI Key，用于自动识别队列；Key 不会发送给排队服务。');
     const identity={key_hash:keyHash,user_id:randomId(),task_id:randomId()};
     const call=async(path,extra={})=>{
-        const response=await fetchImpl(url+path,{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({...identity,...extra})});
-        if(!response.ok)throw new Error(`队列连接失败（HTTP ${response.status}）`);
+        const response=await checkedFetch('queue',url+path,{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({...identity,...extra})},{fetchImpl});
         return response.json();
     };
     let lockToken,heartbeat,renewing=false,uncertain=false;
