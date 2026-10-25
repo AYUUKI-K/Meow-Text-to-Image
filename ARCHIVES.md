@@ -10,20 +10,24 @@
 
 ## 普通 SillyTavern
 
-实体子目录需要服务端插件，前端更新不能替代此步骤。
+实体子目录需要服务端插件。安装脚本随前端一起提供，无需再次下载或克隆后端。
 
-1. 在酒馆根目录的 `config.yaml` 中启用 `enableServerPlugins: true`。
-2. 在酒馆根目录执行：
+1. 更新喵喵前端，打开安装它的文件夹。用户扩展通常位于酒馆的 `data/用户名/extensions/Mewo-Text-to-Image`，全局扩展通常位于 `public/scripts/extensions/third-party/Mewo-Text-to-Image`。
+2. Windows 双击「安装归档后端.cmd」。Linux、macOS、Termux 在这个文件夹运行：
 
 ```sh
-git clone https://github.com/AYUUKI-K/Mewo-Text-to-Image plugins/miao-nai-image
+sh install-backend.sh
 ```
 
 3. 重启酒馆。打开「图片」，选「按角色卡」或「按聊天存档」，保存。
 
-已安装早期后端时，在 `plugins/miao-nai-image` 中执行 `git pull` 后重启酒馆。后端 `/api/plugins/miao-nai-image/health` 应返回 `archives: 1`。归档端点只读写当前酒馆用户的图片目录，拒绝绝对路径、父目录、符号链接和非插件图片文件。
+脚本自动寻找酒馆目录，在 `plugins/miao-nai-image-loader.mjs` 注册后端入口，启用 `config.yaml` 的 `enableServerPlugins`，修改前保存原配置备份。重复运行不会重复安装。后端直接加载当前前端目录中的代码：此后更新前端并重启酒馆即可，不需要单独更新另一份后端。不要移动或删除前端目录；移动后需重新运行安装脚本。
 
-前端和后端是两个安装位置，分别更新。后端只负责文件保存、列表和删除；NAI Key 和生图队列处理沿用现有流程。例图和不分类生图无需安装此后端。
+使用自定义位置／配置时可运行 `node install-backend.mjs --root 酒馆目录 --config 配置文件路径`。脚本应在运行酒馆的电脑或服务器上执行，局域网连接的手机无须再安装。浏览器前端没有服务端安装或修改配置的权限，不能静默代替这一次本机操作。
+
+已手动克隆到 `plugins/miao-nai-image` 的早期后端仍可 `git pull` 后重启；若要改用自动安装脚本，先将旧后端整个目录移到 `plugins` 外，避免重复加载，原有图片不受影响。安装脚本遇到旧目录或未知入口内容会停止，不覆盖。
+
+后端 `/api/plugins/miao-nai-image/health` 应返回 `archives: 1`。归档端点只读写当前酒馆用户的图片目录，拒绝绝对路径、父目录、符号链接和非插件图片文件。后端只负责文件保存、列表和删除；NAI Key 和生图队列处理沿用现有流程。例图和不分类生图无需安装此后端。
 
 ## TauriTavern／TT
 

@@ -29,7 +29,7 @@ export function registerRoutes(router,{readKey,extractPNG,fetchImpl=fetch}){
         return response;
     };
     registerArchiveRoutes(router,safe);
-    router.get('/health',safe(async(req,res)=>res.json({ready:true,vibe:true,archives:1,version:'1.3.0'})));
+    router.get('/health',safe(async(req,res)=>res.json({ready:true,vibe:true,archives:1,version:'1.3.1'})));
     router.get('/vibes',safe(async(req,res)=>res.json(await library(req))));
     router.post('/vibes/import',safe(async(req,res)=>{
         if(JSON.stringify(req.body).length>24*1024*1024)throw Error('单次导入不能超过 24 MB');
