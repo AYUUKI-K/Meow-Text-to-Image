@@ -52,7 +52,16 @@ test('regex also replaces by ID or exact name, without conflating unrelated date
     assert.equal(dated.length,2);assert.equal(dated[1].id,'new-id');
     assert.throws(()=>mergeRegexRules([], [{findRegex:'x',replaceString:''},{findRegex:'y'}]),/正则/);
 });
-test('bundled pack is exactly world 2.2 and the four supplied regex versions',async()=>{
+test('patch world upgrades cover old minor and patch versions without overwriting newer books',()=>{
+    const current='[喵喵]文生图 2.2.1',old=['[喵喵]文生图 2.0','[喵喵]文生图 2.1','[喵喵]文生图 2.2','[喵喵]文生图 2.2.0'];
+    const names=[...old,current,'[喵喵]文生图 2.2.2','[喵喵]文生图 2.2.10','[喵喵]文生图 2.3','用户书 2.2'];
+    assert.deepEqual(bundledWorldTargets(names,old[2],current),[old[2],old[0],old[1],old[3],current]);
+    assert.deepEqual(bundledWorldTargets(names,current,current),[current,...old]);
+    const selected=[old[2],current,'其他书'],chatMetadata={world_info:old[2]};
+    assert.equal(migrateWorldBindings({selected,chatMetadata},old,current),true);assert.deepEqual(selected,[current,'其他书']);assert.equal(chatMetadata.world_info,current);
+});
+
+test('bundled pack is exactly world 2.2.1 and the four supplied regex versions',async()=>{
     const book=JSON.parse(await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8'));
     const rules=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
     assert.equal(Object.keys(book.entries).length,13);

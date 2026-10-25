@@ -1,5 +1,5 @@
 import {randomId} from './browser-crypto.js';
-export const BUNDLED_RESOURCES={"schema":1,"version":"2.2-1025","revision":2026102501,"worldName":"[喵喵]文生图 2.2","worldSHA256":"5c7fc0767b6bfc11f48d1819a3cd90085a624667773bfed8dfe4ed4e3dacc7ed","regexSHA256":"d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"};
+export const BUNDLED_RESOURCES={"schema":1,"version":"2.2.1-1025","revision":2026102502,"worldName":"[喵喵]文生图 2.2.1","worldSHA256":"5484e1fed3318f3bdc9643a2b85a1fbf8a57d43890c9527ff9d89435190ecf85","regexSHA256":"d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"};
 export const RESOURCE_VERSION=BUNDLED_RESOURCES.version;
 export const WORLD_NAME=BUNDLED_RESOURCES.worldName;
 const validEntries=book=>book&&book.entries&&typeof book.entries==='object'&&!Array.isArray(book.entries)&&Object.values(book.entries).every(entry=>entry&&typeof entry==='object'&&!Array.isArray(entry));
@@ -35,8 +35,9 @@ export function mergeRegexRules(existing,incoming,makeId=randomId){
     return merged;
 }
 export function bundledWorldTargets(names,preferred,newName=WORLD_NAME){
-    const minor=Number(newName.match(/2\.(\d+)$/)?.[1]);
-    const existing=names.filter(name=>{const match=name.match(/^\[喵喵\]文生图\s*2\.(\d+)$/);return match&&Number(match[1])<=minor;});
+    const version=name=>{const match=name.match(/^\[喵喵\]文生图\s*2\.(\d+)(?:\.(\d+))?$/);return match?[Number(match[1]),Number(match[2]||0)]:null;};
+    const latest=version(newName);
+    const existing=names.filter(name=>{const current=version(name);return current&&latest&&(current[0]<latest[0]||current[0]===latest[0]&&current[1]<=latest[1]);});
     const primary=existing.includes(preferred)?preferred:existing.find(name=>/2\.0$/.test(name))||existing[0]||newName;
     return [primary,...existing.filter(name=>name!==primary)];
 }
