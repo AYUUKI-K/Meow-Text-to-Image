@@ -4,6 +4,7 @@ import {retryGeneration} from './generation-retry.js';
 import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
+import {prepareImageExport} from './image-export.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
 import { saveBase64AsFile } from '../../../utils.js';
@@ -41,6 +42,7 @@ settings.folders ??= ['miao-nai'];
 settings.profiles=settings.profiles.map(normalizeProfile);
 settings.cloudQueue ??= false;
 settings.retry500 ??= false;
+settings.exportFormat=settings.exportFormat==='jpg'?'jpg':'png';
 settings.queueUrl ||= 'https://miao-image-queue.savlu329.workers.dev';
 settings.keyHash ??= '';
 settings.rememberDirectKey ??= false;
@@ -499,16 +501,19 @@ function saveCapture(start,end) {
     const pattern=delimiterPattern(start,end);settings.startTag=start;settings.endTag=end;settings.pattern=pattern;save();renderAll();toastr.success('捕捉标签已保存');
 }
 async function downloadImage(url,name='miao-image.png') {
+    const format=settings.exportFormat;
     const response=await checkedFetch('image-download',url);
-    return saveDownload(await response.blob(),name);
+    return saveDownload(await response.blob(),name,format);
 }
-async function saveDownload(blob,name){
+async function saveDownload(blob,name,format=settings.exportFormat){
+    ({blob,name}=await inStage('image-export',()=>prepareImageExport(blob,name,format)));
     if(isTT()&&typeof hostUtils.download==='function')return hostUtils.download(blob,name,blob.type,{throwOnFailure:true});
     const objectURL=URL.createObjectURL(blob);
     const link=el('a');link.href=objectURL;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(objectURL),60000);
 }
 async function downloadImages(images){
-    await downloadImageSelection(images,{saveBlob:saveDownload});
+    const format=settings.exportFormat;
+    await downloadImageSelection(images,{saveBlob:(blob,name)=>saveDownload(blob,name,format)});
 }
 async function openImage(url,name='miao-image.png') {
     const view=el('div',undefined,'miao-image-viewer');

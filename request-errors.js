@@ -1,6 +1,6 @@
 const labels={
     'tavern-generation':'酒馆生图接口','nai-generation':'NovelAI 生图','nai-encode':'Vibe 编码',queue:'云端队列',
-    'image-save':'图片保存','chat-save':'聊天记录保存','image-list':'图片列表','image-delete':'图片删除','image-download':'图片下载',
+    'image-save':'图片保存','chat-save':'聊天记录保存','image-list':'图片列表','image-delete':'图片删除','image-download':'图片下载','image-export':'图片导出',
     'vibe-file':'Vibe 文件','translation-google':'Google 翻译','translation-bing':'Microsoft 翻译',
 };
 export function redactErrorText(value,secrets=[]){

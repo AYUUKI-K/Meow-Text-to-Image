@@ -210,6 +210,7 @@ export function createSettingsPanel({settings,save,persistSettings,theme,onTheme
         if(activeTab==='images') {
             const storage=section(body,'存储');
             const folder=field(storage,'存储目录',settings.folder,()=>{});folder.placeholder='miao-nai';
+            field(storage,'导出格式',settings.exportFormat==='jpg'?'jpg':'png',value=>{settings.exportFormat=value;save();},{options:[['png','PNG'],['jpg','JPG']]});
             commitPage=async()=>{if(folder.value!==settings.folder){await changeFolder(folder.value);render();}};
             const cleanup=section(body,'历史图片');
             let selectedFolder=settings.folder;
@@ -260,7 +261,7 @@ export function createSettingsPanel({settings,save,persistSettings,theme,onTheme
             action(controls,'清理选中日期',async()=>{if(!selected.size)throw new Error('请先勾选需要清理的日期');if(await deleteImages(selectedFolder,images.filter(i=>selected.has(i.day)).map(i=>i.name)))await refresh();});
             refresh();
         }
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.2.3'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.2.4'),updateBox);root.append(footer);
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});
     render();checkLatest(false);return root;
