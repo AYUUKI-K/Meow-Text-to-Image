@@ -1,7 +1,7 @@
 import {randomUUID,timingSafeEqual} from 'node:crypto';
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length>0&&x.length===y.length&&timingSafeEqual(x,y);};
 export class LeaseQueue {
-    constructor({now=Date.now,leaseMs=240000,waitingMs=90000,maxHoldMs=600000,maxJobs=1000}={}){Object.assign(this,{now,leaseMs,waitingMs,maxHoldMs,maxJobs});this.lanes=new Map();}
+    constructor({now=Date.now,leaseMs=240000,waitingMs=90000,maxHoldMs=600000,maxJobs=1000,renewalMs=0}={}){Object.assign(this,{now,leaseMs,waitingMs,maxHoldMs,maxJobs,renewalMs});this.lanes=new Map();}
     validate(input){
         if(!input||'key' in input||!/^([a-f0-9]{64})$/i.test(input.key_hash||'')||!/^[-a-zA-Z0-9_]{8,100}$/.test(input.user_id||'')||!/^[-a-zA-Z0-9_]{8,100}$/.test(input.task_id||''))throw new Error('无效排队信息');
     }
@@ -16,12 +16,13 @@ export class LeaseQueue {
     }
     find(lane,input){return lane.active?.user===input.user_id&&lane.active?.task===input.task_id?lane.active:lane.waiting.find(j=>j.user===input.user_id&&j.task===input.task_id);}
     view(lane,job){const active=lane.active===job;return {your_turn:active,status:active?'granted':'waiting',position:active?0:lane.waiting.indexOf(job)+1,...(active?{lock_token:job.token}:{})};}
+    touch(job){if(this.now()-job.seen>=this.renewalMs)job.seen=this.now();}
     join(input){
         this.validate(input);this.cleanup();const hash=input.key_hash.toLowerCase();let lane=this.lanes.get(hash);
         if(!lane){lane={active:null,waiting:[]};this.lanes.set(hash,lane);}
-        const previous=this.find(lane,input);if(previous){previous.seen=this.now();return this.view(lane,previous);}
+        const previous=this.find(lane,input);if(previous){this.touch(previous);return this.view(lane,previous);}
         const total=[...this.lanes.values()].reduce((sum,l)=>sum+l.waiting.length+(l.active?1:0),0);
-        if(total>=this.maxJobs||lane.waiting.length>=64)throw new Error('队列暂时满了');
+        if(total>=this.maxJobs||lane.waiting.length>=64)throw Object.assign(new Error('队列暂时满了'),{status:429});
         const job={user:input.user_id,task:input.task_id,seen:this.now()};
         if(!lane.active){lane.active={...job,token:randomUUID(),started:this.now(),expires:this.now()+this.leaseMs};return this.view(lane,lane.active);}
         lane.waiting.push(job);return this.view(lane,job);
@@ -29,8 +30,8 @@ export class LeaseQueue {
     turn(input){
         this.validate(input);this.cleanup();const lane=this.lanes.get(input.key_hash.toLowerCase()),job=lane&&this.find(lane,input);
         if(!job)throw new Error('排队任务已过期，请重新生成');
-        job.seen=this.now();
-        if(lane.active===job)job.expires=Math.min(this.now()+this.leaseMs,job.started+this.maxHoldMs);
+        this.touch(job);
+        if(lane.active===job){const expires=Math.min(this.now()+this.leaseMs,job.started+this.maxHoldMs);if(expires-job.expires>=this.renewalMs)job.expires=expires;}
         return this.view(lane,job);
     }
     release(input){

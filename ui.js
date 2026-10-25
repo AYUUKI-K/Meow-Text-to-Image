@@ -315,7 +315,7 @@ export function createSettingsPanel({settings,save,persistSettings,exportPromptF
             refresh();
         }
         paintResourceEntries();
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.3.6'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 1.3.7'),updateBox);root.append(footer);
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});
     root.addEventListener('miao-resources-changed',paintResourceEntries);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {LeaseQueue} from '../queue-service/queue.mjs';
 import {createQueueServer} from '../queue-service/service.mjs';
-import {runWithQueue,fingerprintKey} from '../cloud-queue.js';
+import {runWithQueue,fingerprintKey,queuePollMs} from '../cloud-queue.js';
 const hash=key=>createHash('sha256').update(key).digest('hex');
 const identity=(key,user)=>({key_hash:hash(key),user_id:'user-id-'+user,task_id:'task-id-'+user});
 test('A/B share key one; C with key two is granted independently',()=>{
@@ -21,6 +21,25 @@ test('stale holders expire and heartbeats keep a waiter alive',()=>{
  q.join(a);q.join(b);now=50;assert.equal(q.turn(b).your_turn,false);now=101;assert.equal(q.turn(b).your_turn,true);
 });
 test('key hashing is stable and trims spaces',async()=>assert.equal(await fingerprintKey(' demo-key '),hash('demo-key')));
+
+test('distant waiters poll less and return to fast polling near the front',async()=>{
+ assert.equal(queuePollMs(1),5000);assert.equal(queuePollMs(64),15000);
+ const waits=[],positions=[64,3,1];let generated=0;
+ await runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async ms=>waits.push(ms),fetchImpl:async url=>{
+  if(url.endsWith('/complete'))return Response.json({released:true});
+  return Response.json(positions.length?{your_turn:false,position:positions.shift()}:{your_turn:true,lock_token:'lease'});
+ },generate:async()=>{generated++;}});
+ assert.deepEqual(waits,[15000,10000,5000]);assert.equal(generated,1);
+});
+
+test('generation renews its lease every minute and stops heartbeats on completion',async t=>{
+ t.mock.timers.enable({apis:['setInterval']});let finish,turns=0;
+ const running=runWithQueue({url:'https://queue.example',keyHash:hash('one'),fetchImpl:async url=>{if(url.endsWith('/my-turn'))turns++;return Response.json({your_turn:true,lock_token:'lease'});},generate:()=>new Promise(resolve=>finish=resolve)});
+ while(!finish)await new Promise(resolve=>setImmediate(resolve));
+ t.mock.timers.tick(59999);assert.equal(turns,0);t.mock.timers.tick(1);
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(turns,1);
+ finish('image');await running;t.mock.timers.tick(60000);assert.equal(turns,1);
+});
 
 test('temporary queue failures retry the same identity without duplicating generation',async()=>{
  const joins=[];let generated=0;

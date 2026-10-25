@@ -10,7 +10,9 @@ export function validateQueueURL(value) {
 export async function fingerprintKey(key) {
     return sha256(key.trim());
 }
-export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()=>{},canContinue=()=>true,onReleaseError=()=>{},fetchImpl=fetch,pollMs=5000,heartbeatMs=15000,retryDelays=[1000,3000,5000],sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
+// Keep the next waiter responsive; distant jobs need fewer position queries.
+export const queuePollMs=position=>Math.min(15000,5000+Math.max(0,position-1)*2500);
+export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()=>{},canContinue=()=>true,onReleaseError=()=>{},fetchImpl=fetch,pollMs,heartbeatMs=60000,retryDelays=[1000,3000,5000],sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
     url=validateQueueURL(url);
     if(!/^[a-f0-9]{64}$/i.test(keyHash||''))throw new Error('请在本插件重新保存一次 NAI Key，用于自动识别队列；Key 不会发送给排队服务。');
     const identity={key_hash:keyHash,user_id:randomId(),task_id:randomId()};
@@ -40,7 +42,7 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
             if(!canContinue())throw new Error('原消息已变化，已退出待生成队列');
             if(lockToken)break;
             onStatus(`云端排队 · 前面 ${state.position||1} 张`);
-            await sleep(pollMs);state=await call('/my-turn');
+            await sleep(pollMs??queuePollMs(state.position));state=await call('/my-turn');
         }
         onStatus('正在生图');
         heartbeat=setInterval(async()=>{
