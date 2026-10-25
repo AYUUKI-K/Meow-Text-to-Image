@@ -26,7 +26,19 @@
 npx wrangler deploy --config wrangler.jsonc
 ```
 
-Cloudflare 版每个 Key 使用一个独立的 Durable Object，并持久保存排队状态；过期状态由 alarm 清理。它使用当前账号的 Workers/Durable Objects 免费额度，具体额度见 [Cloudflare 官方定价](https://developers.cloudflare.com/durable-objects/platform/pricing/)。
+Cloudflare 版每个 Key 使用一个独立的 Durable Object，并持久保存排队状态；过期状态由 alarm 清理。它消耗当前 Cloudflare 账号的 Workers/Durable Objects 额度，免费或付费限额取决于账号套餐，具体额度见 [Cloudflare 官方定价](https://developers.cloudflare.com/durable-objects/platform/pricing/)。
+
+## 用户数量与连接排查
+
+队列按 Key 分片，支持多把 Key 同时使用；单把 Key 一次只放行一个任务，最多保留 64 个等待任务。同一 Key 的排队人数多时，等待是预期行为，不代表所有用户都被挤到一个总队列。不同 Key 如果属于同一个 NAI 账号，仍会受到 NAI 自己的账号限制。
+
+服务没有固定的「最多多少位用户」保证。仓库覆盖了 160 个模拟任务、20 把 Key 的隔离与交接测试，不代表已经完成线上容量压测。需要根据同时排队人数、等待时间和 Cloudflare 实际用量评估。
+
+按 2026-10-26 核对的官方额度，Workers Free 和 Durable Objects Free 的请求额度分别为每天 100,000 次；SQLite 写入和运行时长也有额度，账号中其他服务可能共同消耗额度。等待者每 5 秒查询一次，例如 100 个任务持续等待 1 小时，仅查询就约 72,000 次，还没有计入入队、心跳、释放和清理。不能将免费版当作无限容量；持续大量使用时应查看后台用量并按需要调整套餐。[Workers 定价](https://developers.cloudflare.com/workers/platform/pricing/)、[Durable Objects 定价](https://developers.cloudflare.com/durable-objects/platform/pricing/)。
+
+普通酒馆的 NAI 生图请求经过酒馆服务器，云端排队由浏览器直接联网；服务器能访问 NAI 不代表当前浏览器能访问队列域名。在发生错误的同一浏览器打开 `队列地址/ping`，正常应看到包含 `ready: true` 的 JSON。打不开时先排查该设备的网络、代理和队列地址；只有个别用户报告时不能直接判断服务容量已满。
+
+1.3.6 起，排队 POST 仍发送 JSON 字节，但使用无需跨域预检的媒体类型；无需更新队列服务即可兼容现有 Cloudflare 和 Node 版。连接失败会按原任务身份有限重试，连接及响应体均有超时。未取得生成权限时不调用 NAI，也不自动绕开队列。
 
 ## 备选服务部署：Render
 
@@ -57,7 +69,7 @@ node queue-service/service.mjs
 - 隔离单位是 API Key，不是 NAI 账号。不同 Key 如果属于同一个账号，NAI 的账号级并发、额度或限流仍可能共同生效；网络或平台公共资源也不属于排队锁可以保证的范围。
 - Node/Render 版为内存队列，只部署**一个实例**。重启会清空排队；Cloudflare 版由 Durable Object 持久协调。两者都不会自动重放可能已扣费的请求。
 - 等待中的任务持续轮询；断线约 90 秒后移除。持有生成权限的任务有超时租约，关闭页面不会永久卡住其他人。
-- 普通生成错误会释放排号。可选开启「500 后排队重试」：生图接口明确返回 HTTP 500 后等待 15、30、60 秒，最多重试 3 次，每次重新入队；开关默认关闭。500 可能已扣费，重试不能保证不会重复扣费。它不能锁住官网或其他插件的请求。
+- 普通生成错误会释放排号。「遇到占线自动排队」默认开启：生图接口明确返回可识别的占线、限流或服务不可用错误（如 409、423、429、500、502、503）后等待 15、30、60 秒，最多重试 3 次，每次重新入队；服务要求更长等待时也会在上限内遵守。Key 异常、额度不足等明确错误不重试。500 可能已扣费，重试不能保证不会重复扣费。它不能锁住官网或其他插件的请求。
 - 网络超时或断网不会自动重复调用 NAI，此时等待租约自然到期，降低撞车风险。
 - 服务不在日志或公共接口输出 Key 指纹列表，也不显示其他用户的 Key。任意 HTTP 请求若携带 `key` 字段会被拒绝。
 

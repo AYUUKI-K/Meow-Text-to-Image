@@ -1,5 +1,6 @@
 import {randomId,sha256} from './browser-crypto.js';
-import {checkedFetch} from './request-errors.js';
+import {queueJSON} from './queue-network.js';
+import {stageError} from './request-errors.js';
 export function validateQueueURL(value) {
     const url=new URL(value);
     if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['127.0.0.1','localhost'].includes(url.hostname)))throw new Error('队列地址需要 HTTPS 喵');
@@ -14,25 +15,27 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
     if(!/^[a-f0-9]{64}$/i.test(keyHash||''))throw new Error('请在本插件重新保存一次 NAI Key，用于自动识别队列；Key 不会发送给排队服务。');
     const identity={key_hash:keyHash,user_id:randomId(),task_id:randomId()};
     const call=async(path,extra={})=>{
+        const cleanup=['/complete','/leave-queue'].includes(path),retries=cleanup?Math.min(1,retryDelays.length):retryDelays.length;
         // Queue operations are idempotent for this identity. Retrying them never
         // resubmits an image request, including when the join response was lost.
         for(let attempt=0;;attempt++){
-            if(!['/complete','/leave-queue'].includes(path)&&!canContinue())throw Error('原消息已变化，已退出待生成队列');
+            if(!cleanup&&!canContinue())throw Error('原消息已变化，已退出待生成队列');
             try{
-                const response=await checkedFetch('queue',url+path,{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({...identity,...extra})},{fetchImpl});
-                return await response.json();
+                return await queueJSON(url+path,{method:'POST',body:{...identity,...extra}},{fetchImpl,timeoutMs:cleanup?5000:15000});
             }catch(error){
                 const transient=[429,500,502,503,504].includes(error.status)||['TypeError','TimeoutError','AbortError'].includes(error.name);
-                if(!transient||attempt>=retryDelays.length)throw error;
-                onStatus(`队列连接重试 · ${attempt+1}/${retryDelays.length}`);
+                if(!transient||attempt>=retries)throw error;
+                onStatus(`队列连接重试 · ${attempt+1}/${retries}`);
                 await sleep(Math.max(retryDelays[attempt],Math.min(error.retryAfterMs||0,120000)));
             }
         }
     };
-    let lockToken,heartbeat,renewing=false,uncertain=false;
+    let lockToken,heartbeat,renewing=false,uncertain=false,generationStarted=false,joined=false;
     try {
         let state=await call('/join-queue',{greeting:greeting.slice(0,15)});
+        joined=true;
         while(true) {
+            if(typeof state.your_turn!=='boolean'||(state.your_turn?(typeof state.lock_token!=='string'||!state.lock_token||state.lock_token.length>200):(!Number.isInteger(state.position)||state.position<1)))throw stageError('queue',Error('队列状态无效，请检查队列地址或稍后重试'));
             if(state.your_turn===true&&state.lock_token)lockToken=state.lock_token;
             if(!canContinue())throw new Error('原消息已变化，已退出待生成队列');
             if(lockToken)break;
@@ -44,10 +47,13 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
             if(renewing)return;renewing=true;
             try {await call('/my-turn',{lock_token:lockToken});}catch {onStatus('排队连接暂时中断');}finally{renewing=false;}
         },heartbeatMs);
-        try{return await generate();}
+        try{generationStarted=true;return await generate();}
         catch(error){uncertain=['AbortError','TimeoutError','TypeError'].includes(error.name);throw error;}
+    }catch(error){
+        if(error.source==='queue'&&!generationStarted)error.message+='\n尚未取得排队权限，未发送新的生图请求。请检查当前浏览器能否访问队列地址。';
+        throw error;
     }finally {
         clearInterval(heartbeat);
-        if(!uncertain){try {await call(lockToken?'/complete':'/leave-queue',lockToken?{lock_token:lockToken}:{});}catch(error){onReleaseError(error);}}
+        if(joined&&!uncertain){try {await call(lockToken?'/complete':'/leave-queue',lockToken?{lock_token:lockToken}:{});}catch(error){onReleaseError(error);}}
     }
 }

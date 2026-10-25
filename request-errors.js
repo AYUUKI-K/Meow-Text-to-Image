@@ -58,6 +58,7 @@ export function stageError(source,error){
     let reason;
     if(source==='image-save')reason='图片已生成，但保存到酒馆失败；请先检查存储，避免重复生图扣费';
     else if(source==='chat-save')reason='图片已生成，但聊天记录保存失败，请检查酒馆连接';
+    else if(source==='queue'&&['TimeoutError','AbortError','TypeError'].includes(name))reason=name==='TypeError'?'连接队列服务失败，请检查当前浏览器的网络或代理':'队列连接超时或被中断，请稍后重试';
     else if(['TimeoutError','AbortError'].includes(name))reason='请求超时或被中断；结果尚不确定，请先检查再重试';
     else if(name==='TypeError')reason='连接失败，请检查网络或代理；结果尚不确定，不会自动重试';
     else reason=String(error?.message||error||'操作失败');

@@ -2,6 +2,8 @@ import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
 import {retryGeneration} from './generation-retry.js';
 import {waitForGeneration} from './generation-delay.js';
+import {showPagePopup} from './page-popup.js';
+import {queueJSON} from './queue-network.js';
 import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
@@ -90,6 +92,7 @@ const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHe
 }});
 function el(tag,text,cls) { const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n; }
 async function showPopup(content,type,input='',options={}){
+    if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-prompt-view,.miao-image-viewer'))return showPagePopup(content,{...options,parent:settingsHost?.closest('dialog')});
     let dispose=()=>{};
     try{return await callGenericPopup(content,type,input,{...options,animation:'none',onOpen:popup=>{
         const dialog=popup.dlg;dialog.classList.add('miao-modal');
@@ -559,8 +562,7 @@ async function openImage(url,name='miao-image.png') {
 }
 async function queueStatus() {
     const url=validateQueueURL(settings.queueUrl);
-    const response=await checkedFetch('queue',url+'/ping',{credentials:'omit',signal:AbortSignal.timeout(60000)});
-    return response.json();
+    return queueJSON(url+'/ping');
 }
 async function requestImage(request,task,canContinue) {
     const scope=task||{keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
