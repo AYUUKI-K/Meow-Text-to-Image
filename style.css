@@ -699,7 +699,9 @@
     box-shadow: none !important;
 }
 
-.miao-settings-dialog:has([data-section=overview]) {
+/* Native popups can size to content; TT page layers need a definite height
+ * so their flex-based scrolling body does not collapse on the mobile home page. */
+.miao-modal.miao-settings-dialog:has([data-section=overview]) {
     height: auto !important;
 }
 
