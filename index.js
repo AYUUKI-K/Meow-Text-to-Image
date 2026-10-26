@@ -701,14 +701,14 @@ async function openSettings(initialTab) {
     if(initialTab!=='resources')initialTab=undefined;
     if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:initialTab}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
+        confirmDeleteProfiles:profiles=>{const question=el('div'),list=el('ul',undefined,'miao-delete-profile-list');question.append(el('p',`删除选中的 ${profiles.length} 个串？`));for(const profile of profiles)list.append(el('li',profile.name));question.append(list,el('p','只移除配置，保留已保存的例图文件和聊天图片。'));return confirmSettings(question,`删除 ${profiles.length} 个串`);},
         refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl}}),getPreviewState:profile=>profilePreviews.state(profile),
         exportPromptFile,restorePromptPreview:async(preview,profile)=>{
             const data=await previewPNG(preview);ensureProfileIds([profile]);
             const url=await inStage('image-save',()=>saveBase64AsFile(data,validateFolder(settings.folder),`sample-${Date.now()}-${randomId()}`,'png'));
             return {url,signature:sampleSignature(profile,settings.vibeLibrary,settings.samplePrompt),created:Date.now()};
         },
-        onChange:async action=>{
-            if(action==='confirm-delete')return confirmSettings(`删除配置「${settings.profiles[settings.active].name}」？`,'删除配置');
+        onChange:async()=>{
             autoSession=null;refreshFloating();renderAll();
         },
         saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});toastr.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},

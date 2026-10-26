@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {defaults} from '../core.js';
-import {ensureProfileIds,moveProfile,sampleRequest,sampleSignature,createProfilePreviews} from '../profile-previews.js';
+import {ensureProfileIds,moveProfile,planProfileRemoval,sampleRequest,sampleSignature,createProfilePreviews} from '../profile-previews.js';
 test('samples share editable prompt, square size and seed, without mutating the real profile',()=>{
  const p={...defaults,width:1216,height:832,seed:-1,positive:'front',positiveSuffix:'tail',vibeMode:'random',vibes:[{id:'a',key:'one',strength:.4},{id:'b',key:'two',strength:.5}]},before=JSON.stringify(p);
  const a=sampleRequest(p,[],'adult cat, flowers'),b=sampleRequest(p,[],'adult cat, flowers');
@@ -42,4 +42,11 @@ test('reordering while an example is queued still attaches the result to the sam
  const a={...defaults,id:'a'},b={...defaults,id:'b'},settings={profiles:[a,b],active:0},jobs=[];let calls=0;
  const previews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>[],enqueue:run=>new Promise((resolve,reject)=>jobs.push(()=>run().then(resolve,reject))),generate:async()=>{calls++;return 'png';},saveImage:async()=>'/a.png',persist:async()=>{}});
  const pending=previews.refresh(a);moveProfile(settings,'a',1);await jobs.shift()();await pending;assert.equal(calls,1);assert.equal(a.preview.url,'/a.png');assert.equal(b.preview,undefined);assert.equal(settings.profiles[settings.active],a);
+});
+
+test('bulk removal preserves survivor previews and selection, and chooses the next neighbour if current is removed',()=>{
+ const profiles=['a','b','c','d'].map(id=>({...defaults,id,name:id,preview:{url:'/'+id+'.png'}})),settings={profiles,active:2},before=JSON.stringify(settings);
+ const plan=planProfileRemoval(settings,['a','d']);assert.deepEqual(plan.profiles.map(p=>p.id),['b','c']);assert.equal(plan.profiles[plan.active],profiles[2]);assert.equal(plan.profiles[0].preview.url,'/b.png');assert.equal(JSON.stringify(settings),before);
+ const next=planProfileRemoval(settings,['b','c']);assert.equal(next.profiles[next.active].id,'d');assert.equal(planProfileRemoval({...settings,active:3},['d']).profiles[2].id,'c');
+ for(const ids of [[],['missing'],['a','b','c','d']])assert.throws(()=>planProfileRemoval(settings,ids));assert.equal(JSON.stringify(settings),before);
 });

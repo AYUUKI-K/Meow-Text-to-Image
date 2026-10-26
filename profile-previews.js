@@ -22,6 +22,15 @@ export function moveProfile(settings,id,offset){
     if(from<0||![-1,1].includes(offset)||to<0||to>=list.length)return false;
     const active=list[settings.active],[profile]=list.splice(from,1);list.splice(to,0,profile);settings.active=Math.max(0,list.indexOf(active));return true;
 }
+export function planProfileRemoval(settings,ids){
+    const selected=new Set(ids),removed=settings.profiles.filter(profile=>selected.has(profile.id));
+    if(!selected.size)throw Error('请先勾选需要删除的串');
+    if(removed.length!==selected.size)throw Error('所选配置已变化，请重新选择');
+    const profiles=settings.profiles.filter(profile=>!selected.has(profile.id));
+    if(!profiles.length)throw Error('至少保留一个配置');
+    const current=settings.profiles[settings.active],before=settings.profiles.slice(0,settings.active).filter(profile=>!selected.has(profile.id)).length;
+    return {profiles,removed,active:profiles.includes(current)?profiles.indexOf(current):Math.min(before,profiles.length-1)};
+}
 export function sampleRequest(profile,library=[],prompt=SAMPLE_PROMPT){
     if(typeof prompt!=='string'||!prompt.trim())throw Error('请填写例图提示词');
     const request=buildRequest({...profile,width:512,height:512,seed:246813579},prompt);
