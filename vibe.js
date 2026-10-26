@@ -14,7 +14,7 @@ export function selectVibes(profile,library=[],random=Math.random){
 }
 export function importVibeData(data,fallbackName='Vibe'){
     const sources=Array.isArray(data?.vibes)?data.vibes:[data];
-    if(!sources.length||sources.length>64)throw Error('一次最多导入 64 个 Vibe');
+    if(!sources.length||sources.length>128)throw Error('一次最多导入 128 个 Vibe');
     return sources.map((source,index)=>{
         const encodings={};
         for(const [model,variants] of Object.entries(source?.encodings||{})){

@@ -7,12 +7,13 @@ import {sizePresets,pageItems,defaults,compareImagesNewest,supportsVarietyBoost}
 import {vibeModelKeys} from './vibe.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFile,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     let activeTab=initialTab||(matchMedia('(max-width:680px), (max-height:500px)').matches?'overview':'generation'),fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft,sortingProfiles=false;
     const safe=fn=>async()=>{try{await fn();}catch(e){onError(e);}};
     const updateBox=node('div',undefined,'miao-update-status');updateBox.setAttribute('aria-live','polite');
     let paintResources=()=>{},paintPreviews=()=>{},renderEpoch=0,batchExport=false;const exportSelection=new Set();
+    let batchVibes=false,vibeTransferBusy=false;const vibeSelection=new Set();
     const paintResourceEntries=()=>{const available=getResourceStatus().available;for(const entry of root.querySelectorAll('[data-resource-entry]')){entry.dataset.resourceUpdate=String(available);entry.querySelector('.miao-resource-hint')?.replaceChildren(available?'有更新':'');}paintResources();};
     let updateData=null,updateBusy=false,updateError='',updated=false;
     function paintUpdate(){
@@ -45,6 +46,13 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         wrap.append(control);parent.append(wrap);return control;
     }
     function section(parent,title) {const box=node('section',undefined,'miao-section');box.append(node('h3',title));parent.append(box);return box;}
+    function showPreparedFile(parent,result){
+        parent.replaceChildren();parent.hidden=!result?.name;if(parent.hidden)return;
+        const filename=field(parent,'文件名',result.name,()=>{});filename.readOnly=true;filename.onclick=()=>filename.select();
+        const actions=node('div',undefined,'miao-actions');parent.append(actions);
+        if(result.share)action(actions,'分享文件',result.share,true);
+        action(actions,'保存文件',result.save);action(actions,'复制文件名',result.copy);parent.scrollIntoView({block:'nearest'});
+    }
     async function profileVibes(parent,p){
         parent.append(node('p','读取中…','miao-muted'));
         try{
@@ -193,11 +201,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const exportReady=node('div',undefined,'miao-prompt-export-ready');exportReady.hidden=true;prompts.append(exportReady);
             const runExport=async profiles=>{
                 exportReady.replaceChildren();exportReady.hidden=true;
-                const result=await exportPromptFile(profiles);if(!result?.name)return;
-                const filename=field(exportReady,'文件名',result.name,()=>{});filename.readOnly=true;filename.onclick=()=>filename.select();
-                const actions=node('div',undefined,'miao-actions');exportReady.append(actions);
-                if(result.share)action(actions,'分享文件',result.share,true);
-                action(actions,'保存文件',result.save);action(actions,'复制文件名',result.copy);exportReady.hidden=false;exportReady.scrollIntoView({block:'nearest'});
+                showPreparedFile(exportReady,await exportPromptFile(profiles));
             };
             action(transfer,'导出 NAI 串',()=>runExport(p));
             promptUpload.onchange=safe(async()=>{const file=promptUpload.files?.[0];if(!file)return;importPrompts.disabled=true;try{
@@ -233,14 +237,35 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         } else if(activeTab==='vibes') {
             const manage=section(body,'Vibe');
             const guide=node('a','Vibe 文档');guide.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/main/VIBE.md';guide.target='_blank';guide.rel='noopener';manage.append(guide);
-            const upload=node('input');upload.type='file';upload.accept='.naiv4vibe,.naiv4vibeBundle,.json,image/png,image/jpeg,image/webp';upload.multiple=true;upload.hidden=true;manage.append(upload);
+            const upload=node('input');upload.type='file';upload.accept='.zip,.naiv4vibe,.naiv4vibeBundle,.json,image/png,image/jpeg,image/webp';upload.multiple=true;upload.hidden=true;upload.dataset.miaoVibeImport='true';manage.append(upload);
             const actions=node('div',undefined,'miao-actions');manage.append(actions);
+            manage.append(node('p','支持多选文件或导入 ZIP；可勾选多个 Vibe 打包导出。','miao-muted'));
+            const status=node('p','','miao-muted');status.setAttribute('role','status');manage.append(status);
+            const exportReady=node('div',undefined,'miao-prompt-export-ready');exportReady.hidden=true;manage.append(exportReady);
             const list=node('div',undefined,'miao-vibe-list');manage.append(list);
+            let revision=0;
             const refresh=async()=>{
+                const current=++revision,scrollTop=list.querySelector('[data-scroll-key]')?.scrollTop||0;
                 list.replaceChildren(node('p','读取中…','miao-muted'));
                 try{
-                    const items=await listVibes();list.replaceChildren();
+                    const items=await listVibes();if(current!==revision||epoch!==renderEpoch)return;list.replaceChildren();
+                    for(const id of vibeSelection)if(!items.some(item=>item.id===id))vibeSelection.delete(id);
                     if(!items.length)list.append(node('p','暂无 Vibe','miao-muted'));
+                    if(batchVibes){
+                        const batch=node('div',undefined,'miao-profile-export miao-vibe-export'),toolbar=node('div',undefined,'miao-actions'),choices=node('div',undefined,'miao-profile-export-choices');choices.dataset.scrollKey='vibe-export';
+                        const count=node('span',undefined,'miao-selection-count'),checks=[];count.setAttribute('role','status');batch.append(count,toolbar,choices);list.append(batch);
+                        const update=()=>{count.textContent=`已选 ${vibeSelection.size} / ${items.length} 个 Vibe`;download.disabled=!vibeSelection.size||vibeTransferBusy;for(const check of checks)check.closest('label').dataset.selected=String(check.checked);};
+                        action(toolbar,'全选',()=>{for(const item of items)vibeSelection.add(item.id);for(const check of checks)check.checked=true;update();});
+                        action(toolbar,'取消全选',()=>{vibeSelection.clear();for(const check of checks)check.checked=false;update();});
+                        const download=action(toolbar,'导出选中 Vibe',async()=>{
+                            if(vibeTransferBusy)return;
+                            const ids=items.filter(item=>vibeSelection.has(item.id)).map(item=>item.id);vibeTransferBusy=true;status.textContent='正在打包 Vibe…';exportReady.hidden=true;importButton.disabled=true;
+                            try{showPreparedFile(exportReady,await exportVibeFiles(ids));status.textContent=`已打包 ${ids.length} 个 Vibe`;}
+                            catch(error){status.textContent=error.message;throw error;}
+                            finally{vibeTransferBusy=false;importButton.disabled=false;if(epoch!==renderEpoch&&activeTab==='vibes')render();else await refresh();}
+                        },true);
+                        for(const item of items){const label=node('label',undefined,'miao-switch-row'),check=node('input');check.type='checkbox';check.checked=vibeSelection.has(item.id);check.setAttribute('aria-label','勾选 Vibe '+item.name);check.onchange=()=>{if(check.checked)vibeSelection.add(item.id);else vibeSelection.delete(item.id);update();};label.append(check,node('span',item.name));choices.append(label);checks.push(check);}update();choices.scrollTop=scrollTop;
+                    }
                     if(items.length){if(!items.some(item=>item.id===selectedVibeId))selectedVibeId=items[0].id;field(list,'当前 Vibe',selectedVibeId,value=>{selectedVibeId=value;refresh();},{options:items.map(item=>[item.id,item.name])});}
                     for(const item of items.filter(item=>item.id===selectedVibeId)){
                         const card=node('section',undefined,'miao-vibe-item');
@@ -258,8 +283,15 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     }
                 }catch(error){list.replaceChildren(node('p',error.message,'miao-muted'));}
             };
-            upload.onchange=safe(async()=>{for(const file of upload.files){const imported=await importVibeFile(file);if(imported?.length)selectedVibeId=imported.at(-1).id;}upload.value='';await refresh();});
-            action(actions,'导入 Vibe / 图片',()=>upload.click(),true);action(actions,'刷新列表',refresh);
+            upload.onchange=safe(async()=>{
+                const files=Array.from(upload.files||[]);upload.value='';if(!files.length||vibeTransferBusy)return;
+                vibeTransferBusy=true;importButton.disabled=true;status.textContent='正在导入 Vibe…';
+                try{const imported=await importVibeFiles(files);if(imported?.length)selectedVibeId=imported.at(-1).id;status.textContent=`已导入 ${imported.length} 个 Vibe`;}
+                catch(error){status.textContent=error.message;throw error;}
+                finally{vibeTransferBusy=false;importButton.disabled=false;if(epoch!==renderEpoch&&activeTab==='vibes')render();else await refresh();}
+            });
+            const importButton=action(actions,'导入 Vibe / 图片',()=>upload.click(),true);importButton.disabled=vibeTransferBusy;
+            const batchButton=action(actions,batchVibes?'完成多选':'批量导出 Vibe',async()=>{batchVibes=!batchVibes;batchButton.textContent=batchVibes?'完成多选':'批量导出 Vibe';await refresh();});action(actions,'刷新列表',refresh);
             refresh();
         } else if(activeTab==='resources') {
             const resources=section(body,'世界书与正则');
@@ -340,7 +372,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             refresh();
         }
         paintResourceEntries();
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 2.0.0'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','喵喵文生图 · 2.1.0'),updateBox);root.append(footer);
         if(keep){const restore=()=>{if(epoch!==renderEpoch)return;for(const item of root.querySelectorAll('[data-scroll-key]')){const position=positions.get(item.dataset.scrollKey);if(position){item.scrollTop=position.top;item.scrollLeft=position.left;}}if(scroller&&outerTop!==undefined)scroller.scrollTop=outerTop;};restore();requestAnimationFrame(restore);}
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});

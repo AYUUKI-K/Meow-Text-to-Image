@@ -1599,6 +1599,10 @@
     gap: 8px;
 }
 
+.miao-vibe-export>.miao-actions {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+}
+
 .miao-danger:hover:not(:disabled) {
     background: color-mix(in srgb,crimson 12%,var(--mi-bg));
     border-color: color-mix(in srgb,crimson 60%,var(--mi-line));
@@ -1802,6 +1806,10 @@
         grid-template-columns: repeat(2,minmax(0,1fr));
     }
 
+    .miao-vibe-export>.miao-actions>.miao-button:last-child {
+        grid-column: 1/-1;
+    }
+
     .miao-profile-export-choices {
         grid-template-columns: minmax(0,1fr);
         max-height: 232px;
@@ -1849,6 +1857,10 @@
 
     .miao-profile-export>.miao-actions {
         grid-template-columns: repeat(2,minmax(0,1fr));
+    }
+
+    .miao-vibe-export>.miao-actions>.miao-button:last-child {
+        grid-column: 1/-1;
     }
 
     .miao-profile-export-choices {

@@ -10,6 +10,7 @@ export function naiPayload(request,references={}){
 }
 export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fetchImpl=fetch}){
     settings.vibeLibrary??=[];
+    let importing=false;
     const filename=id=>{if(!/^[a-f0-9-]{36}$/i.test(id||''))throw Error('无效 Vibe ID');return `miao-vibe-${id}.json`;};
     const filePath=id=>'/user/files/'+filename(id);
     const st=async(endpoint,body)=>{
@@ -33,10 +34,20 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
     };
     return {
         async list(){return structuredClone(settings.vibeLibrary);},
+        async export(ids){
+            if(!Array.isArray(ids)||!ids.length||new Set(ids).size!==ids.length)throw Error('请勾选要导出的 Vibe');
+            const items=[];for(const id of ids)items.push((importVibeData(await read(id)))[0]);
+            return items;
+        },
         async import({data,name,image}){
+            if(importing)throw Error('已有 Vibe 正在导入，请等待完成后再试');
             const items=image?importVibeData({name,image:stripImage(image),encodings:{}},name):importVibeData(data,name);
             if(settings.vibeLibrary.length+items.length>128)throw Error('最多保存 128 个 Vibe，请先清理列表');
-            const saved=[];for(const item of items){item.id=randomId();saved.push(await write(item));}return saved;
+            const saved=[];importing=true;
+            try{for(const item of items){item.id=randomId();saved.push(await write(item));}}
+            catch(error){throw Error(`已导入 ${saved.length} / ${items.length} 个 Vibe，后续保存失败：${error.message}`);}
+            finally{importing=false;}
+            return saved;
         },
         async rename({id,name}){const item=await read(id);item.name=String(name||'Vibe').slice(0,100);return write(item);},
         async delete(id){await st('delete',{path:filePath(id)});settings.vibeLibrary=settings.vibeLibrary.filter(item=>item.id!==id);save();},

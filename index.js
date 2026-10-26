@@ -29,6 +29,7 @@ import {createDirectClient} from './direct-client.js';
 import {createKeyVault,saveCurrentKey} from './direct-key.js';
 import {appendImageVersion,imageVersions,selectImageVersion,markImageVersionsDeleted} from './image-history.js';
 import {selectVibes,profileVibeEnabled} from './vibe.js';
+import {readVibeFiles,createVibePackage} from './vibe-files.js';
 import {createExtensionUpdater} from './updates.js';
 import {createResourceUpdater} from './resource-updates.js';
 import {archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation,rememberImage,archiveItems} from './image-archives.js';
@@ -567,6 +568,9 @@ async function exportPromptFile(profile){
     for(const snapshot of snapshots){const preview=await exportPreview(snapshot.preview?.url);items.push(promptFileData(snapshot,preview));}
     const data=bundle?promptBundleData(items):items[0],blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),name=bundle?`喵喵NAI-配置包-${items.length}串.json`:promptFilename(data.name);
     if(blob.size>(bundle?PROMPT_BUNDLE_LIMIT:PROMPT_FILE_LIMIT))throw Error(bundle?'配置包不能超过 20 MB':'NAI 串文件不能超过 1 MB');
+    return prepareFileDownload(blob,name);
+}
+function prepareFileDownload(blob,name){
     const ios=isTT()&&(window.__TAURITAVERN_HOST__?.platform==='ios'||/iPad|iPhone|iPod/.test(navigator.userAgent)||navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
     if(!ios)return saveFile(blob,name);
     const file=new File([blob],name,{type:blob.type}),result={name,save:()=>saveFile(file,name),copy:async()=>{
@@ -640,13 +644,15 @@ async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabl
     }
     view.append(actions,note,fallback,translated);await showPopup(view,POPUP_TYPE.TEXT,'',{wide:true,onOpen:value=>{popup=value;popup.dlg.classList.add('miao-content-dialog');}});
 }
-async function importVibeFile(file){
-    if(file.size>18*1024*1024)throw Error('文件不能超过 18 MB');
-    const name=file.name.replace(/\.[^.]+$/,'');
-    if(/\.(naiv4vibe|naiv4vibebundle|json)$/i.test(file.name))return direct.import({data:JSON.parse(await file.text()),name});
-    if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('请选择 .naiv4vibe、.naiv4vibeBundle 或 PNG/JPEG/WebP');
-    const image=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(Error('图片读取失败'));reader.readAsDataURL(file);});
-    return direct.import({image,name});
+async function importVibeFiles(files){
+    const items=await readVibeFiles(files);
+    const result=await direct.import({data:{vibes:items}});
+    try{await persistSettings();}catch(error){throw Error(`已写入 ${result.length} 个 Vibe，但列表保存失败，请点击设置「保存」后重试：${error.message}`);}
+    toastr.success(`已导入 ${result.length} 个 Vibe`);return result;
+}
+async function exportVibeFiles(ids){
+    const {blob,name}=await createVibePackage(await direct.export(ids));
+    return prepareFileDownload(blob,name);
 }
 function changeFolder(value) {
     settings.folder=validateFolder(value);
@@ -714,7 +720,7 @@ async function openSettings(initialTab) {
         saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});toastr.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
-        listVibes:()=>direct.list(),importVibeFile,
+        listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
         directKeyStatus:async()=>{const status=await directVault.status(),key=await directVault.get();return {...status,ready:Boolean(key&&settings.keyHash&&await fingerprintKey(key)===settings.keyHash),serverSaved:!!settings.keyHash};},clearDirectKey:()=>directVault.clear(),
         closeSettings:()=>settingsPopup?.completeAffirmative?settingsPopup.completeAffirmative():settingsPopup?.dlg.close(),
         setRememberDirectKey:async value=>{await directVault.remember(value);settings.rememberDirectKey=value;save();},
