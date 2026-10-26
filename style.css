@@ -699,9 +699,7 @@
     box-shadow: none !important;
 }
 
-/* Native popups can size to content; TT page layers need a definite height
- * so their flex-based scrolling body does not collapse on the mobile home page. */
-.miao-modal.miao-settings-dialog:has([data-section=overview]) {
+.miao-settings-dialog:has([data-section=overview]) {
     height: auto !important;
 }
 
@@ -1112,7 +1110,9 @@
     overflow:hidden;
 }
 .miao-page-popup.miao-settings-dialog>.popup-body>.popup-content {
-    flex:1 1 0;
+    /* Keep the content's intrinsic height when the overview card is auto-sized.
+     * A zero basis collapses this scroll container and clips it to a thin line. */
+    flex:1 1 auto;
     min-height:0;
     min-width:0;
     overflow-y:auto;
