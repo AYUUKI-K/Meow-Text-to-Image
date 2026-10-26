@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import {bindImageGesture} from '../interactions.js';
 import {createFloatingEntry} from '../interactions.js';
 import {clampImageView} from '../interactions.js';
+
+test('mobile edge entry expands on first tap, then supports reroll; desktop never collapses',async()=>{
+ for(const mobile of [true,false]){
+  const button=new EventTarget(),win=new EventTarget();Object.assign(win,{innerWidth:400,innerHeight:800,matchMedia:()=>({matches:mobile})});Object.assign(button,{style:{},setAttribute(){},remove(){}});
+  let opens=0,rolls=0;const dispose=createFloatingEntry({settings:{floatingEntry:true},save(){},open:()=>opens++,reroll:()=>rolls++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+  const tap=()=>{const e=new Event('click',{cancelable:true});Object.assign(e,{detail:1,button:0,clientX:10,clientY:10});button.dispatchEvent(e);};
+  assert.equal(button.dataset.collapsed,String(mobile));
+  if(mobile){tap();assert.equal(button.dataset.collapsed,'false');assert.equal(opens,0);assert.equal(rolls,0);}
+  tap();tap();assert.equal(rolls,1);assert.equal(opens,0);dispose();
+ }
+});
 test('viewer zoom respects image aspect ratio, reset and eight-times limit',()=>{
     const dimensions={width:400,height:600,imageWidth:1200,imageHeight:800};
     assert.deepEqual(clampImageView({scale:1,x:500,y:500},dimensions),{scale:1,x:0,y:0});

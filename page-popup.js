@@ -6,13 +6,16 @@ export function showPagePopup(content,{parent,onOpen}={}){
     const doc=content.ownerDocument;
     // A second viewer replaces the first before capturing inert/scroll state.
     // Otherwise out-of-order closes can leave the entire page inert on TT.
-    activeViewers.get(doc)?.();
+    const scope=parent||doc;activeViewers.get(scope)?.();
     const win=doc.defaultView,previous=doc.activeElement;
     const make=(tag,cls)=>{const element=doc.createElement(tag);element.className=cls;return element;};
-    const layer=make('div','miao-page-overlay'),card=make('section','miao-page-popup miao-content-dialog');
+    const settings=content.matches('.miao-settings');
+    const layer=make('div','miao-page-overlay'),card=make(settings?'dialog':'section',settings?'popup miao-page-popup miao-settings-dialog':'popup miao-page-popup miao-content-dialog');
+    if(settings)card.setAttribute('open','');
     card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label',content.querySelector('h3')?.textContent||'图片预览');card.tabIndex=-1;
     const body=make('div','popup-content'),controls=make('div','miao-page-controls'),close=make('button','miao-button');
-    close.type='button';close.textContent='完成';close.setAttribute('aria-label','关闭预览');controls.append(close);body.append(content);card.append(body,controls);layer.append(card);
+    close.type='button';close.textContent='完成';close.setAttribute('aria-label','关闭预览');controls.append(close);body.append(content);
+    if(settings){const wrapper=make('div','popup-body');wrapper.append(body);card.append(wrapper);}else card.append(body,controls);layer.append(card);
     const mount=parent?.querySelector('.popup-body')||doc.body,nested=mount!==doc.body;
     layer.dataset.nested=String(nested);
     const blocked=nested?[...mount.children]:[...doc.body.children],inert=blocked.map(element=>[element,element.inert]);
@@ -26,10 +29,11 @@ export function showPagePopup(content,{parent,onOpen}={}){
         let done=false;
         // Hardware back closes this viewer first; leave the host bridge intact afterward.
         const previousBack=win.__TAURITAVERN_HANDLE_BACK__;
-        const back=()=>{if(!done&&layer.isConnected){finish();return true;}return previousBack?.();};
+        const back=()=>{if(!done&&layer.isConnected){if(card.querySelector('.miao-confirmation-layer'))card.dispatchEvent(new win.Event('cancel',{cancelable:true}));else finish();return true;}return previousBack?.();};
         const finish=error=>{
             if(done)return;done=true;observer.disconnect();doc.removeEventListener('keydown',key,true);parent?.removeEventListener('close',parentClosed);
-            activeViewers.delete(doc);
+            if(settings)card.dispatchEvent(new win.Event('close'));
+            activeViewers.delete(scope);
             viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);win.removeEventListener('resize',fit);
             if(win.__TAURITAVERN_HANDLE_BACK__===back)win.__TAURITAVERN_HANDLE_BACK__=previousBack;
             layer.remove();for(const [element,value] of inert)element.inert=value;if(!nested)doc.body.style.overflow=overflow;
@@ -38,6 +42,8 @@ export function showPagePopup(content,{parent,onOpen}={}){
         };
         const parentClosed=()=>finish();
         const key=event=>{
+            if(activeViewers.has(card))return;
+            if(card.querySelector('.miao-confirmation-layer'))return;
             if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish();}
             else if(event.key==='Tab'){
                 const items=[...card.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter(element=>!element.closest('[hidden]')&&element.getClientRects().length);
@@ -46,9 +52,9 @@ export function showPagePopup(content,{parent,onOpen}={}){
             }
         };
         const observer=new win.MutationObserver(()=>{if(!layer.isConnected)finish();});observer.observe(doc.body,{childList:true,subtree:true});
-        activeViewers.set(doc,()=>finish());
-        if(typeof previousBack==='function')win.__TAURITAVERN_HANDLE_BACK__=back;
+        activeViewers.set(scope,()=>finish());
+        win.__TAURITAVERN_HANDLE_BACK__=back;
         doc.addEventListener('keydown',key,true);parent?.addEventListener('close',parentClosed);bindButtonPress(close,()=>finish());
-        try{onOpen?.({dlg:card,completeAffirmative:()=>finish()});close.focus({preventScroll:true});}catch(error){finish(error);}
+        try{onOpen?.({dlg:card,completeAffirmative:()=>finish()});(settings?content.querySelector('.miao-drawer-close'):close)?.focus({preventScroll:true});}catch(error){finish(error);}
     });
 }

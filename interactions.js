@@ -26,7 +26,11 @@ export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,docum
     if(!settings.floatingEntry)return ()=>{};
     const button=documentImpl.createElement('button');button.id='miao-nai-floating';button.type='button';
     button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label','喵喵文生图：单击打开设置，双击重新生成最新楼层插图');button.title='单击设置 · 双击重 roll 最新楼层 · 拖动调整位置';
-    documentImpl.body.append(button);let down,moved=false;
+    documentImpl.body.append(button);let down,moved=false,collapseTimer,docked=null,expanded=false;
+    button.dataset??={};
+    const mobile=()=>!!windowImpl.matchMedia?.('(pointer:coarse), (max-width:680px)').matches;
+    const collapse=()=>{expanded=false;button.dataset.collapsed=String(!!docked&&mobile());};
+    const later=()=>{clearTimeout(collapseTimer);collapseTimer=setTimeout(collapse,3000);};
     const bounds=()=>{const x=Math.max(0,(windowImpl.visualViewport?.width||windowImpl.innerWidth)-56),y=Math.max(0,(windowImpl.visualViewport?.height||windowImpl.innerHeight)-56);return {x,y,minX:Math.min(8,x),minY:Math.min(8,y)};};
     const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
     const dock=(left,top,b)=>({edgeX:left-b.minX<=28?'left':b.x-left<=28?'right':null,edgeY:top-b.minY<=28?'top':b.y-top<=28?'bottom':null});
@@ -35,17 +39,18 @@ export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,docum
         let left=clamp(p?Math.max(0,Math.min(1,p.x))*b.x:b.x-12,b.minX,b.x),top=clamp(p?Math.max(0,Math.min(1,p.y))*b.y:b.y-100,b.minY,b.y);
         const edges=p&&'edgeX' in p?p:dock(left,top,b);
         if(edges.edgeX)left=edges.edgeX==='left'?b.minX:b.x;if(edges.edgeY)top=edges.edgeY==='top'?b.minY:b.y;
+        docked=edges.edgeX||edges.edgeY;button.dataset.dock=docked||'';collapse();
         button.style.left=left+'px';button.style.top=top+'px';
         if(p&&!('edgeX' in p)&&(edges.edgeX||edges.edgeY)){settings.floatingPosition={...p,...edges};save();}
     };
     fit();windowImpl.addEventListener('resize',fit);windowImpl.visualViewport?.addEventListener('resize',fit);
-    button.addEventListener('pointerdown',e=>{if(e.button>0||e.isPrimary===false)return;moved=false;down={id:e.pointerId,x:e.clientX,y:e.clientY,left:button.offsetLeft,top:button.offsetTop};button.setPointerCapture?.(e.pointerId);});
-    button.addEventListener('pointermove',e=>{if(!down||e.pointerId!==down.id)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;if(Math.hypot(dx,dy)>8)moved=true;if(!moved)return;cancelGesture();const b=bounds();button.style.left=clamp(down.left+dx,b.minX,b.x)+'px';button.style.top=clamp(down.top+dy,b.minY,b.y)+'px';});
+    button.addEventListener('pointerdown',e=>{if(e.button>0||e.isPrimary===false)return;clearTimeout(collapseTimer);moved=false;down={id:e.pointerId,x:e.clientX,y:e.clientY,left:button.offsetLeft,top:button.offsetTop};button.setPointerCapture?.(e.pointerId);});
+    button.addEventListener('pointermove',e=>{if(!down||e.pointerId!==down.id)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;if(Math.hypot(dx,dy)>8)moved=true;if(!moved)return;button.dataset.collapsed='false';cancelGesture();const b=bounds();button.style.left=clamp(down.left+dx,b.minX,b.x)+'px';button.style.top=clamp(down.top+dy,b.minY,b.y)+'px';});
     button.addEventListener('pointerup',e=>{if(!down||e.pointerId!==down.id)return;if(moved){const b=bounds();settings.floatingPosition={x:b.x?button.offsetLeft/b.x:0,y:b.y?button.offsetTop/b.y:0,...dock(button.offsetLeft,button.offsetTop,b)};fit();save();}down=null;});
     button.addEventListener('pointercancel',()=>{down=null;moved=true;fit();});
-    button.addEventListener('click',e=>{if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}if(e.detail===0){e.stopImmediatePropagation();cancelGesture();open();}});
+    button.addEventListener('click',e=>{if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}if(button.dataset.collapsed==='true'){e.preventDefault();e.stopImmediatePropagation();cancelGesture();expanded=true;button.dataset.collapsed='false';later();return;}if(expanded)later();if(e.detail===0){e.stopImmediatePropagation();cancelGesture();open();}});
     const cancelGesture=bindImageGesture(button,{getClicks:()=>2,onSingle:open,onReroll:reroll});
-    return ()=>{cancelGesture();button.remove();windowImpl.removeEventListener('resize',fit);windowImpl.visualViewport?.removeEventListener('resize',fit);};
+    return ()=>{clearTimeout(collapseTimer);cancelGesture();button.remove();windowImpl.removeEventListener('resize',fit);windowImpl.visualViewport?.removeEventListener('resize',fit);};
 }
 export function clampImageView(view,{width,height,imageWidth,imageHeight}){
     const scale=Math.max(1,Math.min(8,Number(view.scale)||1));
