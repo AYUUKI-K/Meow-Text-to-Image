@@ -7,9 +7,10 @@ test('samples share editable prompt, square size and seed, without mutating the 
  assert.equal(a.width,512);assert.equal(a.height,512);assert.equal(a.seed,b.seed);assert.equal(a.prompt,'front,\nadult cat, flowers,\ntail,');assert.equal(a.vibes[0].id,'a');assert.equal(JSON.stringify(p),before);
  assert.equal(sampleSignature(p),sampleSignature({...p,name:'renamed',width:512,height:512,seed:999}));assert.notEqual(sampleSignature(p,[],'one'),sampleSignature(p,[],'two'));assert.throws(()=>sampleRequest(p,[],''),/例图提示词/);
 });
-test('profile copies receive independent identities and do not inherit another preview',()=>{
+test('repairing missing or duplicate identities preserves existing previews without generating again',()=>{
  const p={...defaults,id:'same',preview:{url:'/a'}};const list=[p,structuredClone(p),{...defaults}];ensureProfileIds(list);
- assert.equal(new Set(list.map(p=>p.id)).size,3);assert.equal(list[0].preview.url,'/a');assert.equal(list[1].preview,undefined);
+ assert.equal(new Set(list.map(p=>p.id)).size,3);assert.equal(list[0].preview.url,'/a');assert.equal(list[1].preview.url,'/a');
+ const imported={...defaults,preview:{url:'/restored.png',signature:'saved',created:42}};ensureProfileIds([imported]);assert.equal(imported.preview.url,'/restored.png');assert.equal(imported.preview.signature,'saved');
 });
 test('unchanged saves do not regenerate; manual refresh and prompt changes do',async()=>{
  const p={...defaults,id:'a'},list=[p],calls=[],errors=[];let prompt='one';let queue=Promise.resolve();

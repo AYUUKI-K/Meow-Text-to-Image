@@ -345,6 +345,7 @@ const expectedPrompt=new URL(location.href).searchParams.has('custom-sample')?'�
 check(p.settings.samplePrompt===expectedPrompt&&expectedPrompt.includes(new URL(location.href).searchParams.has('custom-sample')?'保留我自己的':'(white hair:1.3)'),'新默认提示词只初始化缺省设置，保留已有用户提示词');
 const canvas=document.createElement('canvas');canvas.width=canvas.height=512;const context=canvas.getContext('2d');context.fillStyle='#d7e0e8';context.fillRect(0,0,512,512);context.fillStyle='#768ca3';context.fillRect(0,280,512,232);context.fillStyle='#f3f4f6';context.beginPath();context.arc(256,210,110,0,Math.PI*2);context.fill();context.fillStyle='#4b6176';context.font='26px sans-serif';context.textAlign='center';context.fillText('PORTABLE SAMPLE',256,430);const png=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
 const priorFetch=window.fetch,sampleURL='/user/images/miao-nai/sample-1792737847709-00000000-0000-4000-8000-000000000001.png';window.fetch=async(url,options)=>String(url)===sampleURL?new Response(png):priorFetch(url,options);
+await nativeFetch('/fixture-image-save',{method:'POST',body:JSON.stringify({data:canvas.toDataURL('image/png').split(',')[1],folder:'miao-nai',name:sampleURL.split('/').at(-1)})});
 original.preview={url:sampleURL,signature:'local-only-private',created:Date.now()};const selectProfile=[...document.querySelectorAll('.miao-field')].find(field=>field.querySelector('span')?.textContent==='当前配置').querySelector('select');selectProfile.value='0';selectProfile.dispatchEvent(new Event('change',{bubbles:true}));await wait();
 const withPreview=await doExport(),portable=JSON.parse(await withPreview.blob.text());
 check(withPreview.name==='喵喵NAI-A.json'&&portable.name==='A'&&portable.preview.mime==='image/jpeg'&&portable.preview.data.length>1000&&!JSON.stringify(portable).includes('/user/')&&!JSON.stringify(portable).includes('local-only-private')&&!JSON.stringify(portable).includes('vibe'),'例图嵌入 JSON 字节，保留中文文件名，不带本机链接、Vibe 或内部签名');
@@ -358,6 +359,18 @@ document.querySelector('.miao-save-button').click();await settle(()=>!document.q
 const snapshot=JSON.stringify(p.settings.profiles),errorCount=miaoTestToasts.length;p.failImageSave=true;
 await upload(new File([withPreview.blob],'不能保存.json'));await settle(()=>window.__TAURITAVERN__?miaoTestToasts.length>errorCount:document.querySelectorAll('dialog').length>1);check(JSON.stringify(p.settings.profiles)===snapshot,'例图存储失败不会导入一半或覆盖原配置');p.failImageSave=false;
 if(!window.__TAURITAVERN__)[...document.querySelectorAll('dialog')].at(-1).querySelector('.popup-controls button').click();
+const sourcePreviews=[original.preview,withImage.preview].map(item=>JSON.stringify(item));delete original.id;delete withImage.id;
+button('批量导出').click();await wait();await settle(()=>[original,withImage].every(profile=>{const image=document.querySelector('[aria-label="选择配置 '+profile.name+'"]').querySelector('img');return !image.hidden&&image.complete&&image.naturalWidth===512;}));
+check(JSON.stringify(original.preview)===sourcePreviews[0]&&JSON.stringify(withImage.preview)===sourcePreviews[1],'打开批量打包并修复缺失 ID 时，原有两张例图的引用和元数据完整保留');
+document.querySelector('[aria-label="导出配置 A"]').click();document.querySelector('[aria-label="导出配置 A (5)"]').click();
+const exportCount=p.exported.length;button('导出选中串').click();if(new URL(location.href).searchParams.has('ios')){await settle(()=>button('保存文件'));(button('分享文件')||button('保存文件')).click();}await settle(()=>p.exported.length===exportCount+1);
+const examplePackage=p.exported.at(-1),packageData=JSON.parse(await examplePackage.blob.text());
+check(packageData.profiles.length===2&&packageData.profiles.every(item=>item.preview?.mime==='image/jpeg'&&item.preview.data.length>1000),'两个带例图的串打包时，每个配置均实际嵌入可携带的图片字节');
+check(JSON.stringify(original.preview)===sourcePreviews[0]&&JSON.stringify(withImage.preview)===sourcePreviews[1],'导出配置包不改变原串的任何例图元数据');
+const originalCount=p.settings.profiles.length;await upload(new File([examplePackage.blob],'带例图配置包.json',{type:'application/json'}));await settle(()=>p.settings.profiles.length===originalCount+2);
+const restoredPackage=p.settings.profiles.slice(originalCount);await settle(()=>restoredPackage.every(profile=>{const image=document.querySelector('[aria-label="选择配置 '+profile.name+'"]').querySelector('img');return !image.hidden&&image.complete&&image.naturalWidth===512;}));
+check(restoredPackage.every(profile=>profile.id&&profile.preview?.url&&profile.preview.signature===previewModule.sampleSignature(profile,p.settings.vibeLibrary,p.settings.samplePrompt))&&new Set(restoredPackage.map(profile=>profile.preview.url)).size===2,'整包导入后，两张例图分别另存并实际解码显示，不被配置 ID 初始化清空');
+check(JSON.stringify(original.preview)===sourcePreviews[0]&&JSON.stringify(withImage.preview)===sourcePreviews[1]&&p.calls.length===0,'导入配置包保留原串例图，导出导入全程不调用 NAI');
 window.fetch=priorFetch;
 HTMLAnchorElement.prototype.click=nativeClick;URL.createObjectURL=nativeURL;
 }catch(error){results.push('FAIL '+error.stack);}document.getElementById('report').textContent=results.join(String.fromCharCode(10));

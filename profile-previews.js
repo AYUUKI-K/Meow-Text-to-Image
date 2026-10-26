@@ -13,7 +13,9 @@ export const SAMPLE_PROMPT=`a  girl, (16-year-old:1.1),(flat breasts:0.7)
 
 (gray-blue striped sweater:1.3), Loose-fitting sweater,black shorts,(horizontal stripes:1.2),​(dark blue ribbon choker:0.4),`;
 export function ensureProfileIds(profiles){
-    const used=new Set();for(const profile of profiles){if(!profile.id||used.has(profile.id)){profile.id=randomId();delete profile.preview;}used.add(profile.id);}
+    // IDs route pending jobs; assigning one must never discard a saved image.
+    // Explicit UI copies clear their own preview before they reach this helper.
+    const used=new Set();for(const profile of profiles){if(!profile.id||used.has(profile.id))profile.id=randomId();used.add(profile.id);}
 }
 export function moveProfile(settings,id,offset){
     const list=settings.profiles,from=list.findIndex(profile=>profile.id===id),to=from+offset;

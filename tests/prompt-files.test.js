@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaults} from '../core.js';
+import {ensureProfileIds} from '../profile-previews.js';
 import {promptFileData,promptFilename,importPromptData,readPromptFile,readPromptFiles,promptBundleData,PROMPT_BUNDLE_LIMIT,readPreviewData,PROMPT_FILE_LIMIT,PREVIEW_DATA_LIMIT} from '../prompt-files.js';
 
 const profile={...defaults,name:'猫猫',positive:'year 2025,\n1.5::artist:猫::, ',positiveSuffix:'\nno text,',negative:'lowres, bad hands',vibes:[{id:'private-vibe',strength:0.8}],key:'private-key',model:'nai-diffusion-4-5-curated',width:1216,height:832,steps:28,scale:6.5,seed:12345,sampler:'k_dpmpp_2m',scheduler:'exponential',varietyBoost:true};
@@ -62,7 +63,7 @@ test('example data rejects links, scripts, invalid encodings, oversized payloads
 test('selected profiles round trip as one package, preserving order, parameters and examples but excluding private fields',async()=>{
  const data=promptBundleData([promptFileData(profile,png),promptFileData({...profile,name:'second',width:512,height:512})]);
  assert.equal(data.profiles.length,2);assert.ok(!JSON.stringify(data).includes('private'));let restored=0;
- const result=await readPromptFiles(new File([JSON.stringify(data)],'package.json'),[profile],{restorePreview:async()=>{restored++;return {url:'restored.png'};}});
+ const result=await readPromptFiles(new File([JSON.stringify(data)],'package.json'),[profile],{restorePreview:async()=>{restored++;return {url:'restored.png'};}});ensureProfileIds(result);
  assert.equal(restored,1);assert.deepEqual(result.map(p=>p.name),['猫猫 (2)','second']);assert.equal(result[0].preview.url,'restored.png');assert.equal(result[0].steps,28);assert.equal(result[1].width,512);assert.ok(result.every(p=>!p.vibes.length&&!p.vibeEnabled));
  const repeated=await readPromptFiles(new File([JSON.stringify(promptBundleData([promptFileData(profile),promptFileData(profile)]))],'same.json'),[profile]);assert.deepEqual(repeated.map(p=>p.name),['猫猫 (2)','猫猫 (3)']);
 });
