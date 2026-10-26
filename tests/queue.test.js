@@ -23,6 +23,31 @@ test('stale holders expire and heartbeats keep a waiter alive',()=>{
 });
 test('key hashing is stable and trims spaces',async()=>assert.equal(await fingerprintKey(' demo-key '),hash('demo-key')));
 
+test('a promoted but absent waiter cannot block the next user for a full generation lease',()=>{
+ let now=0;const q=new LeaseQueue({now:()=>now}),a=identity('one','a'),b=identity('one','b'),c=identity('one','c');
+ const first=q.join(a);q.join(b);q.join(c);q.release({...a,lock_token:first.lock_token});
+ now=44000;assert.equal(q.turn(c).your_turn,false);
+ now=45001;assert.equal(q.turn(c).your_turn,true);
+ assert.throws(()=>q.turn(b),/过期/);
+});
+test('picking up a promoted slot restores a full lease and duplicate join is also a valid pickup',()=>{
+ for(const method of ['turn','join']){
+  let now=0;const q=new LeaseQueue({now:()=>now}),a=identity('one','a'),b=identity('one','b'),c=identity('one','c');
+  const first=q.join(a);q.join(b);q.join(c);q.release({...a,lock_token:first.lock_token});
+  now=30000;assert.equal(q[method](b).your_turn,true);
+  now=60000;assert.equal(q.turn(c).your_turn,false);
+  const holder=q.lanes.get(hash('one')).active;assert.equal(holder.started,30000);assert.equal(holder.expires,270000);assert.equal(holder.pending,undefined);
+ }
+});
+test('release retries survive multiple lost replies without regenerating or overwriting the final status',async()=>{
+ let releases=0,images=0;const statuses=[],waits=[];
+ const result=await runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async ms=>waits.push(ms),onStatus:status=>statuses.push(status),requestJSON:async url=>{
+  if(url.endsWith('/complete')){releases++;if(releases<4)throw new TypeError('lost release');return {released:true};}
+  return {your_turn:true,lock_token:'lease'};
+ },generate:async()=>{images++;return 'image';}});
+ assert.equal(result,'image');assert.equal(images,1);assert.equal(releases,4);assert.deepEqual(waits,[1000,1000,1000]);assert.deepEqual(statuses,['正在生图']);
+});
+
 test('distant waiters poll less and return to fast polling near the front',async()=>{
  assert.equal(queuePollMs(1),5000);assert.equal(queuePollMs(64),15000);
  const waits=[],positions=[64,3,1];let generated=0;

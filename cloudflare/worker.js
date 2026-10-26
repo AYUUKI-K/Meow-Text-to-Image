@@ -5,7 +5,7 @@ export default {
     async fetch(request,env){
         const path=new URL(request.url).pathname;
         if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
-        if(request.method==='GET'&&path==='/ping')return reply({ready:true,version:'0.6.0',runtime:'cloudflare',relay:1});
+        if(request.method==='GET'&&path==='/ping')return reply({ready:true,version:'0.6.1',runtime:'cloudflare',relay:1});
         // ST's existing visit endpoint supports GET resources. The envelope
         // preserves queue status codes through hosts which flatten HTTP errors.
         if(request.method==='GET'&&path==='/relay'){

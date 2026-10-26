@@ -17,7 +17,7 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
     if(!/^[a-f0-9]{64}$/i.test(keyHash||''))throw new Error('请在本插件重新保存一次 NAI Key，用于自动识别队列；Key 不会发送给排队服务。');
     const identity={key_hash:keyHash,user_id:randomId(),task_id:randomId()};
     const call=async(path,extra={})=>{
-        const cleanup=['/complete','/leave-queue'].includes(path),retries=cleanup?Math.min(1,retryDelays.length):retryDelays.length;
+        const cleanup=['/complete','/leave-queue'].includes(path),retries=retryDelays.length;
         // Queue operations are idempotent for this identity. Retrying them never
         // resubmits an image request, including when the join response was lost.
         for(let attempt=0;;attempt++){
@@ -28,8 +28,8 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
             }catch(error){
                 const transient=[429,500,502,503,504].includes(error.status)||['TypeError','TimeoutError','AbortError'].includes(error.name);
                 if(!transient||attempt>=retries)throw error;
-                onStatus(`队列连接重试 · ${attempt+1}/${retries}`);
-                await sleep(Math.max(retryDelays[attempt],Math.min(error.retryAfterMs||0,120000)));
+                if(!cleanup)onStatus(`队列连接重试 · ${attempt+1}/${retries}`);
+                await sleep(Math.max(cleanup?Math.min(retryDelays[attempt],1000):retryDelays[attempt],Math.min(error.retryAfterMs||0,cleanup?5000:120000)));
             }
         }
     };

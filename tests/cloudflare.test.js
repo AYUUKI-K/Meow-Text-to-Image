@@ -12,6 +12,15 @@ function context(data=new Map()){
  },blockConcurrencyWhile(fn){const result=pending.then(fn);pending=result.catch(()=>{});return result;}};return ctx;
 }
 const call=async(object,path,body)=>{const res=await object.fetch(new Request('https://queue.test'+path,{method:'POST',body:JSON.stringify(body)}));return {...await res.json(),status:res.status};};
+
+test('unclaimed handoff survives eviction and expires without stealing a claimed lease',async()=>{
+ let now=0;const ctx=context(),a=identity('one','A'),b=identity('one','B'),c=identity('one','C');let object=new MiaoKeyQueue(ctx);object.queue.now=()=>now;
+ const first=await call(object,'/join-queue',a);await call(object,'/join-queue',b);await call(object,'/join-queue',c);
+ await call(object,'/complete',{...a,lock_token:first.lock_token});assert.equal(ctx.alarmAt,45000);
+ object=new MiaoKeyQueue(context(ctx.data));object.queue.now=()=>now;
+ now=45001;await object.alarm();assert.equal((await call(object,'/my-turn',c)).your_turn,true);
+ now=90002;assert.equal((await call(object,'/my-turn',c)).your_turn,true);assert.equal((await call(object,'/my-turn',b)).status,400);
+});
 test('durable queue survives eviction and retains per-key mutual exclusion',async()=>{
  const ctx=context(),a=identity('one','A'),b=identity('one','B');let object=new MiaoKeyQueue(ctx);
  const first=await call(object,'/join-queue',a);assert.equal(first.your_turn,true);assert.equal((await call(object,'/join-queue',b)).your_turn,false);

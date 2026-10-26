@@ -83,6 +83,8 @@ node queue-service/service.mjs
 - 网络超时、断网及明确的 HTTP 408／504 不会自动重复调用 NAI。1.8.0 起，HTTP 超时同样保留排号，等待租约自然到期，降低上一张可能仍在生成时放行下一张的风险。
 - 服务不在日志或公共接口输出 Key 指纹列表，也不显示其他用户的 Key。任意 HTTP 请求若携带 `key` 字段会被拒绝。
 
+Cloudflare 0.6.1 起，等待者被交接到队首、但尚未回来查询领取的位置只保留 45 秒；领取后才启用完整生图租约。该时间不适用于已经获知权限并可能发出请求的任务。2.1.1 前端对完成／退出请求增加短暂重试，减少偶发网络故障导致的未释放。共享 Key 确有其他生成任务、超时结果未确定或 NAI 限流退避时，仍可能等待数分钟。
+
 `npm test` 包括 A/B 同 Key、C 不同 Key 的并发测试，以及租约过期、重复入队、错误释放等测试，均不使用真实 NAI Key。
 
 本地安装 Miniflare 后，可额外运行 `node tests/cloudflare-runtime.mjs` 检查真实 workerd／SQLite 的事务、交接和清理。也可把环境变量 `MIAO_MINIFLARE` 指向已有 Miniflare 的 JavaScript 入口；不连接线上队列、不调用 NAI。
