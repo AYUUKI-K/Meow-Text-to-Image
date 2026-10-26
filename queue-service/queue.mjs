@@ -1,4 +1,5 @@
-import {randomUUID,timingSafeEqual} from 'node:crypto';
+import {randomUUID,timingSafeEqual,createHash} from 'node:crypto';
+import {Buffer} from 'node:buffer';
 const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length>0&&x.length===y.length&&timingSafeEqual(x,y);};
 export class LeaseQueue {
     constructor({now=Date.now,leaseMs=240000,waitingMs=90000,maxHoldMs=600000,maxJobs=1000,renewalMs=0}={}){Object.assign(this,{now,leaseMs,waitingMs,maxHoldMs,maxJobs,renewalMs});this.lanes=new Map();}
@@ -37,7 +38,7 @@ export class LeaseQueue {
     release(input){
         this.validate(input);this.cleanup();const hash=input.key_hash.toLowerCase(),lane=this.lanes.get(hash);
         if(!lane)return {released:false};const job=this.find(lane,input);if(!job)return {released:false};
-        if(lane.active===job){if(!equal(job.token,input.lock_token))throw new Error('无效队列凭据');lane.active=null;}
+        if(lane.active===job){const proof=createHash('sha256').update(job.token+'\0release').digest('hex');if(!equal(job.token,input.lock_token)&&!equal(proof,input.release_proof))throw new Error('无效队列凭据');lane.active=null;}
         else lane.waiting=lane.waiting.filter(j=>j!==job);
         this.cleanup();return {released:true};
     }

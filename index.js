@@ -3,7 +3,7 @@ import {randomId} from './browser-crypto.js';
 import {retryGeneration} from './generation-retry.js';
 import {waitForGeneration} from './generation-delay.js';
 import {showPagePopup} from './page-popup.js';
-import {queueJSON} from './queue-network.js';
+import {createQueueTransport} from './queue-network.js';
 import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
@@ -41,6 +41,7 @@ const isTT=()=>Boolean(window.__TAURITAVERN__);
 const ID='miao_nai_image';
 const base=new URL('.',import.meta.url);
 const ctx=()=>getContext();
+const requestQueue=createQueueTransport({getHeaders:()=>ctx().getRequestHeaders(),allowRelay:()=>!isTT()});
 const updater=createExtensionUpdater({moduleURL:import.meta.url,getHeaders:()=>ctx().getRequestHeaders(),getGlobal:name=>extensionAPI.extensionTypes?.[name]==='global'});
 const settings=extension_settings[ID] ??= {enabled:true,stream:false,pattern:'image###([\\s\\S]*?)###',profiles:[{...defaults}],active:0,installed:false};
 settings.mode ??= settings.stream ? 'stream' : 'manual';
@@ -217,7 +218,7 @@ function startGeneration(message,block,{automatic=false}={}) {
         if(rememberImage(settings.imageArchive,url,storage.context,location.href))save();
         // Switching swipes does not invalidate an image already being generated.
         target=taskTarget(task,true);if(!target) { toastr.info('图片已保存，但原消息已删除或修改：'+url); return; }
-        writeSwipeImage(target.message,task.swipe,blockSlot(target.block),appendImageVersion(task.previousRecord,{url,request,profileName,archive:storage.context,created:Date.now()}));
+        writeSwipeImage(target.message,task.swipe,blockSlot(target.block),appendImageVersion(task.previousRecord,{url,request,tagPrompt:block.prompt,profileName,archive:storage.context,created:Date.now()}));
         // Show the result before waiting for ST's chat-save request.
         if(running.get(taskId)===task)running.delete(taskId);renderAll();
         if(task.previousRecord&&task.toolsEpoch===imageToolsEpoch&&(target.message.swipe_id??0)===task.swipe){
@@ -277,7 +278,7 @@ function makeCard(message,block) {
             const next=button('›',()=>switchTo(1),navigation);next.setAttribute('aria-label','下一张');next.title='下一张';
         }
         const operations=el('div',undefined,'miao-image-operations');actions.append(operations);
-        button('提示词',()=>showPrompt(current.request?.prompt||block.prompt,current.request?.vibes,current.profileName),operations).setAttribute('aria-label','查看提示词');
+        button('提示词',()=>showPrompt(current.tagPrompt??block.prompt,current.request?.vibes,current.profileName),operations).setAttribute('aria-label','查看提示词');
         button('下载',()=>downloadImage(current.url),operations).setAttribute('aria-label','下载图片');button('放大',()=>openImage(current.url),operations).setAttribute('aria-label','放大查看');
         operations.dataset.hasDelete='true';
         const remove=button('删除',async()=>{
@@ -566,7 +567,7 @@ async function openImage(url,name='miao-image.png') {
 }
 async function queueStatus() {
     const url=validateQueueURL(settings.queueUrl);
-    return queueJSON(url+'/ping');
+    return requestQueue(url+'/ping');
 }
 async function requestImage(request,task,canContinue) {
     const scope=task||{keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
@@ -583,7 +584,7 @@ async function requestImage(request,task,canContinue) {
     };
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
-    const run=attempt=>(scope.cloudQueue||attempt>0)?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,generate,canContinue:valid,onStatus,
+    const run=attempt=>(scope.cloudQueue||attempt>0)?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,requestJSON:requestQueue,generate,canContinue:valid,onStatus,
         onReleaseError:()=>toastr.info('队列连接中断，占用将自动到期释放')}):generate();
     let notified=false;
     return retryGeneration({run,enabled:!!settings.retryQueue,canContinue:valid,onStatus:(status,error)=>{
@@ -686,7 +687,7 @@ async function openSettings(initialTab) {
         directKeyStatus:async()=>{const status=await directVault.status(),key=await directVault.get();return {...status,ready:Boolean(key&&settings.keyHash&&await fingerprintKey(key)===settings.keyHash),serverSaved:!!settings.keyHash};},clearDirectKey:()=>directVault.clear(),
         closeSettings:()=>settingsPopup?.completeAffirmative?settingsPopup.completeAffirmative():settingsPopup?.dlg.close(),
         setRememberDirectKey:async value=>{await directVault.remember(value);settings.rememberDirectKey=value;save();},
-        encodeVibe:async body=>{const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;},generate=()=>{valid();return direct.encode(body,{expectedKeyHash:keyHash});};return enqueue(()=>cloudQueue?runWithQueue({url,keyHash,generate,canContinue:valid}):generate());},renameVibe:body=>direct.rename(body),
+        encodeVibe:async body=>{const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;},generate=()=>{valid();return direct.encode(body,{expectedKeyHash:keyHash});};return enqueue(()=>cloudQueue?runWithQueue({url,keyHash,requestJSON:requestQueue,generate,canContinue:valid}):generate());},renameVibe:body=>direct.rename(body),
         deleteVibe:async id=>{if(!await confirmSettings('删除这个 Vibe？所有配置中的引用也会移除。','删除 Vibe'))return false;await direct.delete(id);for(const p of settings.profiles)p.vibes=(p.vibes||[]).filter(v=>v.id!==id);save();return true;}});
     settingsHost=panel;
     try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}return true;},onOpen:popup=>{settingsPopup=popup;popup.dlg.classList.add('miao-settings-dialog');}});}

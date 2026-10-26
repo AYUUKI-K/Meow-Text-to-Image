@@ -33,6 +33,30 @@ test('distant waiters poll less and return to fast polling near the front',async
  assert.deepEqual(waits,[15000,10000,5000]);assert.equal(generated,1);
 });
 
+test('a backgrounded phone rejoins an expired waiting task before any image request',async()=>{
+ let now=0,polls=0,joins=0,images=0;const statuses=[],identities=[];
+ await runWithQueue({url:'https://queue.example',keyHash:hash('one'),now:()=>now,sleep:async()=>{now+=120000;},onStatus:text=>statuses.push(text),fetchImpl:async(url,options)=>{
+  const body=JSON.parse(options.body);identities.push(body);
+  if(url.endsWith('/join-queue')){joins++;return Response.json(joins===1?{your_turn:false,position:1}:{your_turn:true,lock_token:'lease'});}
+  if(url.endsWith('/my-turn')){polls++;return Response.json({error:'队列请求无效或任务已过期'},{status:400});}
+  return Response.json({released:true});
+ },generate:async()=>{images++;}});
+ assert.equal(joins,2);assert.equal(polls,1);assert.equal(images,1);assert.ok(statuses.some(text=>text.includes('排号已过期')));
+ assert.ok(identities.every(body=>body.task_id===identities[0].task_id&&body.user_id===identities[0].user_id));
+});
+
+test('expired waiting recovery is bounded, while other 400 errors do not rejoin',async()=>{
+ for(const expired of [true,false]){
+  let joins=0,images=0;
+  await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async url=>{
+   if(url.endsWith('/join-queue')){joins++;return Response.json({your_turn:false,position:1});}
+   if(url.endsWith('/my-turn'))return Response.json({error:expired?'排队任务已过期':'无效排队信息'},{status:400});
+   return Response.json({released:true});
+  },generate:async()=>{images++;}}));
+  assert.equal(images,0);assert.equal(joins,expired?4:1);
+ }
+});
+
 test('generation renews its lease every minute and stops heartbeats on completion',async t=>{
  t.mock.timers.enable({apis:['setInterval']});let finish,turns=0;
  const running=runWithQueue({url:'https://queue.example',keyHash:hash('one'),fetchImpl:async url=>{if(url.endsWith('/my-turn'))turns++;return Response.json({your_turn:true,lock_token:'lease'});},generate:()=>new Promise(resolve=>finish=resolve)});

@@ -24,6 +24,14 @@ test('each version keeps its profile name through selection, JSON reload and leg
  assert.equal(selectImageVersion(old,-1).profileName,undefined);
 });
 
+test('AI tags and archive ownership follow the selected image and survive legacy conversion',()=>{
+ const a={url:'one.png',tagPrompt:'scene A',archive:{cardId:'a'},request:{prompt:'front A, scene A, back A'}},b={url:'two.png',tagPrompt:'scene B',archive:{cardId:'b'},request:{prompt:'front B, scene B, back B'}};
+ const record=JSON.parse(JSON.stringify(appendImageVersion(a,b)));
+ assert.equal(selectImageVersion(record,-1).tagPrompt,'scene A');assert.equal(record.tagPrompt,'scene A');assert.equal(record.archive.cardId,'a');
+ assert.equal(selectImageVersion(record,1).tagPrompt,'scene B');assert.equal(record.tagPrompt,'scene B');assert.equal(record.archive.cardId,'b');
+ assert.equal(imageVersions(a)[0].tagPrompt,'scene A');
+});
+
 test('deleting the selected image falls back to a remaining version and the last deletion permits reroll',()=>{
  let record=appendImageVersion({url:'/user/images/miao/a.png',profileName:'A',request:{prompt:'first'}},{url:'/user/images/miao/b.png',profileName:'B',request:{prompt:'second'}});
  assert.equal(markImageVersionsDeleted(record,['user/images/miao/b.png']),true);

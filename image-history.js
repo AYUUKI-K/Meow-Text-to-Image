@@ -1,6 +1,6 @@
 export function imageVersions(record){
     if(!record)return [];
-    return record.versions?.length?record.versions:record.url?[{url:record.url,request:record.request,profileName:record.profileName,archive:record.archive,created:record.created,deleted:record.deleted||false}]:[];
+    return record.versions?.length?record.versions:record.url?[{url:record.url,request:record.request,tagPrompt:record.tagPrompt,profileName:record.profileName,archive:record.archive,created:record.created,deleted:record.deleted||false}]:[];
 }
 export function appendImageVersion(record,image){
     const versions=[...imageVersions(record),image];
@@ -16,7 +16,7 @@ export function selectImageVersion(record,offset){
         if(versions[selected].url&&!versions[selected].deleted)break;
     }
     const item=versions[selected];
-    Object.assign(record,{versions,selected,url:item.url,request:item.request,profileName:item.profileName,created:item.created,deleted:false});
+    Object.assign(record,{versions,selected,url:item.url,request:item.request,tagPrompt:item.tagPrompt,profileName:item.profileName,archive:item.archive,created:item.created,deleted:false});
     return item;
 }
 const imagePath=url=>{try{return decodeURIComponent(new URL(url,'https://miao.local').pathname).replace(/^\//,'');}catch{return String(url).replace(/^\//,'');}};

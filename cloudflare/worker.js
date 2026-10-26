@@ -5,7 +5,25 @@ export default {
     async fetch(request,env){
         const path=new URL(request.url).pathname;
         if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
-        if(request.method==='GET'&&path==='/ping')return reply({ready:true,version:'0.5.0',runtime:'cloudflare'});
+        if(request.method==='GET'&&path==='/ping')return reply({ready:true,version:'0.6.0',runtime:'cloudflare',relay:1});
+        // ST's existing visit endpoint supports GET resources. The envelope
+        // preserves queue status codes through hosts which flatten HTTP errors.
+        if(request.method==='GET'&&path==='/relay'){
+            const wrap=(body,status)=>reply({relay_status:status,body});
+            let input,operation;
+            try{
+                const query=new URL(request.url).searchParams;operation=query.get('op');const data=query.get('data')||'';
+                if(data.length>8192)return wrap({error:'请求过大'},413);
+                if(!['join-queue','my-turn','complete','leave-queue'].includes(operation))throw Error();
+                input=JSON.parse(data);new LeaseQueue().validate(input);
+                if(Object.keys(input).some(key=>!['key_hash','user_id','task_id','release_proof'].includes(key))||input.release_proof!==undefined&&!/^[a-f0-9]{64}$/.test(input.release_proof))throw Error();
+            }catch{return wrap({error:'排队请求无效'},400);}
+            try{
+                const id=env.MIAO_KEY_QUEUE.idFromName(input.key_hash.toLowerCase());
+                const response=await env.MIAO_KEY_QUEUE.get(id).fetch(new Request('https://queue.internal/'+operation,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)}));
+                return wrap(await response.json(),response.status);
+            }catch{return wrap({error:'排队服务暂不可用，请稍后重试'},503);}
+        }
         if(request.method==='GET'&&path==='/')return reply({name:'喵喵文生图队列',ready:true,privacy:'只接收 Key 指纹，不接收 Key、提示词或图片'});
         if(request.method!=='POST')return reply({error:'Use POST'},405);
         if(!['/join-queue','/my-turn','/complete','/leave-queue'].includes(path))return reply({error:'Not found'},404);

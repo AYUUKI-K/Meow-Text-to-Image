@@ -112,6 +112,23 @@ test('edge router directs same keys to one object, different keys independently'
  const ping=await worker.fetch(new Request('https://queue.test/ping'),env);assert.equal((await ping.json()).ready,true);assert.equal(ping.headers.get('Access-Control-Allow-Origin'),'*');
 });
 
+test('server relay shares direct locks, preserves error statuses and uses a scoped release proof',async()=>{
+ const objects=new Map(),env={MIAO_KEY_QUEUE:{idFromName:name=>name,get(id){if(!objects.has(id))objects.set(id,new MiaoKeyQueue(context()));return objects.get(id);}}};
+ const a=identity('relay','A'),b=identity('relay','B');
+ const direct=async(op,input)=>{const result=await worker.fetch(new Request('https://queue.test/'+op,{method:'POST',body:JSON.stringify(input)}),env);return result.json();};
+ const relay=async(op,input)=>{const url=new URL('https://queue.test/relay');url.searchParams.set('op',op);url.searchParams.set('data',JSON.stringify(input));const result=await worker.fetch(new Request(url),env);assert.equal(result.status,200);return result.json();};
+ const first=await direct('join-queue',a);assert.equal((await relay('join-queue',b)).body.your_turn,false);
+ assert.equal((await relay('join-queue',a)).body.lock_token,first.lock_token);
+ assert.equal((await relay('complete',{...a,release_proof:'0'.repeat(64)})).relay_status,400);
+ const proof=createHash('sha256').update(first.lock_token+'\0release').digest('hex');
+ assert.equal((await relay('complete',{...a,release_proof:proof})).body.released,true);
+ const next=await direct('my-turn',b);assert.equal(next.your_turn,true);
+ assert.equal((await relay('complete',{...b,release_proof:proof})).relay_status,400);
+ assert.equal((await relay('join-queue',{...b,key:'reject-me'})).relay_status,400);
+ assert.equal((await relay('complete',{...b,lock_token:next.lock_token})).relay_status,400);
+ assert.equal(objects.size,1);
+});
+
 test('160 concurrent users across 20 keys have one holder per key and independent handoffs',async()=>{
  const objects=new Map();const env={MIAO_KEY_QUEUE:{idFromName:name=>name,get(id){if(!objects.has(id))objects.set(id,new MiaoKeyQueue(context()));return objects.get(id);}}};
  const request=async(path,body)=>{const r=await worker.fetch(new Request('https://queue.test'+path,{method:'POST',body:JSON.stringify(body)}),env);assert.equal(r.status,200);return r.json();};

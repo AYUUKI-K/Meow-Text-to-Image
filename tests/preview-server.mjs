@@ -2,10 +2,12 @@
 // Run: node tests/preview-server.mjs, then open http://127.0.0.1:8766
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
+import {LeaseQueue} from '../queue-service/queue.mjs';
 const root=new URL('../',import.meta.url);
 const prefix='/scripts/extensions/third-party/test/';
 const savedPreviewImages=new Map();
 const simpleQueueRequests=[];
+const relayQueue=new LeaseQueue(),relayRequests=[];
 const fixturePNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=','base64');
 function fixtureZip(){
     const name=Buffer.from('image_0.png');let crc=0xffffffff;for(const byte of fixturePNG){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}crc=(crc^0xffffffff)>>>0;
@@ -84,12 +86,16 @@ if(new URL(location.href).searchParams.has('local-queue')){
 const openGeneration=async()=>{document.getElementById('miao-nai-menu').click();await settle(()=>document.querySelector('.miao-settings'));if(getComputedStyle(document.querySelector('.miao-tabs')).display==='none')document.querySelector('[aria-label="生成"].miao-overview-row').click();else document.querySelectorAll('.miao-tabs>button')[0].click();};
 const action=text=>[...document.querySelectorAll('.miao-settings button')].find(button=>button.textContent===text);
 await openGeneration();document.querySelector('input[type=password]').value='fixture-audit-key';action('保存密钥').click();await settle(()=>p.settings.keyHash?.length===64);document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));
+p.settings.profiles[0].positive='front-only-style';p.settings.profiles[0].positiveSuffix='back-only-style';
 let release,started=0;
 p.beforeRequest=async url=>{if(String(url).includes('/generate-image')||String(url).endsWith('/encode-vibe')){started++;if(started===1)await new Promise(resolve=>release=resolve);}};
 try{
 document.querySelector('[mesid="3"] .miao-image-tools button').click();await settle(()=>release);await openGeneration();action('测试生成').click();await wait();
 check(started===1,'测试生成与聊天图片共用本地队列，不并发发送 NAI 请求');release();release=null;await settle(()=>document.querySelector('.miao-image-viewer'));check(started===2,'前一张完成后测试图片才开始，生成成功打开预览');
 close().click();await settle(()=>!document.querySelector('.miao-image-viewer'));document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));
+document.querySelector('[mesid="3"] [aria-label="查看提示词"]').click();await settle(()=>document.querySelector('.miao-prompt-view'));const tagText=document.querySelector('.miao-prompt-view>pre').textContent;
+check(tagText.includes('clear blue eyes')&&!tagText.includes('front-only-style')&&!tagText.includes('back-only-style'),'生成后的楼层提示词只显示 AI tag，不显示前置或后置串');
+check((p.calls[0].prompt||p.calls[0].input).includes('front-only-style')&&(p.calls[0].prompt||p.calls[0].input).includes('back-only-style'),'展示范围变化不改变实际发送的完整提示词');close().click();await settle(()=>!document.querySelector('.miao-prompt-view'));
 started=0;document.querySelector('[mesid="5"] .miao-image-tools button').click();await settle(()=>release);await openGeneration();action('测试生成').click();await wait();const priorHash=p.settings.keyHash;p.settings.keyHash='b'.repeat(64);release();release=null;await settle(()=>window.miaoTestToasts.some(toast=>toast.type==='error'&&String(toast.message).includes('Key 已更换')));p.settings.keyHash=priorHash;
 check(started===1,'测试图片等待期间更换 Key，轮到时取消且不发送第二次请求');document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));
 const item=p.settings.vibeLibrary[0],file=p.vibeFiles['/user/files/miao-vibe-'+item.id+'.json'];item.hasImage=true;file.image='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=';
@@ -101,6 +107,7 @@ await settle(()=>action('编码并保存（2 Anlas）'));action('编码并保存
 }catch(error){results.push('FAIL '+error.stack);}document.getElementById('report').textContent=results.join(String.fromCharCode(10));
 if(new URL(location.href).searchParams.has('queue-network'))try{
 const {queueJSON}=await import('${prefix}queue-network.js'),{runWithQueue}=await import('${prefix}cloud-queue.js');
+if(!new URL(location.href).searchParams.has('lan-relay')){
 const target='http://localhost:'+location.port+'/fixture-queue';const keyHash='a'.repeat(64);let sent=0;
 const result=await runWithQueue({url:target,keyHash,fetchImpl:nativeFetch,generate:async()=>{sent++;return 'fixture image';}});
 const calls=await (await nativeFetch(target+'/stats')).json();
@@ -109,6 +116,20 @@ check(calls.filter(call=>call.method==='POST').length===2&&!calls.some(call=>cal
 check(calls.filter(call=>call.method==='POST').every(call=>call.type==='text/plain;charset=UTF-8'&&!call.cookie&&!call.authorization),'排队请求不携带 Cookie 或认证头');
 let generated=0;try{await runWithQueue({url:target,keyHash,sleep:async()=>{},fetchImpl:async()=>{throw new TypeError('blocked network');},generate:async()=>{generated++;}});}catch(error){check(error.source==='queue'&&error.message.includes('未发送新的生图请求')&&!error.message.includes('结果尚不确定'),'网络报错明确属于排队连接，不误报 NAI 结果未知');}
 check(generated===0,'无法连接时不绕过队列生成，不产生额外 NAI 请求');
+}
+if(new URL(location.href).searchParams.has('lan-relay')){
+const {createQueueTransport}=await import('${prefix}queue-network.js'),{randomId}=await import('${prefix}browser-crypto.js');
+check(!!randomId()&&(isSecureContext||typeof crypto.randomUUID!=='function'),'局域网 HTTP 无 randomUUID 时仍能创建安全的排队标识');
+const root='https://queue-relay.fixture.invalid',sent=[],statuses=[];let finish;
+const requestJSON=createQueueTransport({getHeaders:()=>({'Content-Type':'application/json','X-CSRF-Token':'fixture-token'}),fetchImpl:async(url,options)=>{if(String(url).startsWith(root))throw new TypeError('phone network blocked');return nativeFetch(url,options);}});
+const first=runWithQueue({url:root,keyHash:'c'.repeat(64),requestJSON,pollMs:10,generate:()=>{sent.push('A');return new Promise(resolve=>finish=resolve);}});
+for(let i=0;i<80&&!finish;i++)await new Promise(resolve=>setTimeout(resolve,10));check(!!finish,'手机直连失败后经电脑连接同一个队列取得排号');
+const second=runWithQueue({url:root,keyHash:'c'.repeat(64),requestJSON,pollMs:10,onStatus:text=>statuses.push(text),generate:async()=>sent.push('B')});
+const other=runWithQueue({url:root,keyHash:'d'.repeat(64),requestJSON,pollMs:10,generate:async()=>sent.push('C')});
+await other;check(sent.join(',')==='A,C','电脑转接仍然同 Key 排队，不同 Key 独立放行');finish('first');await first;await second;
+check(sent.join(',')==='A,C,B'&&statuses.some(text=>text.includes('已等')),'释放后下一位正常生成，等待状态显示时长');
+const relayStats=await(await nativeFetch('/fixture-relay-stats')).json();check(relayStats.every(call=>!call.url.includes('lock_token')&&call.csrf==='fixture-token'),'转接不把原始锁凭据写进 URL，酒馆 CSRF 验证仍保留');
+}
 }catch(error){results.push('FAIL '+error.stack);}document.getElementById('report').textContent=results.join(String.fromCharCode(10));
 if(!new URL(location.href).searchParams.has('content-popup')&&!new URL(location.href).searchParams.has('queue-network')&&!new URL(location.href).searchParams.has('samples-archives')&&!new URL(location.href).searchParams.has('key-reload')&&!new URL(location.href).searchParams.has('translation')&&!new URL(location.href).searchParams.has('review')&&!new URL(location.href).searchParams.has('image-size')&&!new URL(location.href).searchParams.has('resources')&&!new URL(location.href).searchParams.has('config')&&!new URL(location.href).searchParams.has('deletions')&&!new URL(location.href).searchParams.has('quick-delete')&&!new URL(location.href).searchParams.has('key-queue')&&!new URL(location.href).searchParams.has('viewer')&&!new URL(location.href).searchParams.has('lan-retry')&&!new URL(location.href).searchParams.has('touch-delete')&&!new URL(location.href).searchParams.has('error-messages')&&!new URL(location.href).searchParams.has('prompt-files')&&!new URL(location.href).searchParams.has('export-format')&&!window.__TAURITAVERN__)try{
 check(document.querySelectorAll('.miao-image-card').length===2,'#3 与 #5 都显示按钮');check(p.calls.length===0,'手动模式载入零请求');document.getElementById('report').click();check([...document.querySelectorAll('.miao-image-tools')].every(tools=>!tools.hidden),'点击空白不收起尚未生成的历史标签按钮');document.querySelector('[mesid="3"] .miao-image-tools button:last-child').click();await wait();check(document.querySelector('.miao-prompt-metadata').textContent.includes('当前配置：A')&&document.querySelector('.miao-prompt-metadata').textContent.includes('Vibe 候选：未选择'),'未生成的提示词明确显示当前配置和 Vibe 候选');(document.querySelector('.miao-page-controls button')||document.querySelector('dialog[open] .popup-controls button')).click();await wait();
@@ -520,7 +541,14 @@ check(document.querySelector('input[type=password]').value.length>0,'仅当直�
 </script>`;
 const server=http.createServer(async(req,res)=>{try{
 let body,type='text/javascript';
-if(req.url?.startsWith('/fixture-queue/')){
+if(req.url==='/api/search/visit'){
+    let text='';for await(const chunk of req){text+=chunk;if(text.length>16384)throw Error('Fixture request too large');}
+    const input=JSON.parse(text),target=new URL(input.url);if(target.origin!=='https://queue-relay.fixture.invalid'||input.html!==false)throw Error('Fixture only');
+    relayRequests.push({url:input.url,csrf:req.headers['x-csrf-token']});type='application/json';
+    if(target.pathname==='/ping')body=JSON.stringify({ready:true,relay:1});
+    else{const data=JSON.parse(target.searchParams.get('data')),op=target.searchParams.get('op');let result,status=200;try{result=op==='join-queue'?relayQueue.join(data):op==='my-turn'?relayQueue.turn(data):relayQueue.release(data);}catch(error){status=error.status||400;result={error:error.message};}body=JSON.stringify({relay_status:status,body:result});}
+}else if(req.url==='/fixture-relay-stats'){body=JSON.stringify(relayRequests);type='application/json';}
+else if(req.url?.startsWith('/fixture-queue/')){
     res.setHeader('Access-Control-Allow-Origin','*');type='application/json';
     if(req.url.endsWith('/stats'))body=JSON.stringify(simpleQueueRequests);
     else{simpleQueueRequests.push({method:req.method,type:req.headers['content-type'],cookie:req.headers.cookie,authorization:req.headers.authorization});if(req.method==='OPTIONS'){res.writeHead(405);res.end();return;}body=JSON.stringify(req.url.endsWith('/complete')?{released:true}:{your_turn:true,lock_token:'fixture-lease'});}

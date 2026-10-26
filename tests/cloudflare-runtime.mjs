@@ -3,9 +3,11 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {dirname,resolve} from 'node:path';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const runtime=await import(process.env.MIAO_MINIFLARE?pathToFileURL(process.env.MIAO_MINIFLARE).href:'miniflare');
-const options={name:'queue-runtime-check',modulesRoot:root,modules:[
+const entry=process.env.MIAO_QUEUE_RUNTIME_ENTRY;
+const options={name:'queue-runtime-check',modulesRoot:entry?dirname(resolve(entry)):root,modules:entry?[{type:'ESModule',path:resolve(entry)}]:[
     {type:'ESModule',path:fileURLToPath(new URL('../cloudflare/worker.js',import.meta.url))},
     {type:'ESModule',path:fileURLToPath(new URL('../queue-service/queue.mjs',import.meta.url))}
 ],compatibilityDate:'2026-10-23',compatibilityFlags:['nodejs_compat'],durableObjects:{MIAO_KEY_QUEUE:{className:'MiaoKeyQueue',useSQLite:true}}};
@@ -27,5 +29,10 @@ try{
     assert.equal((await call('/leave-queue',b)).released,false);
     const again=await call('/join-queue',a);assert.equal(again.your_turn,true);assert.notEqual(again.lock_token,first.lock_token);
     await call('/complete',{...a,lock_token:again.lock_token});
+    const relay=async(op,body)=>{const target=new URL('https://queue.test/relay');target.searchParams.set('op',op);target.searchParams.set('data',JSON.stringify(body));const response=await mf.dispatchFetch(target);assert.equal(response.status,200);const data=await response.json();assert.equal(data.relay_status,200,JSON.stringify(data));return data.body;};
+    const held=await relay('join-queue',a);assert.equal((await call('/join-queue',b)).your_turn,false);
+    assert.equal((await relay('join-queue',a)).lock_token,held.lock_token);
+    const proof=createHash('sha256').update(held.lock_token+'\0release').digest('hex');
+    await relay('complete',{...a,release_proof:proof});const granted=await call('/my-turn',b);assert.equal(granted.your_turn,true);await call('/complete',{...b,lock_token:granted.lock_token});
     console.log('workerd + SQLite: isolation, polling, transactional handoff, idle cleanup and rejoin passed. No NAI requests.');
 }finally{await mf.dispose();}
