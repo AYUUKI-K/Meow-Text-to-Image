@@ -41,6 +41,14 @@ export function writeSwipeImage(message,swipe,slot,record){
     message.swipe_info??=[];message.swipe_info[swipe]??={};message.swipe_info[swipe].extra??={};
     (message.swipe_info[swipe].extra[ID]??={})[legacyKey]=structuredClone(record);
 }
+export function moveSwipeImage(message,swipe,from,to,record){
+    migrateSwipeImages(message);
+    if(from!==to){
+        if(message[STORE]?.[swipe])delete message[STORE][swipe][from];
+        for(const extra of [message.extra,message.swipe_info?.[swipe]?.extra])if(extra?.[ID])delete extra[ID][`${swipe}:${from}`];
+    }
+    if(record)writeSwipeImage(message,swipe,to,record);
+}
 export function swipeImageRecords(message){
     migrateSwipeImages(message);
     return Object.entries(message[STORE]||{}).flatMap(([swipe,records])=>Object.entries(records).map(([slot,record])=>({swipe:Number(swipe),slot,record})));

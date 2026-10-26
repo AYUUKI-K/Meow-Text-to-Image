@@ -40,7 +40,7 @@ test('widely spaced or distant clicks remain single taps',async()=>{
     await new Promise(r=>setTimeout(r,25));assert.equal(f.result().singles,1);
     const far=fixture();far.tap();far.emit('click',{clientX:200});assert.equal(far.result().rerolls,0);
 });
-test('floating entry docks on nearby edges, persists through resize and releases to the middle',()=>{
+test('floating entry docks on nearby edges, persists through resize and releases to the middle',async()=>{
     const button=new EventTarget(),windowImpl=new EventTarget();
     Object.assign(windowImpl,{innerWidth:400,innerHeight:800});
     Object.assign(button,{style:{},setAttribute(){},setPointerCapture(){},remove(){}});
@@ -55,6 +55,14 @@ test('floating entry docks on nearby edges, persists through resize and releases
     dragTo(400,350);assert.equal(button.offsetLeft,400);assert.equal(button.offsetTop,350);assert.equal(settings.floatingPosition.edgeX,null);assert.equal(settings.floatingPosition.edgeY,null);
     dragTo(420,730);assert.equal(button.offsetTop,744);assert.equal(settings.floatingPosition.edgeY,'bottom');
     emit('pointerdown',{clientX:420,clientY:744});emit('pointermove',{clientX:600,clientY:500});emit('pointercancel');assert.equal(button.offsetTop,744);
-    emit('pointerdown');emit('pointerup');emit('click');assert.equal(opened,1);assert.equal(saves,4);
+    emit('pointerdown');emit('pointerup');emit('click');await new Promise(resolve=>setTimeout(resolve,410));assert.equal(opened,1);assert.equal(saves,4);
     dispose();
+});
+
+test('floating double taps reroll once without opening settings; disposal cancels a delayed single tap',async()=>{
+ const button=new EventTarget(),win=new EventTarget();Object.assign(win,{innerWidth:400,innerHeight:800});Object.assign(button,{style:{},setAttribute(){},remove(){}});
+ let opened=0,rolls=0;const dispose=createFloatingEntry({settings:{floatingEntry:true},save(){},open:()=>opened++,reroll:()=>rolls++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+ const click=detail=>{const event=new Event('click',{cancelable:true});Object.assign(event,{detail,button:0,clientX:10,clientY:10});button.dispatchEvent(event);};
+ click(1);click(2);button.dispatchEvent(new Event('dblclick',{cancelable:true}));await new Promise(resolve=>setTimeout(resolve,410));assert.equal(rolls,1);assert.equal(opened,0);
+ click(0);assert.equal(opened,1);click(1);dispose();await new Promise(resolve=>setTimeout(resolve,410));assert.equal(opened,1);
 });

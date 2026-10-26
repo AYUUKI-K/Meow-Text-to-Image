@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaults} from '../core.js';
-import {promptFileData,promptFilename,importPromptData,readPromptFile,readPreviewData,PROMPT_FILE_LIMIT,PREVIEW_DATA_LIMIT} from '../prompt-files.js';
+import {promptFileData,promptFilename,importPromptData,readPromptFile,readPromptFiles,promptBundleData,PROMPT_BUNDLE_LIMIT,readPreviewData,PROMPT_FILE_LIMIT,PREVIEW_DATA_LIMIT} from '../prompt-files.js';
 
 const profile={...defaults,name:'猫猫',positive:'year 2025,\n1.5::artist:猫::, ',positiveSuffix:'\nno text,',negative:'lowres, bad hands',vibes:[{id:'private-vibe',strength:0.8}],key:'private-key',model:'nai-diffusion-4-5-curated',width:1216,height:832,steps:28,scale:6.5,seed:12345,sampler:'k_dpmpp_2m',scheduler:'exponential',varietyBoost:true};
 test('prompt files round trip all three strings and generation parameters without Vibes or keys',async()=>{
@@ -57,4 +57,19 @@ test('example data rejects links, scripts, invalid encodings, oversized payloads
         let called=false;await assert.rejects(readPromptFile(new File([JSON.stringify({...promptFileData(profile),preview})],'invalid.json'),[],{restorePreview:async()=>{called=true;}}),/例图/);assert.equal(called,false);
     }
     assert.equal(promptFilename('白发猫猫 · 串'),'喵喵NAI-白发猫猫 · 串.json');
+});
+
+test('selected profiles round trip as one package, preserving order, parameters and examples but excluding private fields',async()=>{
+ const data=promptBundleData([promptFileData(profile,png),promptFileData({...profile,name:'second',width:512,height:512})]);
+ assert.equal(data.profiles.length,2);assert.ok(!JSON.stringify(data).includes('private'));let restored=0;
+ const result=await readPromptFiles(new File([JSON.stringify(data)],'package.json'),[profile],{restorePreview:async()=>{restored++;return {url:'restored.png'};}});
+ assert.equal(restored,1);assert.deepEqual(result.map(p=>p.name),['猫猫 (2)','second']);assert.equal(result[0].preview.url,'restored.png');assert.equal(result[0].steps,28);assert.equal(result[1].width,512);assert.ok(result.every(p=>!p.vibes.length&&!p.vibeEnabled));
+ const repeated=await readPromptFiles(new File([JSON.stringify(promptBundleData([promptFileData(profile),promptFileData(profile)]))],'same.json'),[profile]);assert.deepEqual(repeated.map(p=>p.name),['猫猫 (2)','猫猫 (3)']);
+});
+test('a corrupt package is fully rejected before restoring images, and package import accepts individual legacy files',async()=>{
+ const data={type:'miao-nai-prompt-bundle',version:1,profiles:[promptFileData(profile,png),{bad:true}]};let writes=0;
+ await assert.rejects(readPromptFiles(new File([JSON.stringify(data)],'broken.json'),[],{restorePreview:async()=>{writes++;}}));assert.equal(writes,0);
+ for(const profiles of [[],Array.from({length:101},()=>promptFileData(profile))])assert.throws(()=>promptBundleData(profiles));
+ await assert.rejects(readPromptFiles({size:PROMPT_BUNDLE_LIMIT+1,text(){throw Error('must not read');}}),/20 MB/);
+ const result=await readPromptFiles(new File([JSON.stringify({...promptFileData(profile),version:1})],'old.json'));assert.equal(result.length,1);assert.equal(result[0].width,defaults.width);
 });

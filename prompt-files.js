@@ -1,5 +1,7 @@
 import {defaults,buildRequest} from './core.js';
 export const PROMPT_FILE_LIMIT=1024*1024;
+export const PROMPT_BUNDLE_LIMIT=20*1024*1024;
+export const PROMPT_BUNDLE_COUNT=100;
 export const PREVIEW_DATA_LIMIT=700*1024;
 const fields=['positive','positiveSuffix','negative'];
 const textParameters=['model','sampler','scheduler'],numberParameters=['width','height','steps','scale','seed'];
@@ -63,4 +65,24 @@ export async function readPromptFile(file,profiles=[],{restorePreview}={}){
         profile.preview=await restorePreview(preview,profile);
     }
     return profile;
+}
+export function promptBundleData(items){
+    if(!Array.isArray(items)||!items.length||items.length>PROMPT_BUNDLE_COUNT)throw Error('配置包需包含 1～100 个串');
+    const profiles=items.map(item=>{
+        const profile=importPromptData(item),preview=readPreviewData(item.preview),data=promptFileData(profile,preview);
+        if(new Blob([JSON.stringify(data)]).size>PROMPT_FILE_LIMIT)throw Error('单个 NAI 串不能超过 1 MB');return data;
+    });
+    return {type:'miao-nai-prompt-bundle',version:1,profiles};
+}
+export async function readPromptFiles(file,profiles=[],{restorePreview}={}){
+    if(file.size>PROMPT_BUNDLE_LIMIT)throw Error('配置包不能超过 20 MB');
+    let data;try{data=JSON.parse((await file.text()).replace(/^\uFEFF/,''));}catch{throw Error('无法读取 NAI 串文件，请选择有效的 JSON');}
+    const bundle=data?.type==='miao-nai-prompt-bundle';
+    if(!bundle&&file.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');
+    const entries=bundle?promptBundleData(data.version===1?data.profiles:null).profiles:[data],result=[],previews=[];
+    // Validate the entire package before storing any preview or changing settings.
+    for(const entry of entries){const profile=importPromptData(entry,[...profiles,...result]);previews.push(readPreviewData(entry.preview));result.push(profile);}
+    if(previews.some(Boolean)&&!restorePreview)throw Error('当前版本无法导入例图，请更新插件');
+    for(let i=0;i<result.length;i++)if(previews[i])result[i].preview=await restorePreview(previews[i],result[i]);
+    return result;
 }

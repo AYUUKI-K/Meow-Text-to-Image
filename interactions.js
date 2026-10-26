@@ -22,10 +22,10 @@ export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now
     return reset;
 }
 
-export function createFloatingEntry({settings,save,open,icon,documentImpl=document,windowImpl=window}){
+export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,documentImpl=document,windowImpl=window}){
     if(!settings.floatingEntry)return ()=>{};
     const button=documentImpl.createElement('button');button.id='miao-nai-floating';button.type='button';
-    button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label','打开喵喵文生图');button.title='喵喵文生图 · 拖动调整位置';
+    button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label','喵喵文生图：单击打开设置，双击重新生成最新楼层插图');button.title='单击设置 · 双击重 roll 最新楼层 · 拖动调整位置';
     documentImpl.body.append(button);let down,moved=false;
     const bounds=()=>{const x=Math.max(0,(windowImpl.visualViewport?.width||windowImpl.innerWidth)-56),y=Math.max(0,(windowImpl.visualViewport?.height||windowImpl.innerHeight)-56);return {x,y,minX:Math.min(8,x),minY:Math.min(8,y)};};
     const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
@@ -40,11 +40,12 @@ export function createFloatingEntry({settings,save,open,icon,documentImpl=docume
     };
     fit();windowImpl.addEventListener('resize',fit);windowImpl.visualViewport?.addEventListener('resize',fit);
     button.addEventListener('pointerdown',e=>{if(e.button>0||e.isPrimary===false)return;moved=false;down={id:e.pointerId,x:e.clientX,y:e.clientY,left:button.offsetLeft,top:button.offsetTop};button.setPointerCapture?.(e.pointerId);});
-    button.addEventListener('pointermove',e=>{if(!down||e.pointerId!==down.id)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;if(Math.hypot(dx,dy)>8)moved=true;if(!moved)return;const b=bounds();button.style.left=clamp(down.left+dx,b.minX,b.x)+'px';button.style.top=clamp(down.top+dy,b.minY,b.y)+'px';});
+    button.addEventListener('pointermove',e=>{if(!down||e.pointerId!==down.id)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;if(Math.hypot(dx,dy)>8)moved=true;if(!moved)return;cancelGesture();const b=bounds();button.style.left=clamp(down.left+dx,b.minX,b.x)+'px';button.style.top=clamp(down.top+dy,b.minY,b.y)+'px';});
     button.addEventListener('pointerup',e=>{if(!down||e.pointerId!==down.id)return;if(moved){const b=bounds();settings.floatingPosition={x:b.x?button.offsetLeft/b.x:0,y:b.y?button.offsetTop/b.y:0,...dock(button.offsetLeft,button.offsetTop,b)};fit();save();}down=null;});
     button.addEventListener('pointercancel',()=>{down=null;moved=true;fit();});
-    button.addEventListener('click',e=>{if(moved&&e.detail!==0){e.preventDefault();moved=false;return;}open();});
-    return ()=>{button.remove();windowImpl.removeEventListener('resize',fit);windowImpl.visualViewport?.removeEventListener('resize',fit);};
+    button.addEventListener('click',e=>{if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}if(e.detail===0){e.stopImmediatePropagation();cancelGesture();open();}});
+    const cancelGesture=bindImageGesture(button,{getClicks:()=>2,onSingle:open,onReroll:reroll});
+    return ()=>{cancelGesture();button.remove();windowImpl.removeEventListener('resize',fit);windowImpl.visualViewport?.removeEventListener('resize',fit);};
 }
 export function clampImageView(view,{width,height,imageWidth,imageHeight}){
     const scale=Math.max(1,Math.min(8,Number(view.scale)||1));

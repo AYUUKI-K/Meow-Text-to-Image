@@ -8,7 +8,8 @@ import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
 import {prepareImageExport} from './image-export.js';
-import {promptFileData,promptFilename,PROMPT_FILE_LIMIT} from './prompt-files.js';
+import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './prompt-files.js';
+import {editedTag} from './tag-edit.js';
 import {exportPreview,previewPNG} from './prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
@@ -33,7 +34,7 @@ import {createResourceUpdater} from './resource-updates.js';
 import {archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation,rememberImage,archiveItems} from './image-archives.js';
 import {createProfilePreviews,ensureProfileIds,sampleSignature,SAMPLE_PROMPT} from './profile-previews.js';
 import {downloadImageSelection} from './downloads.js';
-import {migrateSwipeImages,readSwipeImage,writeSwipeImage,swipeImageRecords,removeSwipeImages} from './swipe-history.js';
+import {migrateSwipeImages,readSwipeImage,writeSwipeImage,moveSwipeImage,swipeImageRecords,removeSwipeImages} from './swipe-history.js';
 import { defaults, parseBodyBlocks, maskReasoning, renderedBlockRange, buildRequest, latestImageMessage, canAutoGenerate, validateFolder, imageDay, imageURL, normalizeProfile, delimiterPattern } from './core.js';
 
 await (window.__TAURITAVERN__?.ready??window.__TAURITAVERN_MAIN_READY__);
@@ -195,6 +196,27 @@ function taskFor(message,block){
 function generate(message,block,{automatic=false}={}) {
     try{return startGeneration(message,block,{automatic});}catch(error){generationError(error);}
 }
+function tagEditor(message,block){
+    const chat=currentChat(),swipe=message.swipe_id??0;
+    return async prompt=>{
+        const live=liveMessage(message);
+        if(chat!==currentChat()||!live||(live.swipe_id??0)!==swipe)throw Error('聊天或分支已切换，请重新打开提示词');
+        if(taskFor(live,block))throw Error('这个 tag 正在生图，请完成后再编辑');
+        if(streamActive&&generationChat===chat&&live===latestImageMessage(ctx().chat))throw Error('请等待本次回复输出完成后再编辑');
+        const next=editedTag(live.mes,block,prompt,settings.pattern,reasoningFormat());
+        buildRequest(settings.profiles[settings.active],next.block.prompt);
+        const record=state(live,identity(live,block)),oldText=live.mes;
+        live.mes=next.text;if(live.swipes)live.swipes[swipe]=next.text;
+        moveSwipeImage(live,swipe,blockSlot(block),blockSlot(next.block),record);
+        try{await inStage('chat-save',()=>ctx().saveChat());}
+        catch(error){if(live.mes===next.text){live.mes=oldText;if(live.swipes)live.swipes[swipe]=oldText;moveSwipeImage(live,swipe,blockSlot(next.block),blockSlot(block),record);}throw error;}
+        if(chat!==currentChat()||(live.swipe_id??0)!==swipe)return;
+        const root=document.querySelector(`#chat .mes[mesid="${ctx().chat.indexOf(live)}"] .mes_text`);
+        const old=[...(root?.querySelectorAll('.miao-image-card')||[])].find(card=>card.dataset.miaoKey===`${swipe}:${blockSlot(block)}`);
+        if(old){old._cancelGesture?.();old.replaceWith(makeCard(live,next.block));}
+        renderAll();generate(live,next.block);
+    };
+}
 function startGeneration(message,block,{automatic=false}={}) {
     message=liveMessage(message);if(!message)throw Error('原楼层已切换，请重新点击当前图片');
     const key=identity(message,block), chat=currentChat(), taskId=`${chat}:${ctx().chat.indexOf(message)}:${key}`;
@@ -278,7 +300,7 @@ function makeCard(message,block) {
             const next=button('›',()=>switchTo(1),navigation);next.setAttribute('aria-label','下一张');next.title='下一张';
         }
         const operations=el('div',undefined,'miao-image-operations');actions.append(operations);
-        button('提示词',()=>showPrompt(current.tagPrompt??block.prompt,current.request?.vibes,current.profileName),operations).setAttribute('aria-label','查看提示词');
+        button('提示词',()=>showPrompt(current.tagPrompt??block.prompt,current.request?.vibes,current.profileName,false,true,tagEditor(message,block)),operations).setAttribute('aria-label','查看提示词');
         button('下载',()=>downloadImage(current.url),operations).setAttribute('aria-label','下载图片');button('放大',()=>openImage(current.url),operations).setAttribute('aria-label','放大查看');
         operations.dataset.hasDelete='true';
         const remove=button('删除',async()=>{
@@ -289,7 +311,7 @@ function makeCard(message,block) {
             finally{remove.disabled=false;}
         },operations);remove.setAttribute('aria-label','删除当前图');remove.title='删除当前图';
     }else if(!task){
-        actions.hidden=false;button(task?.status||'生成插图',()=>generate(message,block)).disabled=!!task;button('查看提示词',()=>{const profile=settings.profiles[settings.active],enabled=profileVibeEnabled(profile);return showPrompt(block.prompt,enabled?(profile.vibes||[]).map(v=>({...v,name:settings.vibeLibrary?.find(item=>item.id===v.id)?.name||v.name||v.id})):[],profile.name,true,enabled);});
+        actions.hidden=false;button(task?.status||'生成插图',()=>generate(message,block)).disabled=!!task;button('查看提示词',()=>{const profile=settings.profiles[settings.active],enabled=profileVibeEnabled(profile);return showPrompt(block.prompt,enabled?(profile.vibes||[]).map(v=>({...v,name:settings.vibeLibrary?.find(item=>item.id===v.id)?.name||v.name||v.id})):[],profile.name,true,enabled,tagEditor(message,block));});
     }
     if(task){const progress=el('span',task.status,'miao-image-progress');progress.setAttribute('role','status');card.append(progress);}
     card.dataset.status=String(selected)+':'+versions.map(v=>v.url+':'+!!v.deleted).join('|')+':'+(task?.status||'')+':'+(settings.rerollClicks===3?3:2);
@@ -540,9 +562,11 @@ async function saveFile(blob,name){
 }
 async function exportPromptFile(profile){
     // Snapshot before reading the image so edits during export cannot mix two configurations.
-    const snapshot=structuredClone(profile),preview=await exportPreview(snapshot.preview?.url);
-    const data=promptFileData(snapshot,preview),blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),name=promptFilename(data.name);
-    if(blob.size>PROMPT_FILE_LIMIT)throw Error('NAI 串文件不能超过 1 MB');
+    const bundle=Array.isArray(profile),snapshots=structuredClone(bundle?profile:[profile]),items=[];
+    if(!snapshots.length||snapshots.length>100)throw Error('配置包需包含 1～100 个串');
+    for(const snapshot of snapshots){const preview=await exportPreview(snapshot.preview?.url);items.push(promptFileData(snapshot,preview));}
+    const data=bundle?promptBundleData(items):items[0],blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),name=bundle?`喵喵NAI-配置包-${items.length}串.json`:promptFilename(data.name);
+    if(blob.size>(bundle?PROMPT_BUNDLE_LIMIT:PROMPT_FILE_LIMIT))throw Error(bundle?'配置包不能超过 20 MB':'NAI 串文件不能超过 1 MB');
     const ios=isTT()&&(window.__TAURITAVERN_HOST__?.platform==='ios'||/iPad|iPhone|iPod/.test(navigator.userAgent)||navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
     if(!ios)return saveFile(blob,name);
     const file=new File([blob],name,{type:blob.type}),result={name,save:()=>saveFile(file,name),copy:async()=>{
@@ -592,8 +616,8 @@ async function requestImage(request,task,canContinue) {
     }});
 }
 const translatePrompt=createPromptTranslator({getHeaders:()=>ctx().getRequestHeaders()});
-async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabled=true){
-    const view=el('section',undefined,'miao-prompt-view');view.append(el('h3','绘图提示词'),el('pre',prompt));
+async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabled=true,onEdit){
+    const view=el('section',undefined,'miao-prompt-view'),original=el('pre',prompt);view.append(el('h3','绘图提示词'),original);let popup;
     const metadata=el('div',undefined,'miao-prompt-metadata');metadata.append(el('span',(pending?'当前配置：':'配置：')+(profileName||'未记录')),el('span',(pending?'Vibe 候选：':'Vibe：')+(pending&&!vibeEnabled?'已关闭':vibes.length?vibes.map(v=>v.name||v.id).join('、'):pending?'未选择':'未使用')));view.append(metadata);
     const actions=el('div',undefined,'miao-translation-actions'),buttons=new Map();
     const providers=[['google','Google 翻译'],['bing','Microsoft 翻译']];
@@ -607,7 +631,14 @@ async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabl
         note.textContent=providers.find(([name])=>name===provider)[1];note.hidden=false;
     }catch(error){failed=true;note.textContent=['TimeoutError','AbortError'].includes(error.name)?'翻译超时，请重试':error instanceof TypeError?'翻译连接失败，请重试':String(error.message||error);note.hidden=false;fallback.hidden=provider!=='google';
     }finally{for(const [name,label] of providers){const item=buttons.get(name);item.disabled=false;item.textContent=failed&&name===provider?'重试 '+label:label;}}};
-    view.append(actions,note,fallback,translated);await showPopup(view,POPUP_TYPE.TEXT,'',{wide:true,onOpen:popup=>popup.dlg.classList.add('miao-content-dialog')});
+    if(onEdit){
+        const edit=el('button','编辑提示词','miao-button'),editor=el('div',undefined,'miao-tag-editor'),input=el('textarea'),controls=el('div',undefined,'miao-actions'),commit=el('button','保存并生成新图','miao-button'),cancel=el('button','取消编辑','miao-button'),error=el('p','','miao-muted');
+        edit.type=commit.type=cancel.type='button';input.value=prompt;input.setAttribute('aria-label','编辑本次 tag 提示词');error.setAttribute('role','alert');editor.hidden=true;controls.append(commit,cancel);editor.append(input,controls,error);view.append(edit,editor);
+        edit.onclick=()=>{editor.hidden=false;original.hidden=edit.hidden=actions.hidden=true;input.focus({preventScroll:true});};
+        cancel.onclick=()=>{editor.hidden=true;original.hidden=edit.hidden=actions.hidden=false;error.textContent='';};
+        commit.onclick=async()=>{if(commit.disabled)return;commit.disabled=cancel.disabled=true;error.textContent='';try{await onEdit(input.value);if(popup?.completeAffirmative)popup.completeAffirmative();else popup?.dlg.close();}catch(cause){error.textContent=String(cause.message||cause);}finally{commit.disabled=cancel.disabled=false;}};
+    }
+    view.append(actions,note,fallback,translated);await showPopup(view,POPUP_TYPE.TEXT,'',{wide:true,onOpen:value=>{popup=value;popup.dlg.classList.add('miao-content-dialog');}});
 }
 async function importVibeFile(file){
     if(file.size>18*1024*1024)throw Error('文件不能超过 18 MB');
@@ -704,7 +735,12 @@ function mountMenu() {
     const menu=document.getElementById('extensionsMenu');if(menu)menu.append(item);
 }
 function refreshFloating(){
-    floatingDispose();floatingDispose=createFloatingEntry({settings,save,open:guard(openSettings),icon:document.querySelector('#miao-nai-menu .extensionsMenuExtensionButton')?.innerHTML||'喵'});
+    floatingDispose();floatingDispose=createFloatingEntry({settings,save,open:guard(openSettings),reroll:guard(()=>{
+        if(streamActive&&generationChat===currentChat()){toastr.info('请等待本次回复输出完成');return;}
+        const message=latestImageMessage(ctx().chat),tags=message?blocks(message):[];
+        if(!tags.length){toastr.info('最新楼层没有可生成的 tag');return;}
+        for(const block of tags)generate(message,block);
+    }),icon:document.querySelector('#miao-nai-menu .extensionsMenuExtensionButton')?.innerHTML||'喵'});
 }
 function autoLatest() {
     if(!settings.enabled||!autoSession?.enabled||autoSession.chat!==currentChat())return;
