@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDirectClient,naiPayload} from '../direct-client.js';
-import {buildRequest,defaults,varietyBoostSigma} from '../core.js';
+import {buildRequest,defaults as pluginDefaults,varietyBoostSigma} from '../core.js';
 import {createKeyVault} from '../direct-key.js';
+
+const defaults={...pluginDefaults,qualityPreset:'none',ucPreset:'none'};
 
 test('frontend-only Vibe uses existing ST file API and sends key only to NovelAI',async()=>{
  const settings={},files=new Map(),requests=[];let encodes=0;

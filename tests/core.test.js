@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseBlocks,buildRequest,defaults,latestImageMessage,canAutoGenerate,validateFolder,imageDay,normalizeProfile,imageURL} from '../core.js';
+import {parseBlocks,buildRequest,defaults as pluginDefaults,latestImageMessage,canAutoGenerate,validateFolder,imageDay,normalizeProfile,imageURL} from '../core.js';
+const defaults={...pluginDefaults,qualityPreset:'none',ucPreset:'none'};
+
 test('only #5 is eligible when #3 and #5 both contain tags',()=>{
  const chat=Array.from({length:6},(_,i)=>({mes:`floor ${i}`}));
  chat[3].mes='image###third###';chat[5].mes='image###fifth###';
@@ -65,7 +67,7 @@ test('invalid sizes and generation parameters rejected before charging',()=>{
 });
 
 test('legacy positive stays in front, suffix is empty by default and each request snapshots all three parts',()=>{
- const old={positive:'old style',artists:'artist',negative:'avoid',seed:42};
+ const old={qualityPreset:'none',ucPreset:'none',positive:'old style',artists:'artist',negative:'avoid',seed:42};
  const migrated=normalizeProfile(old);
  assert.equal(migrated.positive,'old style,\nartist');assert.equal(migrated.positiveSuffix,'');
  assert.equal(migrated.vibeEnabled,true);

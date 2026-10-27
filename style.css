@@ -20,6 +20,11 @@
     overscroll-behavior: contain;
 }
 
+/* Settings use the same card margins as ST; viewer overlays keep their padding. */
+.miao-page-overlay:has(>.miao-settings-dialog) {
+    padding: 0;
+}
+
 .miao-page-overlay[data-nested=true] {
     position: absolute;
     inset: 0;
@@ -33,7 +38,7 @@
     inset: auto;
     margin: 0;
     transform: none;
-    background: var(--SmartThemeBlurTintColor,Canvas);
+    background: var(--mi-bg,var(--SmartThemeBlurTintColor,Canvas));
     color: var(--SmartThemeBodyColor,CanvasText);
     display: flex;
     flex-direction: column;
@@ -116,6 +121,13 @@
     box-sizing: border-box;
 }
 
+/* Preserve the host colour while keeping panel backgrounds readable. */
+@supports (background: rgb(from white r g b / max(alpha,.9))) {
+    .miao-settings,.miao-settings-dialog,.miao-confirm-dialog,.miao-image-viewer,.miao-prompt-view,.miao-content-dialog {
+        --mi-bg: rgb(from var(--SmartThemeBlurTintColor,Canvas) r g b / max(alpha,.9));
+    }
+}
+
 .miao-settings *,.miao-image-card * {
     box-sizing: border-box;
 }
@@ -124,10 +136,12 @@
     container: miao-settings / inline-size;
     width: 100%;
     min-width: 0;
-    min-height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    background: var(--mi-bg);
+    background: transparent;
+    overflow: hidden;
     font: inherit;
     font-size: 14px;
     line-height: 1.6;
@@ -154,8 +168,7 @@
 }
 
 .miao-header {
-    position: sticky;
-    top: 0;
+    position: relative;
     z-index: 5;
     display: flex;
     align-items: center;
@@ -163,7 +176,7 @@
     min-height: 58px;
     padding: 6px 16px;
     border-bottom: 1px solid var(--mi-line);
-    background: var(--mi-bg);
+    background: transparent;
 }
 
 .miao-brand {
@@ -213,13 +226,12 @@
 }
 
 .miao-tabs {
-    position: sticky;
-    top: 58px;
+    position: relative;
     z-index: 4;
     display: flex;
     gap: 0;
     padding: 0 16px;
-    background: var(--mi-bg);
+    background: transparent;
     border-bottom: 1px solid var(--mi-line);
 }
 
@@ -473,6 +485,8 @@
     gap: 16px;
 }
 
+.miao-prompt-presets {display:grid;gap:8px;min-width:0;}
+
 .miao-prompt-tabs {
     display: grid;
     grid-template-columns: repeat(3,minmax(0,1fr));
@@ -591,34 +605,52 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 16px 24px;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px;
     border-top: 1px solid var(--mi-line);
     color: var(--mi-muted);
     font-size: 11px;
 }
 
+.miao-footer>span {
+    flex: none;
+    white-space: nowrap;
+    font-size: 10px;
+}
+
 .miao-credit {
-    font-size: 11px;
+    font-size: 10px;
 }
 
 .miao-update-status {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
-    flex-basis: 100%;
+    flex: 1 1 auto;
+    margin-left: auto;
     min-width: 0;
+    justify-content: flex-end;
 }
 
 .miao-update-status>span {
-    font-size: 11px;
+    font-size: 10px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     min-width: 0;
 }
 
-.miao-update-status .miao-button {
-    font-size: 12px;
+.miao-footer .miao-update-status .miao-button {
+    flex: none;
+    min-width: 0;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 4px !important;
+    border: 0;
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .miao-vibe-list,.miao-vibe-choices {
@@ -690,8 +722,10 @@
 }
 
 .miao-settings-dialog {
-    width: min(960px,calc(var(--miao-vv-width,100vw) - 24px)) !important;
-    height: min(800px,calc(var(--miao-vv-height,100dvh) - 24px)) !important;
+    --miao-panel-width: var(--miao-vv-width,var(--miao-page-width,100vw));
+    --miao-panel-height: var(--miao-vv-height,var(--miao-page-height,100dvh));
+    width: min(960px,calc(var(--miao-panel-width) - 24px)) !important;
+    height: min(800px,calc(var(--miao-panel-height) - 24px)) !important;
     padding: 0 !important;
     border: 1px solid var(--mi-line) !important;
     border-radius: 10px !important;
@@ -738,7 +772,7 @@
     margin: 0 !important;
     padding: 10px 12px max(10px,env(safe-area-inset-bottom)) !important;
     border-top: 1px solid var(--SmartThemeBorderColor,currentColor);
-    background: var(--SmartThemeBlurTintColor,Canvas);
+    background: var(--mi-bg,var(--SmartThemeBlurTintColor,Canvas));
 }
 
 .miao-modal .popup-controls button,.miao-modal .popup-controls .menu_button {
@@ -1063,7 +1097,7 @@
     border-radius: 6px !important;
 }
 
-.miao-image-viewer-dialog .popup-content {
+.miao-image-viewer-dialog>.popup-content {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1100,26 +1134,13 @@
 .miao-floating-entry[data-collapsed=true][data-dock=right] {transform:translateX(32px);}
 .miao-floating-entry[data-collapsed=true][data-dock=top] {transform:translateY(-32px);}
 .miao-floating-entry[data-collapsed=true][data-dock=bottom] {transform:translateY(32px);}
-.miao-page-popup.miao-settings-dialog {width:min(960px,100%);height:min(900px,100%);max-height:100%;left:auto!important;top:auto!important;transform:none!important;min-height:0!important;}
-.miao-page-popup.miao-settings-dialog>.popup-body {
-    display:flex;
-    flex-direction:column;
-    flex:1 1 auto;
-    height:100%;
-    min-height:0;
-    overflow:hidden;
-}
-.miao-page-popup.miao-settings-dialog>.popup-body>.popup-content {
-    /* Keep the content's intrinsic height when the overview card is auto-sized.
-     * A zero basis collapses this scroll container and clips it to a thin line. */
-    flex:1 1 auto;
-    min-height:0;
-    min-width:0;
-    overflow-y:auto;
-    overflow-x:hidden;
-    overscroll-behavior-y:contain;
-    -webkit-overflow-scrolling:touch;
-    touch-action:pan-y;
+.miao-page-popup.miao-settings-dialog {
+    max-width: calc(var(--miao-panel-width) - 16px);
+    max-height: calc(var(--miao-panel-height) - 16px);
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    min-height: 0 !important;
 }
 @media(prefers-reduced-motion:reduce){.miao-floating-entry {transition:none;}}
 
@@ -1185,17 +1206,52 @@
 }
 
 #miao-nai-settings>.miao-panel-body {
-    flex: 1 0 auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    scrollbar-gutter: stable;
 }
 
 #miao-nai-settings>.miao-footer {
     flex: none;
 }
 
-.miao-settings-dialog .popup-content {
+/* One tint on the shell avoids stacking translucent host colours. The body
+ * scrolls inside it, keeping the header edge-to-edge and the footer at bottom. */
+.miao-settings-dialog>.popup-body {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    min-width: 0;
+    /* Host popup.css caps this at 95dvh, or 90dvh on iOS/Safari. Only the
+     * outer settings card should be viewport-limited, not its inner wrapper. */
+    max-height: none !important;
+    overflow: hidden !important;
+    box-sizing: border-box;
     padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+}
+.miao-settings-dialog>.popup-body>.popup-content {
+    display: flex;
+    flex-direction: column;
+    /* Preserve intrinsic overview height; a zero flex basis collapses it. */
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    min-width: 0;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    background: transparent !important;
     text-align: left !important;
-    scrollbar-gutter: stable;
+    scrollbar-gutter: auto;
 }
 
 #miao-nai-settings[data-section=overview]>.miao-tabs {
@@ -1329,7 +1385,8 @@
     position: sticky;
     bottom: 0;
     padding-top: 8px;
-    background: var(--mi-bg);
+    background: transparent;
+    box-shadow: none;
 }
 
 .miao-confirmation-actions .miao-button,.miao-image-operations .miao-button,.miao-history-selection .miao-button,.miao-date-row .miao-button {
@@ -1492,25 +1549,9 @@
 
 .miao-folder-browser {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.miao-folder-breadcrumbs,.miao-folder-children {
-    display: flex;
+    flex-direction: row;
     flex-wrap: wrap;
     gap: 8px;
-}
-
-.miao-folder-breadcrumbs .miao-button {
-    border: 0;
-    background: transparent;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.miao-folder-children .miao-button {
-    min-height: 44px;
 }
 
 .miao-sample-tile:focus-visible {
@@ -1749,6 +1790,11 @@
 }
 
 @media(max-width:680px),(max-height:500px) {
+    /* Keep version/update controls on the overview; subpages use the full height. */
+    #miao-nai-settings:not([data-section=overview])>.miao-footer {
+        display: none !important;
+    }
+
     #miao-nai-settings>.miao-tabs {
         display: none !important;
     }
@@ -1804,7 +1850,8 @@
     }
 
     .miao-footer {
-        padding: 12px 14px;
+        gap: 6px;
+        padding: 0 10px;
     }
 
     .miao-overview-row {
@@ -1812,8 +1859,8 @@
     }
 
     .miao-settings-dialog {
-        width: calc(var(--miao-vv-width,100vw) - 16px) !important;
-        height: calc(var(--miao-vv-height,100dvh) - 16px) !important;
+        width: calc(var(--miao-panel-width) - 16px) !important;
+        height: calc(var(--miao-panel-height) - 16px) !important;
     }
 
     .miao-history-grid {
@@ -1922,6 +1969,204 @@
     }
 }
 
+/* Gallery navigation stays over the image without consuming the swipe surface. */
+.miao-gallery-navigation {
+    position: absolute;
+    inset: auto 12px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: none;
+    z-index: 2;
+}
+.miao-gallery-navigation .miao-button {
+    pointer-events: auto;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 24px;
+    background: var(--mi-bg);
+}
+.miao-gallery-navigation span {
+    padding: 4px 10px;
+    border-radius: 12px;
+    color: var(--mi-ink);
+    background: var(--mi-bg);
+    font-variant-numeric: tabular-nums;
+}
+.miao-image-viewer {cursor: pointer; background: var(--mi-bg);}
+.miao-history-pick[hidden] {display: none !important;}
+
+.miao-switch-row[hidden],.miao-button[hidden] {display: none !important;}
+.miao-image-viewer .miao-zoom-reset {top: auto; bottom: 68px; left: 12px; right: auto;}
+
+/* Nested gallery previews cover the entire settings panel, including its header. */
+.miao-page-overlay[data-fill-panel=true] {
+    padding: 0;
+    border-radius: inherit;
+    background: transparent;
+}
+.miao-page-overlay[data-fill-panel=true]>.miao-page-popup {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+.miao-page-overlay[data-fill-panel=true]>.miao-page-popup>.popup-content {
+    flex: 1 1 auto;
+    width: 100%;
+    padding: 0 !important;
+}
+.miao-image-viewer-dialog>.miao-page-controls,.miao-image-viewer-dialog>.popup-body>.miao-page-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    z-index: 3;
+}
+.miao-image-viewer-dialog>.miao-page-controls button,.miao-image-viewer-dialog>.popup-body>.miao-page-controls button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    font-size: 28px;
+    background: var(--mi-bg);
+}
+
+.miao-viewer-actions {
+    position: absolute;
+    inset: 8px 60px auto 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    z-index: 2;
+    pointer-events: none;
+}
+.miao-viewer-actions>.miao-button {pointer-events: auto;}
+.miao-image-viewer-dialog .miao-viewer-actions>.miao-button,
+.miao-image-viewer-dialog .miao-gallery-navigation>*,
+.miao-image-viewer-dialog .miao-zoom-reset,
+.miao-image-viewer-dialog>.miao-page-controls>.miao-button,.miao-image-viewer-dialog>.popup-body>.miao-page-controls>.miao-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    height: 44px !important;
+    min-height: 44px !important;
+    max-height: 44px !important;
+    min-width: 44px;
+    margin: 0 !important;
+    padding: 0 12px !important;
+    border: 1px solid var(--mi-line);
+    border-radius: 8px;
+    background: var(--mi-bg);
+    color: var(--mi-ink);
+    line-height: 1 !important;
+    font-size: 14px;
+}
+.miao-image-viewer-dialog .miao-gallery-navigation>.miao-button,
+.miao-image-viewer-dialog>.miao-page-controls>.miao-button,.miao-image-viewer-dialog>.popup-body>.miao-page-controls>.miao-button {width: 44px; min-width: 44px; font-size: 24px;}
+.miao-image-viewer-dialog .miao-gallery-navigation>span {min-width: 88px;}
+.miao-image-viewer-dialog[data-controls-visible=false]>.miao-page-controls,
+.miao-image-viewer-dialog[data-controls-visible=false]>.popup-body>.miao-page-controls,
+.miao-image-viewer-dialog[data-controls-visible=false]>.popup-body>.popup-content>.miao-image-viewer>:is(.miao-viewer-actions,.miao-gallery-navigation,.miao-zoom-reset),
+.miao-image-viewer-dialog[data-controls-visible=false]>.popup-content>.miao-image-viewer>.miao-viewer-actions,
+.miao-image-viewer-dialog[data-controls-visible=false]>.popup-content>.miao-image-viewer>.miao-gallery-navigation,
+.miao-image-viewer-dialog[data-controls-visible=false]>.popup-content>.miao-image-viewer>.miao-zoom-reset {display: none !important;}
+.miao-image-viewer-dialog>.popup-content {padding: 0 !important;}
+.miao-settings-dialog[data-panel-page] {
+    width: min(960px,calc(var(--miao-panel-width) - 24px)) !important;
+    height: min(800px,calc(var(--miao-panel-height) - 24px)) !important;
+    border-radius: 10px !important;
+}
+.miao-panel-page-content {display: flex; flex: 1 1 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important;}
+.miao-settings-dialog[data-panel-page]>.popup-body>.miao-panel-page-content {flex: 1 1 0 !important; height: 0 !important; align-items: stretch; justify-content: flex-start;}
+.miao-image-parameters {display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; min-width: 0; overflow: hidden; text-align: left;}
+.miao-parameter-header {display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding: 12px 16px; border-bottom: 1px solid var(--mi-line);}
+.miao-parameter-header h3 {margin: 0; font-size: 16px;}
+.miao-image-parameters>p {flex: none; margin: 0; padding: 8px 16px;}
+.miao-parameter-scroll {flex: 1 1 0; min-height: 0; overflow: auto; padding: 16px; touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; user-select: text;}
+.miao-parameter-grid {display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 20px; margin: 0 0 20px;}
+.miao-parameter-grid dt {color: var(--mi-muted); font-size: 12px;}
+.miao-parameter-grid dd {margin: 4px 0 0; overflow-wrap: anywhere; font-size: 14px;}
+.miao-image-parameters h4 {margin: 20px 0 8px; font-size: 14px;}
+.miao-image-parameters pre {margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font-size: 13px; line-height: 1.6;}
+.miao-parameter-extra {margin-top: 20px;}
+.miao-parameter-extra pre {max-height: 320px; overflow: auto; white-space: pre; touch-action: pan-x pan-y; padding: 12px 0;}
+.miao-image-parameters-dialog .miao-page-controls {position: static; flex: none; background: var(--mi-bg);}
+@media(max-width:680px),(max-height:500px) {
+    .miao-settings-dialog[data-panel-page] {width: calc(var(--miao-panel-width) - 16px) !important; height: calc(var(--miao-panel-height) - 16px) !important;}
+}
+.miao-image-parameters p:empty {display: none;}
+.miao-archive-trigger {
+    flex: 1 1 180px;
+    justify-content: space-between;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.miao-archive-picker-dialog {
+    width: min(520px,100%) !important;
+    /* TT's popup minimum otherwise stretches long lists outside the panel. */
+    min-height: 0;
+    max-height: min(640px,100%);
+}
+.miao-archive-picker-dialog>.popup-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden !important;
+}
+.miao-archive-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    text-align: left;
+}
+.miao-archive-picker h3 {margin: 0; font-size: 16px;}
+.miao-archive-picker input {
+    flex: none;
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--mi-line);
+    border-radius: 6px;
+    background: var(--mi-field);
+    color: var(--mi-ink);
+    font: inherit;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+.miao-archive-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+.miao-archive-option {
+    flex: none;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    white-space: normal;
+}
+.miao-archive-option span {min-width: 0; overflow-wrap: anywhere;}
+.miao-archive-option small {flex: none; color: var(--mi-muted);}
+.miao-archive-option[aria-pressed=true] {border-color: var(--mi-blue); background: var(--mi-soft);}
+
 /* Scene favorites extend the shared 2.2 components. */
 .miao-favorites,.miao-favorite-editor {
     display:flex;flex-direction:column;gap:14px;min-width:0;
@@ -1965,3 +2210,49 @@
 @container miao-settings (max-width:600px) {
     .miao-favorite-grid {grid-template-columns:minmax(0,1fr);}
 }
+
+.miao-floating-entry>.miao-fa-icon {font-size: 24px; pointer-events: none;}
+.miao-floating-options {display: grid; gap: 12px;}
+.miao-floating-options[hidden],.miao-floating-icon-choice[hidden] {display: none !important;}
+.miao-floating-icon-choice,.miao-floating-icon-preview {display: flex; align-items: center; gap: 12px; min-width: 0;}
+.miao-floating-icon-preview {flex: 1; overflow-wrap: anywhere; font-size: 13px;}
+.miao-floating-icon-preview>.miao-fa-icon {font-size: 24px; flex: none;}
+.miao-icon-picker {display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; min-width: 0; text-align: left;}
+.miao-icon-picker>header {display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; flex: none; border-bottom: 1px solid var(--mi-line);}
+.miao-icon-picker h3 {margin: 0; font-size: 17px;}
+.miao-icon-tools {display: flex; gap: 8px; padding: 12px 16px 0; flex: none;}
+.miao-icon-tools>input,.miao-icon-tools>select {min-width: 0; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--mi-line); border-radius: 8px; background: var(--mi-field); color: var(--mi-ink); font: inherit;}
+.miao-icon-tools>input {flex: 1; width: 0;}
+.miao-icon-picker>p {margin: 8px 16px; flex: none; font-size: 12px;}
+.miao-icon-scroll {flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding: 0 16px 16px;}
+.miao-icon-grid {display: grid; grid-template-columns: repeat(auto-fill,minmax(100px,1fr)); gap: 8px;}
+.miao-icon-option {display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 100px; gap: 7px; padding: 12px 6px; border: 1px solid var(--mi-line); border-radius: 8px; background: transparent; color: var(--mi-ink); cursor: pointer; touch-action: manipulation;}
+.miao-icon-option:hover,.miao-icon-option[aria-pressed=true] {background: var(--mi-soft); border-color: var(--mi-blue);}
+.miao-icon-option:focus-visible {outline: 2px solid var(--mi-blue); outline-offset: -2px;}
+.miao-icon-option>.miao-fa-icon {font-size: 26px;}
+.miao-icon-option>span:not(.miao-fa-icon) {width: 100%; font-size: 12px; overflow-wrap: anywhere; text-align: center;}
+.miao-icon-option>small {font-size: 10px; color: var(--mi-muted);}
+.miao-icon-pagination {display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; flex: none; border-top: 1px solid var(--mi-line);}
+.miao-icon-picker .miao-button,.miao-icon-picker-dialog .miao-page-controls .miao-button {min-height: 44px;}
+.miao-icon-picker-dialog .miao-page-controls {background: transparent;}
+@media(max-width:400px) {
+    .miao-icon-picker>header {padding: 12px; gap: 8px;}
+    .miao-icon-picker h3 {font-size: 16px;}
+    .miao-icon-grid {grid-template-columns: repeat(3,minmax(0,1fr));}
+}
+
+/* Keep the gallery's scroll range while replacing a page or refreshing its data. */
+.miao-history-list {display: flex; flex-direction: column;}
+.miao-history-list>.miao-pager {margin-top: auto; padding-top: 12px;}
+img[data-miao-export-state=loading] {visibility: hidden;}
+.miao-batch-export {display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; text-align: left;}
+.miao-batch-export>header {flex: none; padding: 16px; border-bottom: 1px solid var(--mi-line);}
+.miao-batch-export h3 {margin: 0; font-size: 17px;}
+.miao-batch-export>p {margin: 12px 16px; flex: none; font-size: 13px;}
+.miao-batch-export-actions {display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; flex: none;}
+.miao-batch-export-list {overflow-y: auto; min-height: 0; flex: 1 1 0; padding: 0 16px 16px; overscroll-behavior: contain; touch-action: pan-y;}
+.miao-batch-export-list>article {display: grid; grid-template-columns: 64px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--mi-line);}
+.miao-batch-export-list img {width: 64px; height: 64px; object-fit: contain; border-radius: 4px;}
+.miao-batch-export-list span {font-size: 12px; overflow-wrap: anywhere;}
+.miao-batch-export .miao-button {min-height: 44px;}
+.miao-image-viewer:has(>img[data-miao-export-state=loading])::before {content: '正在准备 JPG…'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--mi-muted); font-size: 14px; pointer-events: none;}

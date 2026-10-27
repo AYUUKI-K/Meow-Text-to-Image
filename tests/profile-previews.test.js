@@ -4,7 +4,7 @@ import {ensureProfileIds,moveProfile,planProfileRemoval,sampleRequest,sampleSign
 test('samples share editable prompt, square size and seed, without mutating the real profile',()=>{
  const p={...defaults,width:1216,height:832,seed:-1,positive:'front',positiveSuffix:'tail',vibeMode:'random',vibes:[{id:'a',key:'one',strength:.4},{id:'b',key:'two',strength:.5}]},before=JSON.stringify(p);
  const a=sampleRequest(p,[],'adult cat, flowers'),b=sampleRequest(p,[],'adult cat, flowers');
- assert.equal(a.width,512);assert.equal(a.height,512);assert.equal(a.seed,b.seed);assert.equal(a.prompt,'front,\nadult cat, flowers,\ntail,');assert.equal(a.vibes[0].id,'a');assert.equal(JSON.stringify(p),before);
+ assert.equal(a.width,512);assert.equal(a.height,512);assert.equal(a.seed,b.seed);assert.equal(a.prompt,'front,\nadult cat, flowers,\ntail, very aesthetic, masterpiece, no text, ');assert.equal(a.vibes[0].id,'a');assert.equal(JSON.stringify(p),before);
  assert.equal(sampleSignature(p),sampleSignature({...p,name:'renamed',width:512,height:512,seed:999}));assert.notEqual(sampleSignature(p,[],'one'),sampleSignature(p,[],'two'));assert.throws(()=>sampleRequest(p,[],''),/例图提示词/);
 });
 test('repairing missing or duplicate identities preserves existing previews without generating again',()=>{
@@ -16,7 +16,7 @@ test('unchanged saves do not regenerate; manual refresh and prompt changes do',a
  const p={...defaults,id:'a'},list=[p],calls=[],errors=[];let prompt='one';let queue=Promise.resolve();
  const previews=createProfilePreviews({profiles:()=>list,library:()=>[],prompt:()=>prompt,enqueue:run=>(queue=queue.then(run)),generate:async request=>{calls.push(request);return 'png';},saveImage:async()=>'/preview.png',persist:async()=>{},onError:e=>errors.push(e)});
  await previews.refresh(p,{ifChanged:true});await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,1);p.name='new';await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,1);
- await previews.refresh(p);assert.equal(calls.length,2);prompt='two';assert.equal(previews.state(p).status,'待更新');await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,3);assert.equal(errors.length,0);
+ await previews.refresh(p);assert.equal(calls.length,2);assert.deepEqual(p.preview.request,calls[1]);assert.notEqual(p.preview.request,calls[1]);assert.deepEqual(JSON.parse(JSON.stringify(p.preview)).request,calls[1]);prompt='two';assert.equal(previews.state(p).status,'待更新');await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,3);assert.equal(errors.length,0);
 });
 test('queued edits and deleted profiles never receive stale results or extra generation',async()=>{
  const p={...defaults,id:'a'},list=[p],jobs=[],requests=[];let release;

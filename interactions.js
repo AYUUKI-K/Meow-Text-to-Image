@@ -1,3 +1,4 @@
+import {validFontAwesomeIcon,fontAwesomeElement} from './fontawesome-icons.js';
 // One click stream for mouse, pen and touch. Do not also handle touchend/dblclick.
 export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now,delay=380}){
     let count=0,last=0,point=null,down=null,blocked=false,timer;
@@ -25,7 +26,8 @@ export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now
 export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,documentImpl=document,windowImpl=window}){
     if(!settings.floatingEntry)return ()=>{};
     const button=documentImpl.createElement('button');button.id='miao-nai-floating';button.type='button';
-    button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label','喵喵文生图：单击打开设置，双击重新生成最新楼层插图');button.title='单击设置 · 双击重 roll 最新楼层 · 拖动调整位置';
+    button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label',settings.floatingReroll?'喵喵文生图：单击打开设置，双击生成最新楼层所有图片':'喵喵文生图：单击打开设置');button.title=settings.floatingReroll?'单击设置 · 双击生成最新楼层所有图片 · 拖动调整位置':'单击设置 · 拖动调整位置';
+    if(settings.floatingIconType==='fontawesome'&&validFontAwesomeIcon(settings.floatingIcon))button.replaceChildren(fontAwesomeElement(settings.floatingIcon,documentImpl));
     documentImpl.body.append(button);let down,moved=false,collapseTimer,docked=null,expanded=false;
     button.dataset??={};
     const mobile=()=>!!windowImpl.matchMedia?.('(pointer:coarse), (max-width:680px)').matches;
@@ -48,8 +50,8 @@ export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,docum
     button.addEventListener('pointermove',e=>{if(!down||e.pointerId!==down.id)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;if(Math.hypot(dx,dy)>8)moved=true;if(!moved)return;button.dataset.collapsed='false';cancelGesture();const b=bounds();button.style.left=clamp(down.left+dx,b.minX,b.x)+'px';button.style.top=clamp(down.top+dy,b.minY,b.y)+'px';});
     button.addEventListener('pointerup',e=>{if(!down||e.pointerId!==down.id)return;if(moved){const b=bounds();settings.floatingPosition={x:b.x?button.offsetLeft/b.x:0,y:b.y?button.offsetTop/b.y:0,...dock(button.offsetLeft,button.offsetTop,b)};fit();save();}down=null;});
     button.addEventListener('pointercancel',()=>{down=null;moved=true;fit();});
-    button.addEventListener('click',e=>{if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}if(button.dataset.collapsed==='true'){e.preventDefault();e.stopImmediatePropagation();cancelGesture();expanded=true;button.dataset.collapsed='false';later();return;}if(expanded)later();if(e.detail===0){e.stopImmediatePropagation();cancelGesture();open();}});
-    const cancelGesture=bindImageGesture(button,{getClicks:()=>2,onSingle:open,onReroll:reroll});
+    button.addEventListener('click',e=>{if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}if(button.dataset.collapsed==='true'){e.preventDefault();e.stopImmediatePropagation();cancelGesture();expanded=true;button.dataset.collapsed='false';later();return;}if(expanded)later();if(e.detail===0||!settings.floatingReroll){e.stopImmediatePropagation();cancelGesture();open();}});
+    const cancelGesture=bindImageGesture(button,{getClicks:()=>2,onSingle:open,onReroll:()=>{if(settings.floatingReroll)reroll();}});
     return ()=>{clearTimeout(collapseTimer);cancelGesture();button.remove();windowImpl.removeEventListener('resize',fit);windowImpl.visualViewport?.removeEventListener('resize',fit);};
 }
 export function clampImageView(view,{width,height,imageWidth,imageHeight}){
@@ -58,10 +60,10 @@ export function clampImageView(view,{width,height,imageWidth,imageHeight}){
     const limitX=Math.max(0,((imageWidth||width)*fit*scale-width)/2),limitY=Math.max(0,((imageHeight||height)*fit*scale-height)/2);
     return {scale,x:Math.max(-limitX,Math.min(limitX,Number(view.x)||0)),y:Math.max(-limitY,Math.min(limitY,Number(view.y)||0))};
 }
-export function bindImageZoom(viewer,image){
-    let view={scale:1,x:0,y:0},gesture=null;
+export function bindImageZoom(viewer,image,{onTap,onPrevious,onNext}={}){
+    let view={scale:1,x:0,y:0},gesture=null,tap=null,suppressClickUntil=0;
     const pointers=new Map(),reset=document.createElement('button');reset.type='button';reset.className='miao-button miao-zoom-reset';reset.setAttribute('aria-label','复原图片大小');reset.hidden=true;viewer.append(reset);
-    image.draggable=false;image.tabIndex=0;image.setAttribute('aria-label','图片预览：双指或滚轮缩放，双击放大或复原，方向键移动，0 复原');
+    image.draggable=false;image.tabIndex=0;image.setAttribute('aria-label',onTap?'图片预览：轻点显示或隐藏操作，左右滑动或方向键切图，双指或滚轮缩放，0 复原':'图片预览：双指或滚轮缩放，双击放大或复原，方向键移动，0 复原');
     const dimensions=()=>{const r=viewer.getBoundingClientRect();return {width:r.width,height:r.height,imageWidth:image.naturalWidth,imageHeight:image.naturalHeight};};
     const paint=next=>{
         view=clampImageView(next,dimensions());image.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.scale})`;
@@ -79,26 +81,38 @@ export function bindImageZoom(viewer,image){
     const zoomAt=(scale,x,y)=>{const c=center(),next=Math.max(1,Math.min(8,scale));paint({scale:next,x:x-c.x-(x-c.x-view.x)*next/view.scale,y:y-c.y-(y-c.y-view.y)*next/view.scale});};
     const down=event=>{
         if(event.target.closest('button')||event.button>0||pointers.size>=2)return;
-        pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});try{viewer.setPointerCapture(event.pointerId);}catch{}begin();
+        if(pointers.size){tap=null;suppressClickUntil=Date.now()+800;}else tap={id:event.pointerId,x:event.clientX,y:event.clientY,time:Date.now(),scale:view.scale,moved:false,image:event.target===image||event.target===viewer};
+        pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});if(event.pointerType!=='mouse'||view.scale>1)try{viewer.setPointerCapture(event.pointerId);}catch{}begin();
     };
     const move=event=>{
-        if(!pointers.has(event.pointerId))return;event.preventDefault();pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+        if(!pointers.has(event.pointerId))return;if(tap&&Math.hypot(event.clientX-tap.x,event.clientY-tap.y)>12)tap.moved=true;event.preventDefault();pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
         if(pointers.size===2){const p=pair(),c=center(),scale=Math.max(1,Math.min(8,gesture.scale*p.distance/Math.max(1,gesture.distance)));paint({scale,x:p.x-c.x-gesture.anchorX*scale,y:p.y-c.y-gesture.anchorY*scale});}
         else if(gesture?.view)paint({...gesture.view,x:gesture.view.x+event.clientX-gesture.x,y:gesture.view.y+event.clientY-gesture.y});
         viewer.dataset.dragging=String(view.scale>1);
     };
-    const up=event=>{pointers.delete(event.pointerId);begin();};
-    const cancel=()=>{pointers.clear();begin();};
-    const double=event=>{if(event.target.closest('button'))return;event.preventDefault();event.stopPropagation();zoomAt(view.scale>1?1:2,event.clientX,event.clientY);};
+    const up=event=>{
+        const start=tap;tap=null;pointers.delete(event.pointerId);begin();
+        if(!start||start.id!==event.pointerId||event.type!=='pointerup')return;
+        suppressClickUntil=Date.now()+800;
+        const dx=event.clientX-start.x,dy=event.clientY-start.y;
+        if(start.scale===1&&Math.abs(dx)>=60&&Math.abs(dx)>Math.abs(dy)*1.3){event.preventDefault();(dx<0?onNext:onPrevious)?.();}
+        else if(onTap&&start.image&&!start.moved&&Math.hypot(dx,dy)<=12&&Date.now()-start.time<500){event.preventDefault();onTap();}
+    };
+    const cancel=()=>{suppressClickUntil=Date.now()+800;tap=null;pointers.clear();begin();};
+    const lost=event=>{if(pointers.has(event.pointerId)){tap=null;pointers.delete(event.pointerId);begin();}};
+    const click=event=>{if(!onTap||event.button>0||event.target!==image&&event.target!==viewer)return;event.preventDefault();event.stopPropagation();if(Date.now()>=suppressClickUntil)onTap();};
+    const double=event=>{if(onTap||event.target.closest('button'))return;event.preventDefault();event.stopPropagation();zoomAt(view.scale>1?1:2,event.clientX,event.clientY);};
     const wheel=event=>{event.preventDefault();event.stopPropagation();const delta=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?dimensions().height:1);zoomAt(view.scale*Math.exp(-delta*.0015),event.clientX,event.clientY);};
     const key=event=>{
         const c=center();
-        if(['+','=','-','0'].includes(event.key)){event.preventDefault();event.stopPropagation();zoomAt(event.key==='0'?1:view.scale*(event.key==='-'?.8:1.25),c.x,c.y);}
+        if(onTap&&['Enter',' '].includes(event.key)&&event.target===image){event.preventDefault();event.stopPropagation();onTap();}
+        else if(view.scale===1&&['ArrowLeft','ArrowRight'].includes(event.key)&&(onPrevious||onNext)){event.preventDefault();event.stopPropagation();(event.key==='ArrowLeft'?onPrevious:onNext)?.();}
+        else if(['+','=','-','0'].includes(event.key)){event.preventDefault();event.stopPropagation();zoomAt(event.key==='0'?1:view.scale*(event.key==='-'?.8:1.25),c.x,c.y);}
         else if(view.scale>1&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();event.stopPropagation();paint({...view,x:view.x+(event.key==='ArrowLeft'?40:event.key==='ArrowRight'?-40:0),y:view.y+(event.key==='ArrowUp'?40:event.key==='ArrowDown'?-40:0)});}
     };
     reset.onclick=()=>paint({scale:1,x:0,y:0});
-    const resize=()=>paint(view),observer=new ResizeObserver(resize);observer.observe(viewer);image.addEventListener('load',resize);
-    const handlers={pointerdown:down,pointermove:move,pointerup:up,pointercancel:cancel,lostpointercapture:up,dblclick:double,wheel,keydown:key};
+    const resize=()=>{if(viewer.isConnected)paint(view);},observer=new ResizeObserver(resize);observer.observe(viewer);image.addEventListener('load',resize);
+    const handlers={pointerdown:down,pointermove:move,pointerup:up,pointercancel:cancel,lostpointercapture:lost,click,dblclick:double,wheel,keydown:key};
     for(const [name,handler] of Object.entries(handlers))viewer.addEventListener(name,handler,{passive:false});
     paint(view);
     return ()=>{observer.disconnect();image.removeEventListener('load',resize);for(const [name,handler] of Object.entries(handlers))viewer.removeEventListener(name,handler);pointers.clear();reset.remove();};
