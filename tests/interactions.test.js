@@ -95,10 +95,12 @@ test('viewer taps toggle controls; swipes navigate; pinch, drag and cancellation
  const viewer=make(),image=make();Object.assign(image,{naturalWidth:800,naturalHeight:1200});
  let toggled=0,previous=0,next=0;const dispose=bindImageZoom(viewer,image,{onTap:()=>toggled++,onPrevious:()=>previous++,onNext:()=>next++});
  const emit=(type,props={})=>{const event=new Event(type,{cancelable:true});Object.assign(event,{pointerId:1,button:0,clientX:200,clientY:300,...props});Object.defineProperty(event,'target',{value:image});viewer.dispatchEvent(event);};
- const tap=()=>{emit('pointerdown');emit('pointerup');};tap();assert.equal(toggled,1);
+ const tap=()=>{emit('pointerdown');emit('pointerup');};
+ emit('click');assert.equal(toggled,1,'click-only mouse or accessibility activation works');toggled=0;
+ tap();emit('click');assert.equal(toggled,1,'pointerup plus compatibility click toggles only once');
  for(const x of [90,310]){emit('pointerdown');emit('pointermove',{clientX:x});emit('pointerup',{clientX:x});}assert.equal(next,1);assert.equal(previous,1);assert.equal(toggled,1);
  emit('pointerdown');emit('pointermove',{clientY:400});emit('pointerup',{clientY:400});
- emit('pointerdown');emit('pointercancel');emit('pointerup');
+ emit('pointerdown');emit('pointercancel');emit('pointerup');emit('click');
  emit('pointerdown');emit('pointermove',{clientX:250});emit('pointermove');emit('pointerup');
  emit('pointerdown');emit('pointerdown',{pointerId:2,clientX:260});emit('pointermove',{pointerId:2,clientX:320});emit('pointerup',{pointerId:2,clientX:320});emit('pointerup');assert.equal(toggled,1);assert.equal(next,1);
  emit('keydown',{key:'0'});emit('keydown',{key:'ArrowRight'});assert.equal(next,2);

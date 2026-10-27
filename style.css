@@ -2019,7 +2019,7 @@
     width: 100%;
     padding: 0 !important;
 }
-.miao-image-viewer-dialog>.miao-page-controls {
+.miao-image-viewer-dialog>.miao-page-controls,.miao-image-viewer-dialog>.popup-body>.miao-page-controls {
     position: absolute;
     top: 8px;
     right: 8px;
@@ -2028,7 +2028,7 @@
     background: transparent;
     z-index: 3;
 }
-.miao-image-viewer-dialog>.miao-page-controls button {
+.miao-image-viewer-dialog>.miao-page-controls button,.miao-image-viewer-dialog>.popup-body>.miao-page-controls button {
     min-width: 44px;
     min-height: 44px;
     padding: 0;
@@ -2049,7 +2049,7 @@
 .miao-image-viewer-dialog .miao-viewer-actions>.miao-button,
 .miao-image-viewer-dialog .miao-gallery-navigation>*,
 .miao-image-viewer-dialog .miao-zoom-reset,
-.miao-image-viewer-dialog>.miao-page-controls>.miao-button {
+.miao-image-viewer-dialog>.miao-page-controls>.miao-button,.miao-image-viewer-dialog>.popup-body>.miao-page-controls>.miao-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2069,15 +2069,38 @@
     font-size: 14px;
 }
 .miao-image-viewer-dialog .miao-gallery-navigation>.miao-button,
-.miao-image-viewer-dialog>.miao-page-controls>.miao-button {width: 44px; min-width: 44px; font-size: 24px;}
+.miao-image-viewer-dialog>.miao-page-controls>.miao-button,.miao-image-viewer-dialog>.popup-body>.miao-page-controls>.miao-button {width: 44px; min-width: 44px; font-size: 24px;}
 .miao-image-viewer-dialog .miao-gallery-navigation>span {min-width: 88px;}
 .miao-image-viewer-dialog[data-controls-visible=false]>.miao-page-controls,
+.miao-image-viewer-dialog[data-controls-visible=false]>.popup-body>.miao-page-controls,
+.miao-image-viewer-dialog[data-controls-visible=false]>.popup-body>.popup-content>.miao-image-viewer>:is(.miao-viewer-actions,.miao-gallery-navigation,.miao-zoom-reset),
 .miao-image-viewer-dialog[data-controls-visible=false]>.popup-content>.miao-image-viewer>.miao-viewer-actions,
 .miao-image-viewer-dialog[data-controls-visible=false]>.popup-content>.miao-image-viewer>.miao-gallery-navigation,
 .miao-image-viewer-dialog[data-controls-visible=false]>.popup-content>.miao-image-viewer>.miao-zoom-reset {display: none !important;}
 .miao-image-viewer-dialog>.popup-content {padding: 0 !important;}
-.miao-image-parameters {width: 100%; min-width: 0;}
-.miao-image-parameters pre {white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font-size: 12px; line-height: 1.5;}
+.miao-settings-dialog[data-panel-page] {
+    width: min(960px,calc(var(--miao-panel-width) - 24px)) !important;
+    height: min(800px,calc(var(--miao-panel-height) - 24px)) !important;
+    border-radius: 10px !important;
+}
+.miao-panel-page-content {display: flex; flex: 1 1 0 !important; min-height: 0 !important; overflow: hidden !important; padding: 0 !important;}
+.miao-settings-dialog[data-panel-page]>.popup-body>.miao-panel-page-content {flex: 1 1 0 !important; height: 0 !important; align-items: stretch; justify-content: flex-start;}
+.miao-image-parameters {display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; min-width: 0; overflow: hidden; text-align: left;}
+.miao-parameter-header {display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding: 12px 16px; border-bottom: 1px solid var(--mi-line);}
+.miao-parameter-header h3 {margin: 0; font-size: 16px;}
+.miao-image-parameters>p {flex: none; margin: 0; padding: 8px 16px;}
+.miao-parameter-scroll {flex: 1 1 0; min-height: 0; overflow: auto; padding: 16px; touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; user-select: text;}
+.miao-parameter-grid {display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 20px; margin: 0 0 20px;}
+.miao-parameter-grid dt {color: var(--mi-muted); font-size: 12px;}
+.miao-parameter-grid dd {margin: 4px 0 0; overflow-wrap: anywhere; font-size: 14px;}
+.miao-image-parameters h4 {margin: 20px 0 8px; font-size: 14px;}
+.miao-image-parameters pre {margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font-size: 13px; line-height: 1.6;}
+.miao-parameter-extra {margin-top: 20px;}
+.miao-parameter-extra pre {max-height: 320px; overflow: auto; white-space: pre; touch-action: pan-x pan-y; padding: 12px 0;}
+.miao-image-parameters-dialog .miao-page-controls {position: static; flex: none; background: var(--mi-bg);}
+@media(max-width:680px),(max-height:500px) {
+    .miao-settings-dialog[data-panel-page] {width: calc(var(--miao-panel-width) - 16px) !important; height: calc(var(--miao-panel-height) - 16px) !important;}
+}
 .miao-image-parameters p:empty {display: none;}
 .miao-archive-trigger {
     flex: 1 1 180px;

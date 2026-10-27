@@ -47,6 +47,7 @@ export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel
         };
         const parentClosed=()=>finish();
         const key=event=>{
+            if(card.dataset.panelPage)return;
             if(activeViewers.has(card))return;
             if(card.querySelector('.miao-confirmation-layer'))return;
             if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish();}

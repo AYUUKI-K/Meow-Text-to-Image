@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {deflateSync} from 'node:zlib';
-import {readImageMetadata} from '../image-metadata.js';
+import {deflateSync,gzipSync} from 'node:zlib';
+import {readImageMetadata,readStealthMetadata,generationInfo} from '../image-metadata.js';
 
 const chunk=(type,bytes)=>{const data=Buffer.from(bytes),length=Buffer.alloc(4);length.writeUInt32BE(data.length);return Buffer.concat([length,Buffer.from(type),data,Buffer.alloc(4)]);};
 const png=(...chunks)=>{
@@ -35,4 +35,22 @@ test('damaged text stays visible as an error without discarding other metadata',
 test('images without PNG metadata do not invent generation parameters',async()=>{
     const result=await readImageMetadata(new Blob(['plain image'],{type:'image/jpeg'}));
     assert.deepEqual(result,{format:'image/jpeg',text:[],chunks:[]});
+});
+
+test('generation info recognizes NovelAI model source and favors embedded data over saved settings',()=>{
+ const comment={prompt:'full scene',uc:'',seed:0,steps:28,scale:7,sm:false,v4_prompt:{caption:{base_caption:'base scene',char_captions:[{char_caption:'character',centers:[{x:.2,y:.8}]}]}},v4_negative_prompt:{caption:{base_caption:'negative scene',char_captions:[{char_caption:'negative character'}]}},unknown:{keep:true}};
+ const metadata={width:1024,height:1024,text:[{keyword:'Source',text:'NovelAI Diffusion V4.5 4BDE2A90'},{keyword:'Comment',parameters:comment},{keyword:'Software',text:'NovelAI'}]};
+ const info=generationInfo(metadata,{request:{model:'nai-diffusion-5-full',width:512,height:512,prompt:'outdated',seed:999}});
+ assert.equal(info.modelId,'nai-diffusion-4-5-full');assert.equal(info.model,'V4.5 Full');assert.equal(info.prompt,'base scene');assert.equal(info.negative,'negative scene');assert.equal(info.parameters.seed,0);assert.equal(info.parameters.sm,false);
+ assert.equal(info.width,1024);assert.equal(info.parameters.width,1024);assert.equal(info.characters[0].negative,'negative character');assert.deepEqual(info.parameters.unknown,{keep:true});assert.equal(info.metadata.Software,'NovelAI');
+ assert.equal(generationInfo({text:[]}).model,'未记录');assert.equal(generationInfo({text:[]},{request:{prompt:'saved',negative_prompt:'saved negative'}}).negative,'saved negative');
+});
+test('official stealth alpha metadata is decoded without file chunk output',async()=>{
+ const value={Source:'NovelAI Diffusion V5 657484A5',Comment:JSON.stringify({prompt:'隐藏提示词 🌸',uc:'negative',seed:42})},packed=gzipSync(Buffer.from(JSON.stringify(value))),length=Buffer.alloc(4);length.writeUInt32BE(packed.length*8);
+ const payload=Buffer.concat([Buffer.from('stealth_pngcomp'),length,packed]),width=256,height=256,data=new Uint8Array(width*height*4).fill(255);
+ for(let offset=0;offset<payload.length*8;offset++){const bit=(payload[Math.floor(offset/8)]>>(7-offset%8))&1;data[4*((offset%height)*width+Math.floor(offset/height))+3]=254|bit;}
+ const decoded=await readStealthMetadata({data,width,height});assert.deepEqual(decoded,value);
+ const info=generationInfo({text:Object.entries(decoded).map(([keyword,text])=>{let parameters;try{parameters=JSON.parse(text);}catch{}return {keyword,text,parameters};})});
+ assert.equal(info.model,'V5 Full');assert.equal(info.prompt,'隐藏提示词 🌸');assert.equal(info.parameters.seed,42);
+ assert.equal(await readStealthMetadata({data:new Uint8Array(width*height*4),width,height}),null);
 });

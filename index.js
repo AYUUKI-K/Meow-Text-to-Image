@@ -5,13 +5,14 @@ import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORI
 import {retryGeneration} from './generation-retry.js';
 import {waitForGeneration} from './generation-delay.js';
 import {showPagePopup} from './page-popup.js';
+import {showPanelPage} from './panel-page.js';
 import {createNotifications} from './notifications.js';
 import {createQueueTransport} from './queue-network.js';
 import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
 import {prepareImageExport} from './image-export.js';
-import {readImageMetadata} from './image-metadata.js';
+import {readGenerationMetadata,generationInfo} from './image-metadata.js';
 import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './prompt-files.js';
 import {editedTag} from './tag-edit.js';
 import {exportPreview,previewPNG} from './prompt-preview-transfer.js';
@@ -109,7 +110,10 @@ const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHe
 }});
 function el(tag,text,cls) { const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n; }
 async function showPopup(content,type,input='',options={}){
-    if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-image-viewer'))return showPagePopup(content,{...options,parent:settingsHost?.closest('dialog'),fillParent:!!settingsHost?.isConnected});
+    if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-image-viewer')){
+        const parent=settingsPopup?.dlg?.isConnected?settingsPopup.dlg:settingsHost?.closest('dialog');
+        return parent?showPanelPage(content,{...options,parent}):showPagePopup(content,options);
+    }
     if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings,.miao-prompt-view'))return showPagePopup(content,{...options,parent:content.matches('.miao-settings')?undefined:settingsHost?.closest('dialog')});
     let dispose=()=>{};
     try{return await callGenericPopup(content,type,input,{...options,animation:'none',onOpen:popup=>{
@@ -612,19 +616,31 @@ function imageRecord(url){
     for(const profile of settings.profiles)if(profile.preview?.url&&path(profile.preview.url)===path(url))return {profileName:profile.name,...profile.preview};
 }
 async function showImageParameters(item,image,parent){
-    const box=el('section',undefined,'miao-image-parameters');box.append(el('h3','图片参数'));
-    const status=el('p','正在读取原图…','miao-muted'),copy=el('button','复制完整数据','miao-button'),data=el('pre');copy.type='button';copy.disabled=true;box.append(copy,status,data);
-    const popup=showPagePopup(box,{parent});
+    const box=el('section',undefined,'miao-image-parameters'),header=el('header',undefined,'miao-parameter-header'),copy=el('button','复制参数','miao-button');
+    copy.type='button';copy.disabled=true;header.append(el('h3','图片参数'),copy);
+    const status=el('p','正在读取原图…','miao-muted'),scroll=el('div',undefined,'miao-parameter-scroll');scroll.tabIndex=0;scroll.setAttribute('aria-label','图片参数内容');box.append(header,status,scroll);
+    const popup=showPanelPage(box,{parent,kind:'parameters',closeLabel:'返回图片'});
     let complete;
-    bindButtonPress(copy,async()=>{try{await navigator.clipboard.writeText(complete);status.textContent='已复制';}catch{status.textContent='复制失败，可长按或选中下方数据复制';}});
+    bindButtonPress(copy,async()=>{try{await navigator.clipboard.writeText(complete);status.textContent='已复制';}catch{status.textContent='复制失败，可长按或选中提示词复制';}});
     try{
         const response=await checkedFetch('image-download',item.url),blob=await response.blob();
-        const file={name:item.name,url:item.url,type:blob.type,bytes:blob.size,width:image.naturalWidth,height:image.naturalHeight};
-        let metadata;try{metadata=await readImageMetadata(blob);}catch(error){metadata={error:error.message};}
-        complete=JSON.stringify({file,metadata,savedRecord:imageRecord(item.url)??null},null,2);data.textContent=complete;copy.disabled=false;
-        status.textContent=metadata.error?'部分元数据读取失败；下方仍保留文件信息和保存记录':!metadata.text?.length?'原图没有 PNG 文字元数据；下方显示可读取的文件信息和保存记录':'';
+        let metadata;try{metadata=await readGenerationMetadata(blob);}catch(error){metadata={error:error.message};}
+        if(!box.isConnected)return;
+        metadata.width??=image.naturalWidth;metadata.height??=image.naturalHeight;
+        const info=generationInfo(metadata,imageRecord(item.url)),p=info.parameters,grid=el('dl',undefined,'miao-parameter-grid');scroll.append(grid);
+        const value=(key,label,data)=>{if(data===undefined||data===null)return;const row=el('div'),output=el('dd',typeof data==='boolean'?(data?'开启':'关闭'):String(data));output.dataset.field=key;row.append(el('dt',label),output);grid.append(row);};
+        value('model','模型',info.model);if(info.width&&info.height)value('size','尺寸',`${info.width} × ${info.height}`);
+        for(const [key,label,data] of [['steps','步数',p.steps],['scale','Guidance',p.scale],['seed','种子',p.seed],['sampler','采样器',p.sampler],['schedule','噪声表',p.noise_schedule??p.scheduler],['cfg_rescale','CFG Rescale',p.cfg_rescale],['sm','SMEA',p.sm],['sm_dyn','SMEA Dyn',p.sm_dyn]])value(key,label,data);
+        const prompt=(label,text,key)=>{const section=el('section'),pre=el('pre',text??'未记录');pre.dataset.field=key;section.append(el('h4',label),pre);scroll.append(section);};
+        prompt('正面提示词',info.prompt,'prompt');prompt('负面提示词',info.negative,'negative');
+        info.characters.forEach((character,index)=>{prompt(`角色 ${index+1} · 正面`,character.positive,`character-${index}-positive`);if(character.negative)prompt(`角色 ${index+1} · 负面`,character.negative,`character-${index}-negative`);if(character.centers)prompt(`角色 ${index+1} · 位置`,JSON.stringify(character.centers),`character-${index}-centers`);});
+        if(info.source)prompt('模型来源',info.source,'source');
+        const extra=el('details',undefined,'miao-parameter-extra');extra.append(el('summary','其他生成参数'));scroll.append(extra);
+        extra.addEventListener('toggle',()=>{if(!extra.open||extra.querySelector('pre'))return;const omit=new Set(['prompt','uc','negative_prompt','v4_prompt','v4_negative_prompt','model','width','height','steps','scale','seed','sampler','noise_schedule','scheduler']);extra.append(el('pre',JSON.stringify({parameters:Object.fromEntries(Object.entries(p).filter(([key])=>!omit.has(key))),metadata:info.metadata},null,2)));});
+        complete=JSON.stringify({model:info.modelId||info.model,source:info.source,width:info.width,height:info.height,prompt:info.prompt,uc:info.negative,...p},null,2);copy.disabled=false;
+        status.textContent=metadata.error?'原图元数据读取失败，已显示现有生成记录':!info.prompt&&!info.negative?'图片未包含可识别的提示词信息':'';
     }catch(error){status.textContent='原图读取失败：'+error.message;}
-    await popup;
+    finally{await popup;}
 }
 async function openImage(url,name,gallery) {
     const view=el('div',undefined,'miao-image-viewer'),image=el('img');
@@ -838,7 +854,7 @@ async function deleteImages(folder,names,{parent}={}) {
 async function openSettings(initialTab,initialFavorite) {
     if(initialTab==='favorites'&&!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
     if(!['resources','favorites'].includes(initialTab))initialTab=undefined;
-    if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
+    if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,initialFavorite,favorites,saveFavorite,generateFavorite,sceneFromImage,
         removeFavorite:async id=>{if(!await confirmSettings('删除这条收藏？图片文件会保留。','删除收藏'))return false;await favorites.remove(id);return true;},
         collectImage:url=>openSettings('favorites',draftFromImage(url)),buildThumbnails,
