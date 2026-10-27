@@ -24,6 +24,7 @@ test('date cleanup recognizes plugin files, excluding unrelated files',()=>{
  const time=new Date(2026,9,23,12).getTime();
  assert.equal(imageDay(`miao-${time}.png`),'2026-10-23');
  assert.equal(imageDay(`test-${time}-aa-bb.png`),'2026-10-23');
+ for(const extension of ['png','jpg','webp'])assert.equal(imageDay(`favorite-${time}-aa-bb.${extension}`),'2026-10-23');
  for(const name of ['photo.png','../miao-1792737847709.png','miao-hello.png','some-other-file.png'])assert.equal(imageDay(name),null);
 });
 test('only closed nonempty blocks are recognized during streaming',()=>{
