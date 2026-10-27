@@ -59,6 +59,7 @@ settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
 settings.cloudQueue ??= false;
 settings.retryQueue ??= true;
+settings.floatingReroll ??= false;
 settings.exportFormat=settings.exportFormat==='jpg'?'jpg':'png';
 settings.queueUrl ||= 'https://miao-image-queue.savlu329.workers.dev';
 settings.keyHash ??= '';
@@ -589,11 +590,26 @@ async function downloadImages(images){
     const format=settings.exportFormat;
     await downloadImageSelection(images,{saveBlob:(blob,name)=>saveDownload(blob,name,format)});
 }
-async function openImage(url,name='miao-image.png') {
-    const view=el('div',undefined,'miao-image-viewer');
-    const image=el('img');image.src=url;image.alt='图片预览';
-    view.append(image);const dispose=bindImageZoom(view,image);
-    try{await showPopup(view,POPUP_TYPE.TEXT,'',{wide:true,onOpen:popup=>popup.dlg.classList.add('miao-image-viewer-dialog')});}finally{dispose();}
+async function openImage(url,name='miao-image.png',gallery) {
+    const view=el('div',undefined,'miao-image-viewer'),image=el('img');
+    const items=gallery?.length?[...gallery]:[{url,name}];
+    let index=Math.max(0,items.findIndex(item=>item.url===url)),dispose=()=>{},close=()=>{};
+    view.append(image);view.dataset.gallery=String(!!gallery);
+    const navigation=el('nav',undefined,'miao-gallery-navigation');navigation.setAttribute('aria-label','图库浏览');
+    const previous=el('button','‹','miao-button'),next=el('button','›','miao-button'),position=el('span');
+    previous.type=next.type='button';previous.setAttribute('aria-label','上一张');next.setAttribute('aria-label','下一张');position.setAttribute('aria-live','polite');
+    navigation.append(previous,position,next);if(gallery)view.append(navigation);
+    const change=step=>{const target=index+step;if(target<0||target>=items.length)return;index=target;paint();};
+    const paint=()=>{
+        dispose();image.src=items[index].url;image.alt=items[index].name||'图片预览';
+        previous.disabled=index===0;next.disabled=index===items.length-1;position.textContent=`${index+1} / ${items.length}`;
+        dispose=bindImageZoom(view,image,gallery?{onClose:()=>close(),onPrevious:()=>change(-1),onNext:()=>change(1)}:{});
+    };
+    bindButtonPress(previous,()=>change(-1));bindButtonPress(next,()=>change(1));paint();
+    try{await showPopup(view,POPUP_TYPE.TEXT,'',{wide:true,onOpen:popup=>{
+        popup.dlg.classList.add('miao-image-viewer-dialog');
+        close=()=>{if(popup.completeAffirmative)popup.completeAffirmative();else popup.dlg.close();};
+    }});}finally{dispose();}
 }
 async function queueStatus() {
     const url=validateQueueURL(settings.queueUrl);

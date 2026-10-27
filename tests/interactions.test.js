@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {bindImageGesture} from '../interactions.js';
 import {createFloatingEntry} from '../interactions.js';
-import {clampImageView} from '../interactions.js';
+import {bindImageZoom,clampImageView} from '../interactions.js';
 
 test('mobile edge entry expands on first tap, then supports reroll; desktop never collapses',async()=>{
  for(const mobile of [true,false]){
   const button=new EventTarget(),win=new EventTarget();Object.assign(win,{innerWidth:400,innerHeight:800,matchMedia:()=>({matches:mobile})});Object.assign(button,{style:{},setAttribute(){},remove(){}});
-  let opens=0,rolls=0;const dispose=createFloatingEntry({settings:{floatingEntry:true},save(){},open:()=>opens++,reroll:()=>rolls++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+  let opens=0,rolls=0;const dispose=createFloatingEntry({settings:{floatingEntry:true,floatingReroll:true},save(){},open:()=>opens++,reroll:()=>rolls++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
   const tap=()=>{const e=new Event('click',{cancelable:true});Object.assign(e,{detail:1,button:0,clientX:10,clientY:10});button.dispatchEvent(e);};
   assert.equal(button.dataset.collapsed,String(mobile));
   if(mobile){tap();assert.equal(button.dataset.collapsed,'false');assert.equal(opens,0);assert.equal(rolls,0);}
@@ -72,8 +72,36 @@ test('floating entry docks on nearby edges, persists through resize and releases
 
 test('floating double taps reroll once without opening settings; disposal cancels a delayed single tap',async()=>{
  const button=new EventTarget(),win=new EventTarget();Object.assign(win,{innerWidth:400,innerHeight:800});Object.assign(button,{style:{},setAttribute(){},remove(){}});
- let opened=0,rolls=0;const dispose=createFloatingEntry({settings:{floatingEntry:true},save(){},open:()=>opened++,reroll:()=>rolls++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+ let opened=0,rolls=0;const dispose=createFloatingEntry({settings:{floatingEntry:true,floatingReroll:true},save(){},open:()=>opened++,reroll:()=>rolls++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
  const click=detail=>{const event=new Event('click',{cancelable:true});Object.assign(event,{detail,button:0,clientX:10,clientY:10});button.dispatchEvent(event);};
  click(1);click(2);button.dispatchEvent(new Event('dblclick',{cancelable:true}));await new Promise(resolve=>setTimeout(resolve,410));assert.equal(rolls,1);assert.equal(opened,0);
  click(0);assert.equal(opened,1);click(1);dispose();await new Promise(resolve=>setTimeout(resolve,410));assert.equal(opened,1);
+});
+
+test('floating reroll is opt-in; disabled double clicks only open settings',()=>{
+ for(const enabled of [undefined,false]){
+  const button=new EventTarget(),win=new EventTarget();Object.assign(win,{innerWidth:400,innerHeight:800});Object.assign(button,{style:{},setAttribute(){},remove(){}});
+  let opens=0,rolls=0;const dispose=createFloatingEntry({settings:{floatingEntry:true,floatingReroll:enabled},save(){},open:()=>opens++,reroll:()=>rolls++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+  for(const detail of [1,2]){const event=new Event('click',{cancelable:true});Object.assign(event,{detail,button:0,clientX:10,clientY:10});button.dispatchEvent(event);}
+  assert.equal(rolls,0);assert.equal(opens,2);dispose();
+ }
+});
+
+test('gallery taps close; swipes navigate; pinch, drag and cancellation never close',t=>{
+ const oldDocument=globalThis.document,oldObserver=globalThis.ResizeObserver;
+ const make=()=>Object.assign(new EventTarget(),{style:{},dataset:{},setAttribute(){},append(){},remove(){},closest(){return null;},getBoundingClientRect:()=>({left:0,top:0,width:400,height:600})});
+ globalThis.document={createElement:make};globalThis.ResizeObserver=class{observe(){}disconnect(){}};
+ t.after(()=>{globalThis.document=oldDocument;globalThis.ResizeObserver=oldObserver;});
+ const viewer=make(),image=make();Object.assign(image,{naturalWidth:800,naturalHeight:1200});
+ let closed=0,previous=0,next=0;const dispose=bindImageZoom(viewer,image,{onClose:()=>closed++,onPrevious:()=>previous++,onNext:()=>next++});
+ const emit=(type,props={})=>{const event=new Event(type,{cancelable:true});Object.assign(event,{pointerId:1,button:0,clientX:200,clientY:300,...props});Object.defineProperty(event,'target',{value:image});viewer.dispatchEvent(event);};
+ const tap=()=>{emit('pointerdown');emit('pointerup');};tap();assert.equal(closed,1);
+ for(const x of [90,310]){emit('pointerdown');emit('pointermove',{clientX:x});emit('pointerup',{clientX:x});}assert.equal(next,1);assert.equal(previous,1);assert.equal(closed,1);
+ emit('pointerdown');emit('pointermove',{clientY:400});emit('pointerup',{clientY:400});
+ emit('pointerdown');emit('pointercancel');emit('pointerup');
+ emit('pointerdown');emit('pointermove',{clientX:250});emit('pointermove');emit('pointerup');
+ emit('pointerdown');emit('pointerdown',{pointerId:2,clientX:260});emit('pointermove',{pointerId:2,clientX:320});emit('pointerup',{pointerId:2,clientX:320});emit('pointerup');assert.equal(closed,1);assert.equal(next,1);
+ emit('keydown',{key:'0'});emit('keydown',{key:'ArrowRight'});assert.equal(next,2);
+ emit('keydown',{key:'+'});emit('keydown',{key:'ArrowLeft'});assert.equal(previous,1);
+ emit('keydown',{key:'Enter'});assert.equal(closed,2);dispose();
 });

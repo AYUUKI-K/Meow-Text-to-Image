@@ -1919,3 +1919,34 @@
         animation: none !important;
     }
 }
+
+/* Gallery navigation stays over the image without consuming the swipe surface. */
+.miao-gallery-navigation {
+    position: absolute;
+    inset: auto 12px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: none;
+    z-index: 2;
+}
+.miao-gallery-navigation .miao-button {
+    pointer-events: auto;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 24px;
+    background: var(--mi-bg);
+}
+.miao-gallery-navigation span {
+    padding: 4px 10px;
+    border-radius: 12px;
+    color: var(--mi-ink);
+    background: var(--mi-bg);
+    font-variant-numeric: tabular-nums;
+}
+.miao-image-viewer[data-gallery=true] {cursor: pointer;}
+.miao-history-pick[hidden] {display: none !important;}
+
+.miao-switch-row[hidden],.miao-button[hidden] {display: none !important;}
+.miao-image-viewer[data-gallery=true] .miao-zoom-reset {top: 12px; bottom: auto;}
