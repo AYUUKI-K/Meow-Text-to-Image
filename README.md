@@ -12,6 +12,8 @@ https://github.com/AYUUKI-K/Mewo-Text-to-Image
 
 安装后刷新页面，点击聊天输入框旁的魔棒，在菜单中打开「喵喵文生图」。原版酒馆需要后端支持 `/api/novelai/generate-image` 和 NovelAI 密钥管理。TT 酒馆使用设备直连 NAI，在插件中填写并保存 Key 后使用；勾选记住后可在刷新后恢复。
 
+旧安装在 Git 历史隐私清理后可能更新失败。可保留酒馆用户数据，仅重新安装本扩展；不要清理插件数据、卸载 TT App 或删除酒馆 `data` 目录。具体步骤见 [保留数据的重新安装说明](MIGRATION.md)。
+
 ## 使用
 
 1. 输入自己的 NovelAI API Key，点击保存。密钥存入酒馆密钥管理。
