@@ -93,11 +93,24 @@ const hostStyle=document.createElement('style');
 if(new URL(location.href).searchParams.has('footer-update')){hostStyle.textContent='.popup-content footer{height:24%;min-height:120px;padding-block:24px;flex-basis:20%;block-size:24%;min-block-size:120px;display:grid}';document.head.append(hostStyle);}
 for(const [index,name] of ['生成','配置','Vibe','资源','图库'].entries()){
 await go(name,index);const root=document.querySelector('.miao-settings'),shell=root.closest('dialog'),content=root.parentElement,header=root.querySelector('header'),body=root.querySelector('.miao-panel-body'),footer=root.querySelector('footer'),r=root.getBoundingClientRect(),c=content.getBoundingClientRect(),h=header.getBoundingClientRect(),f=footer.getBoundingClientRect();
+const outer=shell.getBoundingClientRect(),wrapper=shell.querySelector(':scope>.popup-body').getBoundingClientRect(),viewport=window.visualViewport,vw=viewport?.width||innerWidth,vh=viewport?.height||innerHeight;
+check(Math.abs(wrapper.top-outer.top-shell.clientTop)<2&&Math.abs(wrapper.bottom-(outer.top+shell.clientTop+shell.clientHeight))<2,name+'宿主 popup-body 填满整个弹窗，95dvh／90dvh 不再留下底部空隙');
+check(Math.abs(outer.width-Math.min(960,vw-(mobile?16:24)))<2&&Math.abs(outer.height-(mobile?vh-16:Math.min(800,vh-24)))<2&&Math.abs(outer.x+outer.width/2-((viewport?.offsetLeft||0)+vw/2))<2&&Math.abs(outer.y+outer.height/2-((viewport?.offsetTop||0)+vh/2))<2,name+'ST／TT 使用相同面板尺寸和居中边距');
 check(Math.abs(r.top-c.top)<2&&Math.abs(r.bottom-c.bottom)<2&&body.clientHeight>20,name+'分区填满面板，不在底部留下空白');
 check(Math.abs(h.top-r.top)<2&&Math.abs(h.width-r.width)<2,name+'顶栏贴齐整个面板宽度和顶部');
 check(mobile?getComputedStyle(footer).display==='none'&&f.height===0&&footer.getClientRects().length===0:f.height>0&&f.bottom<=r.bottom+1,name+(mobile?'手机子页不显示底栏、不保留布局占位':'桌面保留底栏'));
 check([root,header,root.querySelector('.miao-tabs'),content].every(el=>getComputedStyle(el).backgroundColor==='rgba(0, 0, 0, 0)'),name+'半透明主题只在外壳绘制一次背景');
 body.scrollTop=body.scrollHeight;check(header.getBoundingClientRect().top===h.top&&Math.abs(body.getBoundingClientRect().bottom-(mobile?r.bottom:f.top))<2,name+'内容独立滚动并填满可用高度，标题保持可见');
+}
+if(new URL(location.href).searchParams.has('viewport-update')&&window.frameElement){
+    const frame=window.frameElement,original=[frame.width,frame.height];
+    try{
+        for(const [width,height] of [[431,500],[844,390],[431,864]]){
+            frame.width=width;frame.height=height;await wait();await go('生成',0);
+            const root=document.querySelector('.miao-settings'),shell=root.closest('dialog'),outer=shell.getBoundingClientRect(),wrapper=shell.querySelector(':scope>.popup-body').getBoundingClientRect(),viewport=window.visualViewport;
+            check(Math.abs(outer.height-((viewport?.height||innerHeight)-16))<2&&Math.abs(outer.width-((viewport?.width||innerWidth)-16))<2&&Math.abs(wrapper.bottom-(outer.top+shell.clientTop+shell.clientHeight))<2,'视口 '+width+'×'+height+' 改变后面板与内容同步缩放，没有新增底部空隙');
+        }
+    }finally{[frame.width,frame.height]=original;await wait();}
 }
 hostStyle.remove();
 document.querySelector('.miao-drawer-back').click();await wait();
@@ -757,7 +770,12 @@ else if(req.url.startsWith('/user/images/')){body=savedPreviewImages.get(req.url
 else{res.writeHead(404);res.end();return;}
 if(type==='text/html'){
     const params=new URL(req.url,'http://localhost').searchParams,host=params.get('host-css');
-    if(host==='st'||host==='tt')body=body.replace('<title>','<link rel="stylesheet" href="/fixture-host/'+host+'/popup.css"><link rel="stylesheet" href="/fixture-host/'+host+'/popup-safari-fix.css"><title>');
+    if(host==='st'||host==='tt'){
+        body=body.replace('<title>','<link rel="stylesheet" href="/fixture-host/'+host+'/popup.css"><link rel="stylesheet" href="/fixture-host/'+host+'/popup-safari-fix.css"><title>');
+        // The real host locks document scrolling; reports must not add a page
+        // scrollbar that changes the visual viewport width in ST alone.
+        body=body.replace('<style>','<style>body{overflow:hidden}');
+    }
     if(params.has('ios'))body=body.replace('<div id="extensionsMenu">','<body class="safari"><div id="extensionsMenu">');
 }
 res.writeHead(200,{'Content-Type':type+'; charset=utf-8','Cache-Control':'no-store'});res.end(body);

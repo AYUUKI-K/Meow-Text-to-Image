@@ -20,6 +20,11 @@
     overscroll-behavior: contain;
 }
 
+/* Settings use the same card margins as ST; viewer overlays keep their padding. */
+.miao-page-overlay:has(>.miao-settings-dialog) {
+    padding: 0;
+}
+
 .miao-page-overlay[data-nested=true] {
     position: absolute;
     inset: 0;
@@ -715,8 +720,10 @@
 }
 
 .miao-settings-dialog {
-    width: min(960px,calc(var(--miao-vv-width,100vw) - 24px)) !important;
-    height: min(800px,calc(var(--miao-vv-height,100dvh) - 24px)) !important;
+    --miao-panel-width: var(--miao-vv-width,var(--miao-page-width,100vw));
+    --miao-panel-height: var(--miao-vv-height,var(--miao-page-height,100dvh));
+    width: min(960px,calc(var(--miao-panel-width) - 24px)) !important;
+    height: min(800px,calc(var(--miao-panel-height) - 24px)) !important;
     padding: 0 !important;
     border: 1px solid var(--mi-line) !important;
     border-radius: 10px !important;
@@ -1125,26 +1132,13 @@
 .miao-floating-entry[data-collapsed=true][data-dock=right] {transform:translateX(32px);}
 .miao-floating-entry[data-collapsed=true][data-dock=top] {transform:translateY(-32px);}
 .miao-floating-entry[data-collapsed=true][data-dock=bottom] {transform:translateY(32px);}
-.miao-page-popup.miao-settings-dialog {width:min(960px,100%);height:min(900px,100%);max-height:100%;left:auto!important;top:auto!important;transform:none!important;min-height:0!important;}
-.miao-page-popup.miao-settings-dialog>.popup-body {
-    display:flex;
-    flex-direction:column;
-    flex:1 1 auto;
-    height:100%;
-    min-height:0;
-    min-width:0;
-    padding:0;
-    margin:0;
-    background:transparent;
-    overflow:hidden;
-}
-.miao-page-popup.miao-settings-dialog>.popup-body>.popup-content {
-    /* Keep the content's intrinsic height when the overview card is auto-sized.
-     * A zero basis collapses this scroll container and clips it to a thin line. */
-    flex:1 1 auto;
-    min-height:0;
-    min-width:0;
-    overflow:hidden;
+.miao-page-popup.miao-settings-dialog {
+    max-width: calc(var(--miao-panel-width) - 16px);
+    max-height: calc(var(--miao-panel-height) - 16px);
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    min-height: 0 !important;
 }
 @media(prefers-reduced-motion:reduce){.miao-floating-entry {transition:none;}}
 
@@ -1227,6 +1221,18 @@
 /* One tint on the shell avoids stacking translucent host colours. The body
  * scrolls inside it, keeping the header edge-to-edge and the footer at bottom. */
 .miao-settings-dialog>.popup-body {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    min-width: 0;
+    /* Host popup.css caps this at 95dvh, or 90dvh on iOS/Safari. Only the
+     * outer settings card should be viewport-limited, not its inner wrapper. */
+    max-height: none !important;
+    overflow: hidden !important;
+    box-sizing: border-box;
     padding: 0 !important;
     margin: 0 !important;
     background: transparent !important;
@@ -1234,6 +1240,10 @@
 .miao-settings-dialog>.popup-body>.popup-content {
     display: flex;
     flex-direction: column;
+    /* Preserve intrinsic overview height; a zero flex basis collapses it. */
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    min-width: 0;
     padding: 0 !important;
     margin: 0 !important;
     overflow: hidden !important;
@@ -1844,8 +1854,8 @@
     }
 
     .miao-settings-dialog {
-        width: calc(var(--miao-vv-width,100vw) - 16px) !important;
-        height: calc(var(--miao-vv-height,100dvh) - 16px) !important;
+        width: calc(var(--miao-panel-width) - 16px) !important;
+        height: calc(var(--miao-panel-height) - 16px) !important;
     }
 
     .miao-history-grid {
