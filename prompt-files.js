@@ -25,6 +25,10 @@ function readParameters(source){
     for(const key of numberParameters){const value=source[key];if(!['number','string'].includes(typeof value)||typeof value==='string'&&!value.trim()||!Number.isFinite(Number(value)))throw Error('生成参数格式不正确');parameters[key]=Number(value);}
     if(source.varietyBoost!==undefined&&typeof source.varietyBoost!=='boolean')throw Error('多样性参数格式不正确');
     parameters.varietyBoost=source.varietyBoost??false;
+    for(const key of ['qualityPreset','ucPreset']){
+        if(source[key]!==undefined&&(typeof source[key]!=='string'||source[key].length>40))throw Error('官网预设参数格式不正确');
+        parameters[key]=source[key]??'none';
+    }
     buildRequest({...defaults,...parameters},'');
     return parameters;
 }

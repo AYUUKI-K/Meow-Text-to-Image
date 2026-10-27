@@ -1,4 +1,5 @@
-export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
+import {applyNovelAIPresets,resolvePresetId} from './novelai-presets.js';
+export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'none',ucPreset:'none',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
 export function supportsVarietyBoost(model){return ['nai-diffusion-3','nai-diffusion-furry-3','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-4-5-full','nai-diffusion-4-5-curated'].includes(model);}
 export function varietyBoostSigma(request){
     if(request.variety_boost!==true||!supportsVarietyBoost(request.model))return null;
@@ -9,6 +10,8 @@ export function normalizeProfile(profile) {
     const merged={...defaults,...profile};
     merged.positive=[merged.positive,merged.artists].filter(v=>typeof v==='string'&&v.trim()).map(v=>v.trim()).join(',\n');
     merged.positiveSuffix=typeof merged.positiveSuffix==='string'?merged.positiveSuffix:'';
+    merged.qualityPreset=resolvePresetId(merged.model,'quality',merged.qualityPreset);
+    merged.ucPreset=resolvePresetId(merged.model,'uc',merged.ucPreset);
     delete merged.artists;
     return merged;
 }
@@ -130,5 +133,6 @@ export function buildRequest(profile, prompt) {
     if (!Number.isFinite(+p.scale) || +p.scale<0 || +p.scale>10) throw new Error('Guidance 须为 0～10');
     if (!Number.isInteger(+p.seed) || +p.seed < -1 || +p.seed > 4294967295) throw new Error('种子须为 -1 或 0～4294967295');
     const positive=[p.positive,prompt,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
-    return {prompt:positive,negative_prompt:p.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model)};
+    const prepared=applyNovelAIPresets(p,positive,p.negative);
+    return {prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model)};
 }

@@ -2,9 +2,9 @@
   "display_name": "喵喵文生图",
   "loading_order": 110,
   "js": "index.js",
-  "css": "style.css?v=2.3.1-test.1",
+  "css": "style.css?v=2.3.1-test.2",
   "author": "喵喵电波-NUE",
-  "version": "2.3.1-test.1",
+  "version": "2.3.1-test.2",
   "auto_update": false,
   "homePage": "https://github.com/AYUUKI-K/Mewo-Text-to-Image"
 }
