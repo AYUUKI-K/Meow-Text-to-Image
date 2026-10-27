@@ -1,6 +1,6 @@
 import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
-import {createThumbnails,bindThumbnail,imageBlob,blobBase64,localImagePath,makeThumbnail} from './image-thumbnails.js';
+import {createThumbnails,imageBlob,blobBase64,localImagePath,makeThumbnail} from './image-thumbnails.js';
 import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORITE_IMAGE_LIMIT} from './prompt-favorites.js';
 import {retryGeneration} from './generation-retry.js';
 import {waitForGeneration} from './generation-delay.js';
@@ -14,6 +14,8 @@ import {hostFetch} from './host-fetch.js';
 import {bindButtonPress} from './button-press.js';
 import {checkedFetch,inStage,errorTitle} from './request-errors.js';
 import {prepareImageExport} from './image-export.js';
+import {createImagePresentation} from './image-presentation.js';
+import {showImageBatchExport} from './image-batch-export.js';
 import {readGenerationMetadata,generationInfo} from './image-metadata.js';
 import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './prompt-files.js';
 import {editedTag} from './tag-edit.js';
@@ -91,6 +93,8 @@ const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const favorites=createFavorites({settings,persist:persistSettings});
 const thumbnails=createThumbnails({fetchImage:url=>hostFetch(url),saveImage:saveBase64AsFile});
+const imagePresentation=createImagePresentation({getFormat:()=>settings.exportFormat,fetchImage:url=>hostFetch(url),saveJPEG:async(blob,folder,name)=>saveBase64AsFile(await blobBase64(blob),folder,name,'jpg'),onError:error=>notices.error('JPG 转换失败：'+error.message,'图片预览')});
+const bindImage=(image,url,options)=>imagePresentation.bind(image,url,options);
 async function saveGeneratedImage(data,folder,name){
     const url=await inStage('image-save',()=>saveBase64AsFile(data,folder,name,'png'));
     try{await thumbnails.ensure(url,imageBlob(data));}catch{notices.warning('原图已保存，缩略图未生成，可在图片页重试','喵喵文生图');}
@@ -143,6 +147,8 @@ async function confirmSettings(question,title='确认删除',{parent}={}){
     const dialog=settingsDialog||el('div',undefined,'miao-confirm-dialog');
     const body=standalone?el('div',undefined,'popup-body'):dialog.querySelector('.popup-body')||dialog;
     const content=standalone?el('div',undefined,'popup-content'):dialog.querySelector('.popup-content');
+    const scrollPositions=[...content.querySelectorAll('[data-scroll-key]')].map(element=>[element,element.scrollTop,element.scrollLeft]);
+    const restoreScroll=()=>{for(const [element,top,left] of scrollPositions)if(element.isConnected){element.scrollTop=top;element.scrollLeft=left;}};
     if(standalone){
         body.append(content);dialog.append(body);document.body.append(dialog);
     }
@@ -166,7 +172,7 @@ async function confirmSettings(question,title='确认删除',{parent}={}){
             layer.remove();content.inert=wasInert;delete dialog.dataset.miaoConfirming;
             if(standalone)dialog.remove();
             viewport?.removeEventListener('resize',fitConfirm);viewport?.removeEventListener('scroll',fitConfirm);window.removeEventListener('resize',fitConfirm);
-            const focus=previousFocus?.isConnected&&!previousFocus.disabled?previousFocus:settingsHost?.querySelector('.miao-drawer-close');focus?.focus();if(error)reject(error);else resolve(result);
+            const focus=previousFocus?.isConnected&&!previousFocus.disabled?previousFocus:settingsHost?.querySelector('.miao-drawer-close');focus?.focus({preventScroll:true});restoreScroll();if(error)reject(error);else resolve(result);
         };
         const onKey=event=>{
             if(['Escape','Tab','Enter',' '].includes(event.key)){event.preventDefault();event.stopImmediatePropagation();}
@@ -176,8 +182,7 @@ async function confirmSettings(question,title='确认删除',{parent}={}){
         };
         const onCancel=event=>{event.preventDefault();event.stopImmediatePropagation();finish(false);},onClose=()=>finish(false);
         pendingSettingsConfirm=finish;bindButtonPress(cancel,()=>finish(false));bindButtonPress(confirm,()=>finish(true));
-        dialog.addEventListener('keydown',onKey,true);dialog.addEventListener('cancel',onCancel,true);dialog.addEventListener('close',onClose);cancel.focus();
-        if(standalone)cancel.focus();
+        dialog.addEventListener('keydown',onKey,true);dialog.addEventListener('cancel',onCancel,true);dialog.addEventListener('close',onClose);cancel.focus({preventScroll:true});restoreScroll();
     });
 }
 const generationError=error=>notices.error(String(error.message||error),errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:12000});
@@ -316,7 +321,7 @@ function makeCard(message,block) {
     const actions=el('div',undefined,'miao-image-tools');actions.hidden=true;
     const button=(label,fn,parent=actions)=>{const b=el('button',label,'miao-button');b.type='button';if(label==='删除')bindButtonPress(b,()=>guard(fn)());else b.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();guard(fn)();});parent.append(b);return b;};
     if(current?.url&&!current.deleted){
-        const image=el('img');image.src=current.url;image.alt='生成的剧情插图';image.loading='lazy';image.decoding='async';image.draggable=false;image.tabIndex=0;image.setAttribute('role','button');image.setAttribute('aria-label','单击图片显示选项，双击重新生成');
+        const image=el('img');image.alt='生成的剧情插图';bindImage(image,current.url,{lazy:true});image.draggable=false;image.tabIndex=0;image.setAttribute('role','button');image.setAttribute('aria-label','单击图片显示选项，双击重新生成');
         const setRatio=(width,height)=>{if(width>0&&height>0&&Number.isFinite(width/height))card.style.setProperty('--miao-image-ratio',String(width/height));};
         setRatio(current.request?.width,current.request?.height);
         image.addEventListener('load',()=>setRatio(image.naturalWidth,image.naturalHeight));
@@ -601,8 +606,7 @@ function saveCapture(start,end) {
 }
 async function downloadImage(url,name='miao-image.png') {
     const format=settings.exportFormat;
-    const response=await checkedFetch('image-download',url);
-    return saveDownload(await response.blob(),name,format);
+    const file=await inStage('image-export',()=>imagePresentation.file({url,name},format));return saveFile(file.blob,file.name);
 }
 async function saveDownload(blob,name,format=settings.exportFormat){
     ({blob,name}=await inStage('image-export',()=>prepareImageExport(blob,name,format)));
@@ -637,6 +641,10 @@ function prepareFileDownload(blob,name){
 }
 async function downloadImages(images){
     const format=settings.exportFormat;
+    const ios=window.__TAURITAVERN_HOST__?.platform==='ios'||/iPad|iPhone|iPod/.test(navigator.userAgent)||navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1;
+    if(ios&&images.length>1)return showImageBatchExport({parent:settingsPopup.dlg,images,prepareFile:image=>imagePresentation.file(image,format),saveFile,makeZip:async files=>{
+        if(!globalThis.JSZip)await import('/lib/jszip.min.js');const zip=new JSZip();for(const file of files)zip.file(file.name,file.blob);return zip.generateAsync({type:'blob',compression:'STORE'});
+    }});
     await downloadImageSelection(images,{saveBlob:(blob,name)=>saveDownload(blob,name,format)});
 }
 function imageRecord(url){
@@ -693,7 +701,7 @@ async function openImage(url,name,gallery,options={}) {
         try{imageArchiveLocation(items[index].url,location.href);remove.disabled=busy;}catch{remove.disabled=true;}
     };
     const paint=()=>{
-        dispose();image.src=items[index].url;image.alt=items[index].name||'图片预览';
+        dispose();image.alt=items[index].name||'图片预览';bindImage(image,items[index].url);
         position.textContent=`${index+1} / ${items.length}`;updateButtons();
         dispose=bindImageZoom(view,image,{onTap:()=>setControls(!controlsVisible),onPrevious:()=>change(-1),onNext:()=>change(1)});
     };
@@ -871,7 +879,7 @@ async function deleteImages(folder,names,{parent}={}) {
     if(!names.length)return false;
     const question=el('div');question.append(el('p',`删除 ${names.length} 张图片？目录：${folder}`),el('p','永久删除后，聊天中引用的原图也将失效。'));
     const previews=el('div',undefined,'miao-history-grid');
-    for(const name of names.slice(0,24)){const image=el('img');image.alt=name;bindThumbnail(image,allowed.get(name).url);previews.append(image);}
+    for(const name of names.slice(0,24)){const image=el('img');image.alt=name;bindImage(image,allowed.get(name).url,{lazy:true});previews.append(image);}
     if(names.length>24)question.append(el('p',`共 ${names.length} 张，下方预览前 24 张。`));
     question.append(previews);
     if(!await confirmSettings(question,'删除图片',{parent}))return false;
@@ -888,6 +896,7 @@ async function deleteImages(folder,names,{parent}={}) {
     }
     for(const p of settings.profiles)if(p.preview?.url){try{const loc=imageArchiveLocation(p.preview.url,location.href);if(paths.includes(`user/images/${loc.folder}/${loc.name}`)){delete p.preview;save();settingsHost?.dispatchEvent(new Event('miao-profile-previews'));}}catch{}}
     if(changed)await ctx().saveChat();renderAll();
+    for(const name of removed){try{await imageAPI('delete',{path:await imagePresentation.forget(allowed.get(name).url)});}catch{}}
     if(removed.length)notices.success(`已清理 ${removed.length} 张图片`);
     if(failure)throw failure;
     return true;
@@ -911,7 +920,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
             if(reason!=='favorites'){autoSession=null;refreshFloating();}renderAll();
         },
         saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
-        testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,
+        testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,

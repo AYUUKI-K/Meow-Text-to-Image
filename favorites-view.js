@@ -3,7 +3,7 @@ import {pageItems} from './core.js';
 import {bindButtonPress} from './button-press.js';
 
 const node=(tag,text,cls)=>{const value=document.createElement(tag);if(text!==undefined)value.textContent=text;if(cls)value.className=cls;return value;};
-export function createFavoritesView({favorites,profiles,activeProfileId,initialDraft,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,openImage,onError}){
+export function createFavoritesView({favorites,profiles,activeProfileId,initialDraft,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,openImage,bindImage,onError}){
     const root=node('section',undefined,'miao-favorites');let draft=initialDraft?favoriteDraft(initialDraft):null,files=[],page=0,query='',saving=null,commit=async()=>{};
     const selectedProfiles=new Map();
     const button=(parent,label,fn)=>{const control=node('button',label,'miao-button');control.type='button';bindButtonPress(control,async()=>{if(control.disabled)return;control.disabled=true;try{await fn();}catch(error){onError(error);}finally{control.disabled=false;}});parent.append(control);return control;};
@@ -21,7 +21,7 @@ export function createFavoritesView({favorites,profiles,activeProfileId,initialD
             const scene=draft.images.map(sceneFromImage).find(Boolean);if(scene)button(form,'从例图提取场景词',()=>{draft.positive=scene;render();});
             const select=profileChoice(form,draft.id||'new');form.append(node('p','「保存并生成」使用所选配置的串和参数，按正常生图计费；原有配置不变。','miao-muted'));
             const examples=node('div',undefined,'miao-favorite-examples');form.append(examples);
-            draft.images.forEach((url,index)=>{const tile=node('div',undefined,'miao-favorite-example'),view=button(tile,'',()=>openImage(url)),image=node('img');view.setAttribute('aria-label',`放大例图 ${index+1}`);image.alt=`例图 ${index+1}`;image.src=url;image.loading='lazy';image.decoding='async';view.append(image);button(tile,'移除例图',()=>{draft.images.splice(index,1);render();});examples.append(tile);});
+            draft.images.forEach((url,index)=>{const tile=node('div',undefined,'miao-favorite-example'),view=button(tile,'',()=>openImage(url)),image=node('img');view.setAttribute('aria-label',`放大例图 ${index+1}`);image.alt=`例图 ${index+1}`;bindImage(image,url,{lazy:true});view.append(image);button(tile,'移除例图',()=>{draft.images.splice(index,1);render();});examples.append(tile);});
             const upload=node('input');upload.type='file';upload.multiple=true;upload.accept='image/png,image/jpeg,image/webp';upload.setAttribute('aria-label','上传例图');form.append(upload);
             const selected=node('p',files.length?`待上传：${files.map(file=>file.name).join('、')}`:'可上传 PNG、JPG、WebP，每张不超过 18 MB。','miao-muted');form.append(selected);
             upload.onchange=()=>{const next=[...upload.files];if(draft.images.length+next.length>FAVORITE_IMAGE_LIMIT){upload.value='';onError(Error(`每条收藏最多 ${FAVORITE_IMAGE_LIMIT} 张例图`));return;}files=next;selected.textContent=files.length?`待上传：${files.map(file=>file.name).join('、')}`:'未选择新例图';};
@@ -40,7 +40,7 @@ export function createFavoritesView({favorites,profiles,activeProfileId,initialD
             for(const item of paged.items){
                 const card=node('article',undefined,'miao-favorite-card');card.dataset.favoriteId=item.id;card.append(node('h3',item.name));
                 const examples=node('div',undefined,'miao-favorite-examples');card.append(examples);
-                item.images.forEach((url,index)=>{const view=button(examples,'',()=>openImage(url)),image=node('img');view.setAttribute('aria-label',`放大 ${item.name} 例图 ${index+1}`);image.alt=item.name+' 例图';image.src=url;image.loading='lazy';image.decoding='async';view.append(image);});
+                item.images.forEach((url,index)=>{const view=button(examples,'',()=>openImage(url)),image=node('img');view.setAttribute('aria-label',`放大 ${item.name} 例图 ${index+1}`);image.alt=item.name+' 例图';bindImage(image,url,{lazy:true});view.append(image);});
                 card.append(node('p',item.positive,'miao-favorite-summary'));
                 const select=profileChoice(card,item.id);
                 const actions=node('div',undefined,'miao-actions');card.append(actions);

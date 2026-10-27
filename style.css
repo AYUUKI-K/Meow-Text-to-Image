@@ -2240,3 +2240,19 @@
     .miao-icon-picker h3 {font-size: 16px;}
     .miao-icon-grid {grid-template-columns: repeat(3,minmax(0,1fr));}
 }
+
+/* Keep the gallery's scroll range while replacing a page or refreshing its data. */
+.miao-history-list {display: flex; flex-direction: column;}
+.miao-history-list>.miao-pager {margin-top: auto; padding-top: 12px;}
+img[data-miao-export-state=loading] {visibility: hidden;}
+.miao-batch-export {display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; text-align: left;}
+.miao-batch-export>header {flex: none; padding: 16px; border-bottom: 1px solid var(--mi-line);}
+.miao-batch-export h3 {margin: 0; font-size: 17px;}
+.miao-batch-export>p {margin: 12px 16px; flex: none; font-size: 13px;}
+.miao-batch-export-actions {display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; flex: none;}
+.miao-batch-export-list {overflow-y: auto; min-height: 0; flex: 1 1 0; padding: 0 16px 16px; overscroll-behavior: contain; touch-action: pan-y;}
+.miao-batch-export-list>article {display: grid; grid-template-columns: 64px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--mi-line);}
+.miao-batch-export-list img {width: 64px; height: 64px; object-fit: contain; border-radius: 4px;}
+.miao-batch-export-list span {font-size: 12px; overflow-wrap: anywhere;}
+.miao-batch-export .miao-button {min-height: 44px;}
+.miao-image-viewer:has(>img[data-miao-export-state=loading])::before {content: '正在准备 JPG…'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--mi-muted); font-size: 14px; pointer-events: none;}
