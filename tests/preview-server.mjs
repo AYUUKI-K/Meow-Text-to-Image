@@ -87,13 +87,22 @@ if(new URL(location.href).searchParams.has('layout-update'))try{
 const settle=async fn=>{for(let i=0;i<60;i++){if(fn())return;await wait();}throw Error('layout fixture timed out');};
 const action=text=>[...document.querySelectorAll('.miao-button')].find(button=>button.textContent===text);
 const go=async(name,index)=>{const panel=document.querySelector('.miao-settings');if(getComputedStyle(panel.querySelector('.miao-tabs')).display==='none'){if(!document.querySelector('.miao-overview-row'))document.querySelector('.miao-drawer-back').click();document.querySelector('.miao-overview-row[aria-label="'+name+'"]').click();}else panel.querySelectorAll('.miao-tabs button')[index].click();await wait();};
+const mobile=matchMedia('(max-width:680px), (max-height:500px)').matches;
+// Reproduce a host theme that gives footer elements a percentage/minimum height.
+const hostStyle=document.createElement('style');
+if(new URL(location.href).searchParams.has('footer-update')){hostStyle.textContent='.popup-content footer{height:24%;min-height:120px;padding-block:24px;flex-basis:20%;block-size:24%;min-block-size:120px;display:grid}';document.head.append(hostStyle);}
 for(const [index,name] of ['生成','配置','Vibe','资源','图库'].entries()){
 await go(name,index);const root=document.querySelector('.miao-settings'),shell=root.closest('dialog'),content=root.parentElement,header=root.querySelector('header'),body=root.querySelector('.miao-panel-body'),footer=root.querySelector('footer'),r=root.getBoundingClientRect(),c=content.getBoundingClientRect(),h=header.getBoundingClientRect(),f=footer.getBoundingClientRect();
 check(Math.abs(r.top-c.top)<2&&Math.abs(r.bottom-c.bottom)<2&&body.clientHeight>20,name+'分区填满面板，不在底部留下空白');
-check(Math.abs(h.top-r.top)<2&&Math.abs(h.width-r.width)<2&&f.bottom<=r.bottom+1,name+'顶栏贴齐整个面板宽度和顶部');
+check(Math.abs(h.top-r.top)<2&&Math.abs(h.width-r.width)<2,name+'顶栏贴齐整个面板宽度和顶部');
+check(mobile?getComputedStyle(footer).display==='none'&&f.height===0&&footer.getClientRects().length===0:f.height>0&&f.bottom<=r.bottom+1,name+(mobile?'手机子页不显示底栏、不保留布局占位':'桌面保留底栏'));
 check([root,header,root.querySelector('.miao-tabs'),content].every(el=>getComputedStyle(el).backgroundColor==='rgba(0, 0, 0, 0)'),name+'半透明主题只在外壳绘制一次背景');
-body.scrollTop=body.scrollHeight;check(header.getBoundingClientRect().top===h.top&&body.getBoundingClientRect().bottom<=f.top+1,name+'内容独立滚动，标题和页脚保持可见');
+body.scrollTop=body.scrollHeight;check(header.getBoundingClientRect().top===h.top&&Math.abs(body.getBoundingClientRect().bottom-(mobile?r.bottom:f.top))<2,name+'内容独立滚动并填满可用高度，标题保持可见');
 }
+hostStyle.remove();
+document.querySelector('.miao-drawer-back').click();await wait();
+const overviewFooter=document.querySelector('.miao-footer');
+check(getComputedStyle(overviewFooter).display!=='none'&&overviewFooter.getBoundingClientRect().height<=48&&overviewFooter.querySelector('button').getBoundingClientRect().height>=44,'返回首页恢复紧凑版本和更新入口');
 if(new URL(location.href).searchParams.has('opacity-update')){
     const root=document.querySelector('.miao-settings'),shell=root.closest('dialog'),footer=root.querySelector('footer'),initial=shell.style.getPropertyValue('--SmartThemeBlurTintColor'),canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d');
     for(const alpha of [0,.05,.5,.9,.95,1]){
@@ -103,8 +112,9 @@ if(new URL(location.href).searchParams.has('opacity-update')){
     if(initial)shell.style.setProperty('--SmartThemeBlurTintColor',initial);else shell.style.removeProperty('--SmartThemeBlurTintColor');
     const box=footer.getBoundingClientRect(),button=footer.querySelector('button').getBoundingClientRect();
     check(box.height<=48&&footer.scrollWidth<=footer.clientWidth&&button.height>=44,'作者、版本和更新入口收为一行，保留 44px 触摸高度');
-    check(root.querySelector('.miao-version').textContent==='v2.2.3-test.3'&&footer.textContent.includes('检查并更新'),'精简版本显示，保留检查并更新操作');
+    check(root.querySelector('.miao-version').textContent==='v${manifest.version}'&&footer.textContent.includes('检查并更新'),'精简版本显示，保留检查并更新操作');
 }
+await go('图库',4);
 const catalog=p.settings.imageArchive;for(let i=0;i<75;i++){const name='miao-'+(1892737847709+i)+'.png';p.files.push(name);catalog['/user/images/miao-nai/'+name]={folder:'miao-nai',name,cardId:i<40?'card:many':'card:stress-'+i,cardName:i<40?'很多聊天的角色':'角色 '+i,chatId:i<40?'聊天 '+String(i).padStart(2,'0')+' 很长的聊天名称用于检查换行':'独立聊天'};}
 action('刷新列表').click();await settle(()=>document.querySelector('.miao-history-tile'));
 const openPicker=async kind=>{document.querySelector('[data-archive-picker='+kind+']').click();await settle(()=>document.querySelector('.miao-archive-picker'));};
@@ -724,6 +734,12 @@ const hostTheme=dark?'--SmartThemeBodyColor:#e5ebf5;--SmartThemeBlurTintColor:#1
 const requestedAlpha=new URL(req.url,'http://localhost').searchParams.get('alpha'),opacity=requestedAlpha!==null&&Number.isFinite(Number(requestedAlpha))?Math.max(0,Math.min(1,Number(requestedAlpha))):.65;
 const alpha=theme?.startsWith('translucent')?';--SmartThemeBlurTintColor:'+(dark?'rgba(18,27,43,'+opacity+')':'rgba(248,251,255,'+opacity+')'):'';
 body=html.replace('<style>','<style>:root{'+hostTheme+alpha+'}'+(alpha?'body{background:repeating-linear-gradient(35deg,#798998 0 20px,#4d5e74 20px 40px)!important}':''));type='text/html';if(new URL(req.url,'http://localhost').searchParams.has('image-size'))body=body.replace('<style>','<style>#chat{max-width:920px;margin:auto;color:var(--SmartThemeBodyColor)}#extensionsMenu,#report{display:none}body{background:var(--SmartThemeBlurTintColor)!important;color:var(--SmartThemeBodyColor)!important}');}
+else if(req.url?.startsWith('/fixture-host/')){
+    const [,host,file]=req.url.match(/^\/fixture-host\/(st|tt)\/(popup\.css|popup-safari-fix\.css)$/)||[];
+    const hostRoot=host==='tt'?process.env.MIAO_TT_ROOT:process.env.MIAO_ST_ROOT;
+    if(!file||!hostRoot)throw Error('Host stylesheet fixture unavailable');
+    body=(await readFile(new URL((host==='tt'?'src/':'public/')+'css/'+file,'file://'+hostRoot.replace(/\/$/,'')+'/'),'utf8')).replace(/^@import[^;]+;/gm,'');type='text/css';
+}
 else if(req.url==='/script.js')body=`export async function saveSettings(){if(window.preview.holdSettingsSave)await new Promise(resolve=>window.preview.releaseSettingsSave=resolve);if(window.preview.failSettingsSave)return false;window.preview.settingsSaves=(window.preview.settingsSaves||0)+1;await window.preview.emit('SETTINGS_UPDATED');}`;
 else if(req.url==='/scripts/extensions.js')body=mock;
 else if(req.url==='/scripts/popup.js')body=popup;
@@ -739,6 +755,11 @@ else if(req.url==='/scripts/extensions/regex/engine.js')body=`export const SCRIP
 else if(req.url.startsWith(prefix)){const file=req.url.slice(prefix.length).split('?')[0];if(!['archive-picker.js','notifications.js','vibe-files.js','tag-edit.js','page-popup.js','queue-network.js','generation-delay.js','prompt-preview-transfer.js','profile-previews.js','image-archives.js','resource-updates.js','assets/resource-manifest.json','prompt-files.js','image-export.js','request-errors.js','button-press.js','host-fetch.js','browser-crypto.js','generation-retry.js','resources.js','assets/worldbook.json','assets/regex.json','translation.js','settings-save.js','interactions.js','index.js','core.js','vibe.js','direct-client.js','direct-key.js','image-history.js','swipe-history.js','updates.js','downloads.js','cloud-queue.js','ui.js','style.css'].includes(file))throw Error('Not found');body=await readFile(new URL(file,root));if(file==='generation-delay.js')body=body.toString().replace('sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))','sleep=async ms=>{(window.preview.generationDelays??=[]).push(ms);}');if(file==='generation-retry.js')body=body.toString().replace('delays=[15000,30000,60000]','delays=[10,20,30]');if(file==='index.js')body=body.toString().replace('location.reload()','(window.preview.reloads=(window.preview.reloads||0)+1)');if(file.endsWith('.css'))type='text/css';if(file.endsWith('.json'))type='application/json';}
 else if(req.url.startsWith('/user/images/')){body=savedPreviewImages.get(req.url)||fixturePNG;type='image/png';}
 else{res.writeHead(404);res.end();return;}
+if(type==='text/html'){
+    const params=new URL(req.url,'http://localhost').searchParams,host=params.get('host-css');
+    if(host==='st'||host==='tt')body=body.replace('<title>','<link rel="stylesheet" href="/fixture-host/'+host+'/popup.css"><link rel="stylesheet" href="/fixture-host/'+host+'/popup-safari-fix.css"><title>');
+    if(params.has('ios'))body=body.replace('<div id="extensionsMenu">','<body class="safari"><div id="extensionsMenu">');
+}
 res.writeHead(200,{'Content-Type':type+'; charset=utf-8','Cache-Control':'no-store'});res.end(body);
 }catch(e){res.writeHead(500);res.end(e.message);}});
 const port=Number(process.env.MIAO_PREVIEW_PORT||8766),previewHost=process.env.MIAO_PREVIEW_HOST||'127.0.0.1';

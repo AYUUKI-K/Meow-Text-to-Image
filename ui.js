@@ -389,7 +389,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             refresh();
         }
         paintResourceEntries();
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','v2.2.3-test.3','miao-version'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','v2.2.3-test.6','miao-version'),updateBox);root.append(footer);
         if(keep){const restore=()=>{if(epoch!==renderEpoch)return;for(const item of root.querySelectorAll('[data-scroll-key]')){const position=positions.get(item.dataset.scrollKey);if(position){item.scrollTop=position.top;item.scrollLeft=position.left;}}if(scroller&&outerTop!==undefined)scroller.scrollTop=outerTop;};restore();requestAnimationFrame(restore);}
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});

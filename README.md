@@ -2,6 +2,14 @@
 
 SillyTavern 文生图扩展，仅支持 NovelAI。配合世界书输出提示词，将正文中的图片标签变成生成按钮。
 
+## 2.2.3-test.6（main-test）
+
+- 从 `2.2.3-test.3` 继续开发，撤回 test.4 / test.5 的底栏尺寸修补。
+- 手机端进入生成、配置、Vibe、资源或图库后，隐藏整个作者／版本／更新底栏，不留布局占位，主体滚动区直接填满面板底部；返回功能首页后仍可查看版本、检查并更新。桌面底栏保持可见，手机横屏同样适用。
+- 分类选择弹窗允许长角色／聊天列表在 TT 面板内收缩并滚动。
+- 185 项自动测试通过；隔离浏览器使用 ST、TT 实际弹窗 CSS 验证手机竖屏、横屏和桌面布局。尚未在实体 iOS TestFlight 上验收，预览未调用真实 NAI。
+- 布局回归：`?gallery-update&layout-update&footer-update&opacity-update&tt&ios&host-css=tt&frame=390x844`。预览服务通过 `MIAO_TT_ROOT` 读取 TT 的 `src/css`，通过 `MIAO_ST_ROOT` 读取 ST 的 `public/css`；ST 预览改用 `host-css=st` 并移除 `tt`。
+
 ## 2.2.3-test.3（main-test）
 
 - 面板背景沿用酒馆颜色，不透明度最低为 90%；原本 90%～100% 的背景保持不变，主题颜色变化即时生效。
