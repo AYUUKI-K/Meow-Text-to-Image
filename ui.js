@@ -9,7 +9,7 @@ import {vibeModelKeys} from './vibe.js';
 import {bindThumbnail} from './image-thumbnails.js';
 import {createFavoritesView} from './favorites-view.js';
 import {FAVORITE_FOLDER,favoritesEnabled} from './prompt-favorites.js';
-import {novelAIPresets,selectedPreset,resolvePresetId} from './novelai-presets.js';
+import {novelAIPresets,resolvePresetId} from './novelai-presets.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
@@ -209,11 +209,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const presetBox=node('div',undefined,'miao-prompt-presets');prompts.append(presetBox);
             const presetNames={standard:'Standard',light:'Light',heavy:'Heavy',furryFocus:'Furry Focus',humanFocus:'Human Focus',none:'None'};
             for(const [kind,key,label] of [['quality','qualityPreset','质量 Tags'],['uc','ucPreset','UC 负面预设']]){
-                const id=resolvePresetId(p.model,kind,p[key]);
+                const id=resolvePresetId(p.model,kind,p[key]??defaults[key]);
                 field(presetBox,label,id,value=>{p[key]=value;save();render();},{options:novelAIPresets(p.model,kind).map(item=>[item.id,presetNames[item.id]??item.name])});
-                const preset=selectedPreset(p.model,kind,id);
-                const hint=node('p',preset.suffix?`追加到正面末尾：${preset.suffix}`:preset.prefix?`添加到负面开头：${preset.prefix}`:'None：不添加官网预设。','miao-muted');presetBox.append(hint);
-                if(preset.prefix&&!p.model.includes('curated'))presetBox.append(node('p','与官网一致：正面不含 nsfw 时，负面最前还会添加 nsfw。','miao-muted'));
             }
             const promptToolbar=node('div',undefined,'miao-section-toolbar'),transfer=node('div',undefined,'miao-actions');promptToolbar.append(prompts.querySelector('h3'),transfer);prompts.prepend(promptToolbar);
             const promptUpload=node('input');promptUpload.type='file';promptUpload.accept='.json,application/json';promptUpload.hidden=true;promptUpload.dataset.miaoPromptImport='true';prompts.append(promptUpload);
@@ -398,30 +395,27 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 action(pager,'下一页',()=>{page++;draw();}).disabled=page+1===paged.pages;list.append(pager);
             };
             const refresh=async()=>{
-                const epoch=++folderEpoch,target=selectedFolder;thumbnailStatus.hidden=true;list.replaceChildren(node('p','读取中…','miao-muted'));selected.clear();selectedImages.clear();updateSelection();
+                const epoch=++folderEpoch,target=selectedFolder;list.replaceChildren(node('p','读取中…','miao-muted'));selected.clear();selectedImages.clear();updateSelection();
                 try{
                     const nextImages=await listImages(target);if(epoch!==folderEpoch)return false;allImages=nextImages.sort(compareImagesNewest);while(selection.length&&!browseArchive(allImages,selection).items.length)selection.pop();paintFolders();draw();return true;
                 }catch(error){if(epoch!==folderEpoch)return false;list.replaceChildren(node('p','读取失败，请刷新重试。'));onError(error);return false;}
             };
             const multiButton=action(controls,'多选',()=>{multiSelect=true;draw();});
-            const thumbnailStatus=node('p','','miao-muted');thumbnailStatus.hidden=true;thumbnailStatus.setAttribute('role','status');cleanup.insertBefore(thumbnailStatus,imageControls);
             action(controls,'刷新列表',async()=>{
                 const target=selectedFolder;
                 if(!await refresh())return;
-                const epoch=folderEpoch;thumbnailStatus.hidden=false;thumbnailStatus.textContent='正在检查缩略图…';
+                const epoch=folderEpoch;
                 const current=()=>epoch===folderEpoch&&target===selectedFolder&&activeTab==='images'&&cleanup.isConnected;
-                try{
-                    const result=await buildThumbnails(target,(done,total)=>{if(current())thumbnailStatus.textContent=`正在检查缩略图 ${done} / ${total} 张…`;});
-                    if(!current())return;
-                    draw();
-                    thumbnailStatus.textContent=result.failed?`列表已刷新，${result.failed} 张缩略图失败，点击刷新列表可重试。`:'列表已刷新，缩略图已就绪。';
-                }catch(error){if(current())thumbnailStatus.textContent='刷新失败，请重试。';throw error;}
+                const result=await buildThumbnails(target);
+                if(!current())return;
+                draw();
+                if(result.failed)throw Error(`${result.failed} 张缩略图生成失败，请点击刷新列表重试。`);
             });
             const cleanDates=action(controls,'清理选中日期',async()=>{if(!selected.size)throw new Error('请先勾选需要清理的日期');if(await deleteImages(selectedFolder,images.filter(i=>selected.has(i.day)).map(i=>i.name)))await refresh();});
             refresh();
         }
         paintResourceEntries();
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','v2.3.1-test.2','miao-version'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','v2.3.1-test.3','miao-version'),updateBox);root.append(footer);
         if(keep){const restore=()=>{if(epoch!==renderEpoch)return;for(const item of root.querySelectorAll('[data-scroll-key]')){const position=positions.get(item.dataset.scrollKey);if(position){item.scrollTop=position.top;item.scrollLeft=position.left;}}if(scroller&&outerTop!==undefined)scroller.scrollTop=outerTop;};restore();requestAnimationFrame(restore);}
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});

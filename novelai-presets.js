@@ -10,6 +10,10 @@ const presets = {
     "nai-diffusion-furry-3": {"quality":[{"id":"standard","name":"standard","suffix":"{best quality}, {amazing quality}"},{"id":"none","name":"none"}],"uc":[{"id":"heavy","name":"heavy","category":"heavy","prefix":"{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, {what}, {where is your god now}, {distorted text}, repeated text, {floating head}, {1994}, {widescreen}, absolutely everyone, sequence, {compression artifacts}, hard translated, {cropped}, {commissioner name}, unknown text, high contrast"},{"id":"light","name":"light","category":"light","prefix":"{worst quality}, guide lines, unfinished, bad, url, tall image, widescreen, compression artifacts, unknown text"},{"id":"none","name":"none","category":"none"}]},
 };
 
+// Keep a delimiter after the final official tag, including an empty custom UC.
+for(const model of Object.values(presets))for(const list of Object.values(model))for(const preset of list){
+    for(const key of ['prefix','suffix'])if(preset[key])preset[key]=`${preset[key].trimEnd().replace(/,+$/,'')}, `;
+}
 const none={id:'none',name:'none'};
 export function novelAIPresets(model,kind){return presets[model]?.[kind]??[none];}
 export function resolvePresetId(model,kind,id){return novelAIPresets(model,kind).some(p=>p.id===id)?id:'none';}
@@ -29,12 +33,12 @@ function addQuality(prompt,preset,modern){
     if(!preset.suffix)return prompt;
     if(!modern)return prompt.split('|').map(part=>{
         const weight=part.match(/(:[\d.]+$)/)?.[0]??'';
-        return join(weight?part.slice(0,-weight.length):part,preset.suffix)+weight;
+        return join(weight?part.slice(0,-weight.length):part,weight?preset.suffix.slice(0,-2):preset.suffix)+weight;
     }).join('|');
     const end=baseEnd(prompt),base=prompt.slice(0,end);
     const text=/(?:^|\s|[,.:[\]{}、。])text:(?!:)/i.exec(base);
     const split=text?.index??base.length;
-    const tail=text?`, ${base.slice(split).trimStart().replace(/^,\s*/,'')}`:'';
+    const tail=text?base.slice(split).trimStart().replace(/^,\s*/,''):'';
     return join(base.slice(0,split),preset.suffix)+tail+prompt.slice(end);
 }
 export function applyNovelAIPresets(profile,prompt,negative){
@@ -42,7 +46,7 @@ export function applyNovelAIPresets(profile,prompt,negative){
     prompt=addQuality(prompt,selectedPreset(profile.model,'quality',profile.qualityPreset),modern);
     const uc=selectedPreset(profile.model,'uc',profile.ucPreset);
     if(uc.id!=='none'&&uc.prefix){
-        negative=negative?`${uc.prefix}, ${negative}`:uc.prefix;
+        negative=uc.prefix+negative;
         // Official solveUc also suppresses NSFW on non-curated models unless
         // the positive prompt explicitly contains it. There is no tag dedup.
         if(!profile.model.includes('curated')&&!prompt.toLowerCase().includes('nsfw'))negative=`nsfw, ${negative}`;

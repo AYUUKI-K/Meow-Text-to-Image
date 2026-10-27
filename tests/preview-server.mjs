@@ -17,7 +17,8 @@ function fixtureZip(){
     const end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(1,8);end.writeUInt16LE(1,10);end.writeUInt32LE(central.length+name.length,12);end.writeUInt32LE(local.length+name.length+fixturePNG.length,16);
     return Buffer.concat([local,name,fixturePNG,central,name,end]);
 }
-const mock=`import {defaults} from '${prefix}core.js';
+const mock=`import {defaults as pluginDefaults} from '${prefix}core.js';
+const defaults=new URL(location.href).searchParams.has('nai-presets')?pluginDefaults:{...pluginDefaults,qualityPreset:'none',ucPreset:'none'};
 const handlers=new Map();const chat=Array.from({length:6},(_,i)=>({name:'Preview',mes:i===3?'image###third###':i===5?'<star_cot>image###fifth### image###wrong###</star_cot>image###fifth###':'Floor '+i,extra:{}}));
 if(new URL(location.href).searchParams.has('image-size')||new URL(location.href).searchParams.has('viewer'))chat.splice(0,chat.length,...[['landscape',1216,832,'横图'],['portrait',832,1216,'竖图'],['square',1024,1024,'方图']].map(([name,width,height,label])=>({name:'Size preview',mes:'<h3>'+label+'预设 · '+width+' × '+height+'</h3><p>正文插图按楼层宽度显示，保持完整比例。</p>image###'+name+'###<p>插图后面的正文。</p>',miao_nai_image_swipes:{0:{['body:0:'+name]:{url:'/fixture-image/'+name+'.svg',request:{width,height},profileName:label}}}})));
 if(new URL(location.href).searchParams.has('manual-delete')||new URL(location.href).searchParams.has('touch-delete')||new URL(location.href).searchParams.has('export-format'))chat.splice(0,chat.length,{name:'Touch fixture',mes:'image###scene###',miao_nai_image_swipes:{0:{'body:0:scene':{url:'/user/images/miao-nai/miao-1792737847709.png',request:{width:512,height:512,prompt:'scene'},profileName:'A'}}}});
@@ -64,20 +65,21 @@ const field=text=>[...document.querySelectorAll('.miao-field')].find(f=>f.queryS
 const set=(label,value)=>{const el=field(label);el.value=value;el.dispatchEvent(new Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));};
 const go=async label=>{const root=document.querySelector('.miao-settings');if(getComputedStyle(root.querySelector('.miao-tabs')).display==='none'){if(root.dataset.section!=='overview')root.querySelector('.miao-drawer-back').click();document.querySelector('.miao-overview-row[aria-label="'+label+'"]').click();}else [...root.querySelectorAll('.miao-tabs>button')].find(b=>b.textContent===label).click();await wait();};
 document.getElementById('miao-nai-menu').click();await settle(()=>document.querySelector('.miao-settings'));await go('配置');
-check(field('质量 Tags').value==='none'&&field('UC 负面预设').value==='none','旧配置默认 None');
-set('质量 Tags','standard');set('UC 负面预设','heavy');
-check(p.settings.profiles[0].qualityPreset==='standard'&&p.settings.profiles[0].ucPreset==='heavy'&&document.querySelector('.miao-prompt-presets').textContent.includes('very aesthetic, masterpiece, no text'),'配置保存官网选项并显示实际添加内容');
-set('当前配置','1');check(field('质量 Tags').value==='none'&&field('UC 负面预设').value==='none','配置之间的预设互不污染');set('当前配置','0');
+check(field('质量 Tags').value==='standard'&&field('UC 负面预设').value==='heavy','默认预设为 Standard / Heavy');
+set('质量 Tags','none');set('UC 负面预设','none');
+check(p.settings.profiles[0].qualityPreset==='none'&&p.settings.profiles[0].ucPreset==='none'&&!document.querySelector('.miao-prompt-presets .miao-muted'),'None 可以选择，预设下方没有说明小字');
+set('当前配置','1');check(field('质量 Tags').value==='standard'&&field('UC 负面预设').value==='heavy','配置之间的预设互不污染');set('当前配置','0');set('质量 Tags','standard');set('UC 负面预设','heavy');
 set('NAI 模型','nai-diffusion-5-curated');set('质量 Tags','light');check([...field('质量 Tags').options].map(o=>o.value).join(',')==='standard,light,none','V5 提供 Standard、Light、None');
 set('NAI 模型','nai-diffusion-4-5-curated');check(field('质量 Tags').value==='none'&&![...field('UC 负面预设').options].some(o=>o.value==='furryFocus'),'切换模型移除不支持的选项，质量 Light 回退 None');set('质量 Tags','standard');
-const model=await import('${prefix}core.js');const prepared=model.buildRequest(p.settings.profiles[0],'scene');check(prepared.prompt.endsWith('very aesthetic, masterpiece, no text, -0.8::feet::, rating:general')&&prepared.negative_prompt.startsWith('blurry, lowres'),'配置选项进入实际请求构建');
+const model=await import('${prefix}core.js');const prepared=model.buildRequest(p.settings.profiles[0],'scene');check(prepared.prompt.endsWith('very aesthetic, masterpiece, no text, -0.8::feet::, rating:general, ')&&prepared.negative_prompt.startsWith('blurry, lowres'),'配置选项进入实际请求构建');
+p.files=Array.from({length:12},(_,i)=>'miao-'+(Date.now()-i*3600000)+'-'+(window.__TAURITAVERN__?'aa':'bb')+'.png');
 await go('图库');await settle(()=>document.querySelector('.miao-history-tile'));check(!action('生成缺失缩略图'),'图库只保留刷新列表');
-action('刷新列表').click();await settle(()=>!action('刷新列表').disabled&&document.querySelector('[role="status"]').textContent.includes('缩略图已就绪'));await settle(()=>[...document.querySelectorAll('.miao-history-tile img')].every(i=>i.dataset.thumbnailState==='ready'));
-check(p.calls.length===0&&p.imageWrites?.some(i=>i.folder==='miao-nai-thumbnails'),'刷新列表补齐缓存，缩略图可解码且不调用 NAI');
+action('刷新列表').click();check(!document.querySelector('[role="status"]'),'刷新期间不显示说明小字');await settle(()=>!action('刷新列表').disabled);await settle(()=>[...document.querySelectorAll('.miao-history-tile img')].every(i=>i.dataset.thumbnailState==='ready'));
+check(p.calls.length===0&&p.imageWrites?.some(i=>i.folder==='miao-nai-thumbnails')&&!document.querySelector('[role="status"]'),'刷新补齐缓存且无完成说明，不调用 NAI');
 const count=p.imageWrites.length;action('刷新列表').click();await settle(()=>!action('刷新列表').disabled);check(p.imageWrites.length===count,'重复刷新复用缓存，无额外图片写入');
-const oldFetch=window.fetch;let fail=true;window.fetch=async(url,options)=>fail&&String(url).startsWith('/user/images/miao-nai-thumbnails/')?new Response('',{status:404}):oldFetch(url,options);p.failImageSave=true;
-action('刷新列表').click();await settle(()=>!action('刷新列表').disabled);check(document.querySelector('[role="status"]').textContent.includes('失败'),'缩略图失败显示可重试状态');p.failImageSave=false;fail=false;window.fetch=oldFetch;
-action('刷新列表').click();await settle(()=>!action('刷新列表').disabled);check(document.querySelector('[role="status"]').textContent.includes('缩略图已就绪')&&p.calls.length===0,'失败后点击刷新可恢复，不消耗生图额度');
+const oldFetch=window.fetch,priorErrors=miaoTestToasts.length;let fail=true;window.fetch=async(url,options)=>fail&&String(url).startsWith('/user/images/miao-nai-thumbnails/')?new Response('',{status:404}):oldFetch(url,options);p.failImageSave=true;
+action('刷新列表').click();await settle(()=>!action('刷新列表').disabled);check(window.__TAURITAVERN__?miaoTestToasts.length>priorErrors:document.querySelectorAll('dialog[open]').length>1,'缩略图失败仍报告错误');if(!window.__TAURITAVERN__)[...document.querySelectorAll('dialog[open]')].at(-1).querySelector('.popup-controls button').click();p.failImageSave=false;fail=false;window.fetch=oldFetch;
+action('刷新列表').click();await settle(()=>!action('刷新列表').disabled);check(!document.querySelector('[role="status"]')&&p.calls.length===0,'失败后点击刷新可恢复，无说明小字且不消耗额度');
 await go('配置');check(field('质量 Tags').value==='standard'&&field('UC 负面预设').value==='heavy','切页后保留配置预设');
 }catch(error){results.push('FAIL '+error.stack);}if(new URL(location.href).searchParams.has('nai-presets'))document.getElementById('report').textContent=results.join(String.fromCharCode(10));
 if(new URL(location.href).searchParams.has('gallery-update'))try{
@@ -186,7 +188,7 @@ const request=p.calls.at(-1);check((request.prompt||request.input)==='B_FRONT,\\
 check(JSON.stringify(p.settings.profiles)===profiles&&p.settings.active===active&&p.calls.length===1,'收藏生图走正常请求流程，不改写配置或全局选择');
 action('编辑').click();set(document.querySelector('[aria-label="收藏名称"]'),'失败不覆盖');p.failSettingsSave=true;const errors=miaoTestToasts.length;action('保存收藏').click();await settle(()=>window.__TAURITAVERN__?miaoTestToasts.length>errors:document.querySelectorAll('dialog[open]').length>1);check(p.settings.promptFavorites[0].name==='雨天庭院 · 收藏测试','保存失败回滚收藏记录');p.failSettingsSave=false;document.querySelector('dialog[open]:not(.miao-settings-dialog) .popup-controls button')?.click();action('取消编辑').click();
 await go('图库');await settle(()=>document.querySelector('.miao-history-tile'));check([...document.querySelectorAll('.miao-history-tile img')].every(image=>image.dataset.originalUrl&&(!image.getAttribute('src')||image.src.includes('/miao-nai-thumbnails/'))),'图库列表仅请求缩略图，原图地址单独保留用于放大');
-check(!action('生成缺失缩略图'),'旧缩略图按钮已合并');action('刷新列表').click();await settle(()=>[...document.querySelectorAll('.miao-muted')].some(p=>p.textContent.includes('缩略图已就绪')));check(p.calls.length===1,'刷新列表为旧图库生成缩略图且不调用 NAI');
+check(!action('生成缺失缩略图'),'旧缩略图按钮已合并');action('刷新列表').click();await settle(()=>!action('刷新列表').disabled);check(p.calls.length===1,'刷新列表为旧图库生成缩略图且不调用 NAI');
 set(field('管理目录'),'miao-nai-favorites');await settle(()=>document.querySelector('.miao-history-tile'));action('多选').click();document.querySelector('.miao-history-tile input').click();action('删除选中图片').click();await wait();check(document.querySelectorAll('.miao-history-tile').length===1&&miaoTestToasts.some(toast=>String(toast.message).includes('已保留 1 张收藏例图')),'图库清理保留被收藏引用的原图');
 await go('生成');toggle().click();await wait();check(!toggle().checked&&document.querySelectorAll('.miao-tabs>button').length===5&&![...document.querySelectorAll('.miao-image-tools button')].some(button=>button.textContent==='收藏提示词'),'关闭开关后所有收藏入口同步隐藏');check(p.settings.promptFavorites.length===1&&p.settings.promptFavorites[0].images.length===2,'关闭收藏功能保留已有记录和例图');toggle().click();await go('收藏');check(document.querySelector('.miao-favorite-card'),'重新开启恢复原有收藏');
 document.querySelector('.miao-drawer-close').click();await settle(()=>!document.querySelector('.miao-settings'));[...document.querySelectorAll('[mesid="3"] .miao-image-tools button')].find(button=>button.textContent==='收藏提示词').click();await settle(()=>document.querySelector('[aria-label="场景提示词"]'));check(document.querySelector('[aria-label="场景提示词"]').value==='third'&&p.calls.length===1,'从楼层收藏只取该 tag 的场景词，不自动发送生图请求');action('取消编辑').click();

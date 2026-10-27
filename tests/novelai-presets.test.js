@@ -6,7 +6,7 @@ import {naiPayload} from '../direct-client.js';
 import {promptFileData,importPromptData} from '../prompt-files.js';
 import {sampleSignature} from '../profile-previews.js';
 
-const profile={...defaults,positive:'front',positiveSuffix:'back',negative:'custom negative',seed:42};
+const profile={...defaults,qualityPreset:'none',ucPreset:'none',positive:'front',positiveSuffix:'back',negative:'custom negative',seed:42};
 test('website quality suffixes follow the selected model and come after all user positive parts',()=>{
  const suffixes={
   'nai-diffusion-5-full':'very aesthetic, masterpiece, no text',
@@ -20,10 +20,10 @@ test('website quality suffixes follow the selected model and come after all user
  };
  for(const [model,suffix] of Object.entries(suffixes)){
   const p={...profile,model,qualityPreset:'standard'},before=structuredClone(p),request=buildRequest(p,'scene');
-  assert.equal(request.prompt,`front,\nscene,\nback, ${suffix}`);assert.equal(request.negative_prompt,p.negative);assert.deepEqual(p,before);
+  assert.equal(request.prompt,`front,\nscene,\nback, ${suffix}, `);assert.equal(request.negative_prompt,p.negative);assert.deepEqual(p,before);
   const direct=naiPayload(request);assert.equal(direct.input,request.prompt);assert.equal(direct.parameters.v4_prompt.caption.base_caption,request.prompt);assert.equal(direct.parameters.qualityToggle,false);
  }
- for(const model of ['nai-diffusion-5-full','nai-diffusion-5-curated'])assert.equal(buildRequest({...profile,model,qualityPreset:'light'},'scene').prompt,'front,\nscene,\nback, very aesthetic, amazing quality, no text');
+ for(const model of ['nai-diffusion-5-full','nai-diffusion-5-curated'])assert.equal(buildRequest({...profile,model,qualityPreset:'light'},'scene').prompt,'front,\nscene,\nback, very aesthetic, amazing quality, no text, ');
 });
 test('UC presets prepend model-specific tags and follow the website nsfw condition on non-curated models',()=>{
  const heavy='lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page';
@@ -33,13 +33,13 @@ test('UC presets prepend model-specific tags and follow the website nsfw conditi
  const curated=buildRequest({...profile,model:'nai-diffusion-4-5-curated',ucPreset:'light'},'scene');
  assert.equal(curated.negative_prompt,'blurry, lowres, upscaled, artistic error, scan artifacts, jpeg artifacts, logo, too many watermarks, negative space, blank page, custom negative');
  const v5=buildRequest({...profile,model:'nai-diffusion-5-curated',ucPreset:'light',negative:''},'scene');
- assert.equal(v5.negative_prompt,'lowres, bad hands, bad anatomy, artistic error, sepia, white haze, worst quality, very displeasing, jpeg artifacts, 0::ai-generated::');
+ assert.equal(v5.negative_prompt,'lowres, bad hands, bad anatomy, artistic error, sepia, white haze, worst quality, very displeasing, jpeg artifacts, 0::ai-generated::, ');
  const human=buildRequest({...profile,ucPreset:'humanFocus'},'scene');assert.ok(human.negative_prompt.includes('blank page, @_@, mismatched pupils, glowing eyes, bad anatomy, custom negative'));
  const furry=buildRequest({...profile,ucPreset:'furryFocus'},'scene');assert.ok(furry.negative_prompt.includes('{{grandfathered content}}'));
  const direct=naiPayload(request);assert.equal(direct.parameters.negative_prompt,request.negative_prompt);assert.equal(direct.parameters.v4_negative_prompt.caption.base_caption,request.negative_prompt);
 });
-test('None, legacy configurations and unsupported presets leave existing prompt strings unchanged',()=>{
- const old=normalizeProfile({positive:'old',negative:'avoid'});assert.equal(old.qualityPreset,'none');assert.equal(old.ucPreset,'none');
+test('legacy configurations get Standard/Heavy, while explicit None and unsupported presets add no tags',()=>{
+ const old=normalizeProfile({positive:'old',negative:'avoid'});assert.equal(old.qualityPreset,'standard');assert.equal(old.ucPreset,'heavy');
  for(const patch of [{},{qualityPreset:'none',ucPreset:'none'},{qualityPreset:'unknown',ucPreset:'unknown'},{model:'unknown-model',qualityPreset:'standard',ucPreset:'heavy'}]){
   const request=buildRequest({...profile,...patch},'scene');assert.equal(request.prompt,'front,\nscene,\nback,');assert.equal(request.negative_prompt,profile.negative);
  }
@@ -48,7 +48,7 @@ test('None, legacy configurations and unsupported presets leave existing prompt 
 });
 test('website preset composition preserves repeated and weighted tags without deduplicating',()=>{
  const p={...profile,positive:'masterpiece, 1.2::masterpiece, no text::',positiveSuffix:'masterpiece',negative:'lowres, {{lowres}}, 0::ai-generated::',qualityPreset:'standard',ucPreset:'heavy'};
- const r=buildRequest(p,'masterpiece');assert.equal(r.prompt,'masterpiece, 1.2::masterpiece, no text::,\nmasterpiece,\nmasterpiece, very aesthetic, masterpiece, no text');assert.ok(r.negative_prompt.endsWith(', lowres, {{lowres}}, 0::ai-generated::'));
+ const r=buildRequest(p,'masterpiece');assert.equal(r.prompt,'masterpiece, 1.2::masterpiece, no text::,\nmasterpiece,\nmasterpiece, very aesthetic, masterpiece, no text, ');assert.ok(r.negative_prompt.endsWith(', lowres, {{lowres}}, 0::ai-generated::'));
 });
 test('preset composition preserves V4 character captions, text and quoted chunks; V3 mixing keeps weights',()=>{
  const p={...profile,qualityPreset:'standard',ucPreset:'heavy'};
@@ -62,6 +62,15 @@ test('presets survive portable config export/import and invalidate preview signa
  assert.equal(restored.qualityPreset,'standard');assert.equal(restored.ucPreset,'heavy');
  assert.equal(buildRequest(restored,'scene').prompt,buildRequest(p,'scene').prompt);
  const old=structuredClone(data);delete old.parameters.qualityPreset;delete old.parameters.ucPreset;
- assert.equal(importPromptData(old).qualityPreset,'none');assert.equal(importPromptData(old).ucPreset,'none');
+ assert.equal(importPromptData(old).qualityPreset,'standard');assert.equal(importPromptData(old).ucPreset,'heavy');
  for(const key of ['qualityPreset','ucPreset']){assert.throws(()=>importPromptData({...data,parameters:{...data.parameters,[key]:{}}}),/预设/);assert.notEqual(sampleSignature(p),sampleSignature({...p,[key]:'none'}));}
+});
+
+test('every official tag list terminates with comma-space and new configurations enable Standard/Heavy',()=>{
+ assert.equal(defaults.qualityPreset,'standard');assert.equal(defaults.ucPreset,'heavy');
+ for(const model of ['nai-diffusion-5-full','nai-diffusion-5-curated','nai-diffusion-4-5-full','nai-diffusion-4-5-curated','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-3','nai-diffusion-furry-3']){
+  for(const kind of ['quality','uc'])for(const p of novelAIPresets(model,kind))for(const key of ['prefix','suffix'])if(p[key])assert.ok(p[key].endsWith(', '));
+  const r=buildRequest({...defaults,model,positive:'',positiveSuffix:'',negative:''},'scene');assert.ok(r.prompt.endsWith(', '));assert.ok(r.negative_prompt.endsWith(', '));
+ }
+ const none=normalizeProfile({qualityPreset:'none',ucPreset:'none'});assert.equal(none.qualityPreset,'none');assert.equal(none.ucPreset,'none');
 });

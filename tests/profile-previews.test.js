@@ -4,7 +4,7 @@ import {ensureProfileIds,moveProfile,planProfileRemoval,sampleRequest,sampleSign
 test('samples share editable prompt, square size and seed, without mutating the real profile',()=>{
  const p={...defaults,width:1216,height:832,seed:-1,positive:'front',positiveSuffix:'tail',vibeMode:'random',vibes:[{id:'a',key:'one',strength:.4},{id:'b',key:'two',strength:.5}]},before=JSON.stringify(p);
  const a=sampleRequest(p,[],'adult cat, flowers'),b=sampleRequest(p,[],'adult cat, flowers');
- assert.equal(a.width,512);assert.equal(a.height,512);assert.equal(a.seed,b.seed);assert.equal(a.prompt,'front,\nadult cat, flowers,\ntail,');assert.equal(a.vibes[0].id,'a');assert.equal(JSON.stringify(p),before);
+ assert.equal(a.width,512);assert.equal(a.height,512);assert.equal(a.seed,b.seed);assert.equal(a.prompt,'front,\nadult cat, flowers,\ntail, very aesthetic, masterpiece, no text, ');assert.equal(a.vibes[0].id,'a');assert.equal(JSON.stringify(p),before);
  assert.equal(sampleSignature(p),sampleSignature({...p,name:'renamed',width:512,height:512,seed:999}));assert.notEqual(sampleSignature(p,[],'one'),sampleSignature(p,[],'two'));assert.throws(()=>sampleRequest(p,[],''),/例图提示词/);
 });
 test('repairing missing or duplicate identities preserves existing previews without generating again',()=>{

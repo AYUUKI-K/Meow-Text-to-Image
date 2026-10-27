@@ -486,7 +486,6 @@
 }
 
 .miao-prompt-presets {display:grid;gap:8px;min-width:0;}
-.miao-prompt-presets .miao-muted {margin:0;overflow-wrap:anywhere;}
 
 .miao-prompt-tabs {
     display: grid;

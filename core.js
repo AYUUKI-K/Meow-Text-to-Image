@@ -1,5 +1,5 @@
 import {applyNovelAIPresets,resolvePresetId} from './novelai-presets.js';
-export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'none',ucPreset:'none',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
+export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'standard',ucPreset:'heavy',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
 export function supportsVarietyBoost(model){return ['nai-diffusion-3','nai-diffusion-furry-3','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-4-5-full','nai-diffusion-4-5-curated'].includes(model);}
 export function varietyBoostSigma(request){
     if(request.variety_boost!==true||!supportsVarietyBoost(request.model))return null;

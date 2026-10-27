@@ -27,7 +27,7 @@ function readParameters(source){
     parameters.varietyBoost=source.varietyBoost??false;
     for(const key of ['qualityPreset','ucPreset']){
         if(source[key]!==undefined&&(typeof source[key]!=='string'||source[key].length>40))throw Error('官网预设参数格式不正确');
-        parameters[key]=source[key]??'none';
+        parameters[key]=source[key]??defaults[key];
     }
     buildRequest({...defaults,...parameters},'');
     return parameters;
