@@ -16,7 +16,7 @@ test('unchanged saves do not regenerate; manual refresh and prompt changes do',a
  const p={...defaults,id:'a'},list=[p],calls=[],errors=[];let prompt='one';let queue=Promise.resolve();
  const previews=createProfilePreviews({profiles:()=>list,library:()=>[],prompt:()=>prompt,enqueue:run=>(queue=queue.then(run)),generate:async request=>{calls.push(request);return 'png';},saveImage:async()=>'/preview.png',persist:async()=>{},onError:e=>errors.push(e)});
  await previews.refresh(p,{ifChanged:true});await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,1);p.name='new';await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,1);
- await previews.refresh(p);assert.equal(calls.length,2);prompt='two';assert.equal(previews.state(p).status,'待更新');await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,3);assert.equal(errors.length,0);
+ await previews.refresh(p);assert.equal(calls.length,2);assert.deepEqual(p.preview.request,calls[1]);assert.notEqual(p.preview.request,calls[1]);assert.deepEqual(JSON.parse(JSON.stringify(p.preview)).request,calls[1]);prompt='two';assert.equal(previews.state(p).status,'待更新');await previews.refresh(p,{ifChanged:true});assert.equal(calls.length,3);assert.equal(errors.length,0);
 });
 test('queued edits and deleted profiles never receive stale results or extra generation',async()=>{
  const p={...defaults,id:'a'},list=[p],jobs=[],requests=[];let release;

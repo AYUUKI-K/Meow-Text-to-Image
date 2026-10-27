@@ -87,21 +87,21 @@ test('floating reroll is opt-in; disabled double clicks only open settings',()=>
  }
 });
 
-test('gallery taps close; swipes navigate; pinch, drag and cancellation never close',t=>{
+test('viewer taps toggle controls; swipes navigate; pinch, drag and cancellation never toggle',t=>{
  const oldDocument=globalThis.document,oldObserver=globalThis.ResizeObserver;
  const make=()=>Object.assign(new EventTarget(),{style:{},dataset:{},setAttribute(){},append(){},remove(){},closest(){return null;},getBoundingClientRect:()=>({left:0,top:0,width:400,height:600})});
  globalThis.document={createElement:make};globalThis.ResizeObserver=class{observe(){}disconnect(){}};
  t.after(()=>{globalThis.document=oldDocument;globalThis.ResizeObserver=oldObserver;});
  const viewer=make(),image=make();Object.assign(image,{naturalWidth:800,naturalHeight:1200});
- let closed=0,previous=0,next=0;const dispose=bindImageZoom(viewer,image,{onClose:()=>closed++,onPrevious:()=>previous++,onNext:()=>next++});
+ let toggled=0,previous=0,next=0;const dispose=bindImageZoom(viewer,image,{onTap:()=>toggled++,onPrevious:()=>previous++,onNext:()=>next++});
  const emit=(type,props={})=>{const event=new Event(type,{cancelable:true});Object.assign(event,{pointerId:1,button:0,clientX:200,clientY:300,...props});Object.defineProperty(event,'target',{value:image});viewer.dispatchEvent(event);};
- const tap=()=>{emit('pointerdown');emit('pointerup');};tap();assert.equal(closed,1);
- for(const x of [90,310]){emit('pointerdown');emit('pointermove',{clientX:x});emit('pointerup',{clientX:x});}assert.equal(next,1);assert.equal(previous,1);assert.equal(closed,1);
+ const tap=()=>{emit('pointerdown');emit('pointerup');};tap();assert.equal(toggled,1);
+ for(const x of [90,310]){emit('pointerdown');emit('pointermove',{clientX:x});emit('pointerup',{clientX:x});}assert.equal(next,1);assert.equal(previous,1);assert.equal(toggled,1);
  emit('pointerdown');emit('pointermove',{clientY:400});emit('pointerup',{clientY:400});
  emit('pointerdown');emit('pointercancel');emit('pointerup');
  emit('pointerdown');emit('pointermove',{clientX:250});emit('pointermove');emit('pointerup');
- emit('pointerdown');emit('pointerdown',{pointerId:2,clientX:260});emit('pointermove',{pointerId:2,clientX:320});emit('pointerup',{pointerId:2,clientX:320});emit('pointerup');assert.equal(closed,1);assert.equal(next,1);
+ emit('pointerdown');emit('pointerdown',{pointerId:2,clientX:260});emit('pointermove',{pointerId:2,clientX:320});emit('pointerup',{pointerId:2,clientX:320});emit('pointerup');assert.equal(toggled,1);assert.equal(next,1);
  emit('keydown',{key:'0'});emit('keydown',{key:'ArrowRight'});assert.equal(next,2);
  emit('keydown',{key:'+'});emit('keydown',{key:'ArrowLeft'});assert.equal(previous,1);
- emit('keydown',{key:'Enter'});assert.equal(closed,2);dispose();
+ emit('keydown',{key:'Enter'});assert.equal(toggled,2);dispose();
 });

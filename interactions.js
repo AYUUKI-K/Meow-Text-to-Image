@@ -58,10 +58,10 @@ export function clampImageView(view,{width,height,imageWidth,imageHeight}){
     const limitX=Math.max(0,((imageWidth||width)*fit*scale-width)/2),limitY=Math.max(0,((imageHeight||height)*fit*scale-height)/2);
     return {scale,x:Math.max(-limitX,Math.min(limitX,Number(view.x)||0)),y:Math.max(-limitY,Math.min(limitY,Number(view.y)||0))};
 }
-export function bindImageZoom(viewer,image,{onClose,onPrevious,onNext}={}){
+export function bindImageZoom(viewer,image,{onTap,onPrevious,onNext}={}){
     let view={scale:1,x:0,y:0},gesture=null,tap=null;
     const pointers=new Map(),reset=document.createElement('button');reset.type='button';reset.className='miao-button miao-zoom-reset';reset.setAttribute('aria-label','复原图片大小');reset.hidden=true;viewer.append(reset);
-    image.draggable=false;image.tabIndex=0;image.setAttribute('aria-label',onClose?'图库预览：轻点关闭，左右滑动或方向键切图，双指或滚轮缩放，0 复原':'图片预览：双指或滚轮缩放，双击放大或复原，方向键移动，0 复原');
+    image.draggable=false;image.tabIndex=0;image.setAttribute('aria-label',onTap?'图片预览：轻点显示或隐藏操作，左右滑动或方向键切图，双指或滚轮缩放，0 复原':'图片预览：双指或滚轮缩放，双击放大或复原，方向键移动，0 复原');
     const dimensions=()=>{const r=viewer.getBoundingClientRect();return {width:r.width,height:r.height,imageWidth:image.naturalWidth,imageHeight:image.naturalHeight};};
     const paint=next=>{
         view=clampImageView(next,dimensions());image.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.scale})`;
@@ -90,17 +90,17 @@ export function bindImageZoom(viewer,image,{onClose,onPrevious,onNext}={}){
     };
     const up=event=>{
         const start=tap;tap=null;pointers.delete(event.pointerId);begin();
-        if(!onClose||!start||start.id!==event.pointerId||event.type!=='pointerup')return;
+        if(!start||start.id!==event.pointerId||event.type!=='pointerup')return;
         const dx=event.clientX-start.x,dy=event.clientY-start.y;
         if(start.scale===1&&Math.abs(dx)>=60&&Math.abs(dx)>Math.abs(dy)*1.3){event.preventDefault();(dx<0?onNext:onPrevious)?.();}
-        else if(start.image&&!start.moved&&Math.hypot(dx,dy)<=12&&Date.now()-start.time<500){event.preventDefault();onClose();}
+        else if(onTap&&start.image&&!start.moved&&Math.hypot(dx,dy)<=12&&Date.now()-start.time<500){event.preventDefault();onTap();}
     };
     const cancel=()=>{tap=null;pointers.clear();begin();};
-    const double=event=>{if(onClose||event.target.closest('button'))return;event.preventDefault();event.stopPropagation();zoomAt(view.scale>1?1:2,event.clientX,event.clientY);};
+    const double=event=>{if(onTap||event.target.closest('button'))return;event.preventDefault();event.stopPropagation();zoomAt(view.scale>1?1:2,event.clientX,event.clientY);};
     const wheel=event=>{event.preventDefault();event.stopPropagation();const delta=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?dimensions().height:1);zoomAt(view.scale*Math.exp(-delta*.0015),event.clientX,event.clientY);};
     const key=event=>{
         const c=center();
-        if(onClose&&['Enter',' '].includes(event.key)&&event.target===image){event.preventDefault();event.stopPropagation();onClose();}
+        if(onTap&&['Enter',' '].includes(event.key)&&event.target===image){event.preventDefault();event.stopPropagation();onTap();}
         else if(view.scale===1&&['ArrowLeft','ArrowRight'].includes(event.key)&&(onPrevious||onNext)){event.preventDefault();event.stopPropagation();(event.key==='ArrowLeft'?onPrevious:onNext)?.();}
         else if(['+','=','-','0'].includes(event.key)){event.preventDefault();event.stopPropagation();zoomAt(event.key==='0'?1:view.scale*(event.key==='-'?.8:1.25),c.x,c.y);}
         else if(view.scale>1&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();event.stopPropagation();paint({...view,x:view.x+(event.key==='ArrowLeft'?40:event.key==='ArrowRight'?-40:0),y:view.y+(event.key==='ArrowUp'?40:event.key==='ArrowDown'?-40:0)});}

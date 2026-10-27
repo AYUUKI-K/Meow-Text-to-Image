@@ -16,7 +16,7 @@ export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel
     const body=make('div','popup-content'),controls=make('div','miao-page-controls'),close=make('button','miao-button');
     close.type='button';close.textContent=fillParent?'×':closeLabel;close.setAttribute('aria-label',closeLabel==='取消'?'取消选择':'关闭预览');controls.append(close);body.append(content);
     if(settings){const wrapper=make('div','popup-body');wrapper.append(body);card.append(wrapper);}else card.append(body,controls);layer.append(card);
-    const mount=parent?.querySelector('.popup-body')||doc.body,nested=mount!==doc.body;
+    const mount=parent?.querySelector('.popup-body')||parent||doc.body,nested=mount!==doc.body;
     layer.dataset.nested=String(nested);
     // Keep Enter in a nested chooser/viewer from accepting the host settings dialog.
     if(nested)card.addEventListener('keydown',event=>event.stopPropagation());
@@ -37,7 +37,7 @@ export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel
         const back=()=>{if(!done&&layer.isConnected){if(card.querySelector('.miao-confirmation-layer'))card.dispatchEvent(new win.Event('cancel',{cancelable:true}));else finish();return true;}return previousBack?.();};
         const finish=error=>{
             if(done)return;done=true;observer.disconnect();doc.removeEventListener('keydown',key,true);parent?.removeEventListener('close',parentClosed);
-            if(settings)card.dispatchEvent(new win.Event('close'));
+            card.dispatchEvent(new win.Event('close'));
             activeViewers.delete(scope);
             viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);win.removeEventListener('resize',fit);
             if(win.__TAURITAVERN_HANDLE_BACK__===back)win.__TAURITAVERN_HANDLE_BACK__=previousBack;
@@ -60,6 +60,6 @@ export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel
         activeViewers.set(scope,()=>finish());
         win.__TAURITAVERN_HANDLE_BACK__=back;
         doc.addEventListener('keydown',key,true);parent?.addEventListener('close',parentClosed);bindButtonPress(close,()=>finish());
-        try{onOpen?.({dlg:card,completeAffirmative:()=>finish()});(settings?content.querySelector('.miao-drawer-close'):close)?.focus({preventScroll:true});}catch(error){finish(error);}
+        try{onOpen?.({dlg:card,completeAffirmative:()=>finish()});(settings?content.querySelector('.miao-drawer-close'):content.querySelector('[data-initial-focus]')||close)?.focus({preventScroll:true});}catch(error){finish(error);}
     });
 }
