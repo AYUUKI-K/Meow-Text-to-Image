@@ -1,5 +1,7 @@
 import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
+import {createThumbnails,bindThumbnail,imageBlob,blobBase64,localImagePath,makeThumbnail} from './image-thumbnails.js';
+import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORITE_IMAGE_LIMIT} from './prompt-favorites.js';
 import {retryGeneration} from './generation-retry.js';
 import {waitForGeneration} from './generation-delay.js';
 import {showPagePopup} from './page-popup.js';
@@ -80,9 +82,16 @@ let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDisp
 const save=()=>ctx().saveSettingsDebounced();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
+const favorites=createFavorites({settings,persist:persistSettings});
+const thumbnails=createThumbnails({fetchImage:url=>hostFetch(url),saveImage:saveBase64AsFile});
+async function saveGeneratedImage(data,folder,name){
+    const url=await inStage('image-save',()=>saveBase64AsFile(data,folder,name,'png'));
+    try{await thumbnails.ensure(url,imageBlob(data));}catch{notices.warning('原图已保存，缩略图未生成，可在图片页重试','喵喵文生图');}
+    return url;
+}
 const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-resources-changed')),onAvailable:({latest})=>notices.info(`${latest.worldName} 可更新，点此查看`,'喵喵文生图',{escapeHtml:true,timeOut:10000,onclick:()=>openSettings('resources')})});
 ensureProfileIds(settings.profiles);
-const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>inStage('image-save',()=>saveBase64AsFile(data,scope.folder,`sample-${Date.now()}-${randomId()}`,'png')),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
+const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHeaders(),getKey:async expectedKeyHash=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
@@ -239,7 +248,7 @@ function startGeneration(message,block,{automatic=false}={}) {
         const folder=storage.root;
         task.status='正在生图'; renderAll();
         const data=await requestImage(request,task,()=>{const target=taskTarget(task);return !!target&&(!automatic||canAutoGenerate(ctx().chat,target.message,settings.mode,streamActive));});
-        const url=await inStage('image-save',()=>saveBase64AsFile(data,folder,`miao-${Date.now()}-${randomId()}`,'png'));
+        const url=await saveGeneratedImage(data,folder,`miao-${Date.now()}-${randomId()}`);
         if(rememberImage(settings.imageArchive,url,storage.context,location.href))save();
         // Switching swipes does not invalidate an image already being generated.
         target=taskTarget(task,true);if(!target) { notices.info('图片已保存，但原消息已删除或修改：'+url); return; }
@@ -271,7 +280,7 @@ function makeCard(message,block) {
     const actions=el('div',undefined,'miao-image-tools');actions.hidden=true;
     const button=(label,fn,parent=actions)=>{const b=el('button',label,'miao-button');b.type='button';if(label==='删除')bindButtonPress(b,()=>guard(fn)());else b.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();guard(fn)();});parent.append(b);return b;};
     if(current?.url&&!current.deleted){
-        const image=el('img');image.src=current.url;image.alt='生成的剧情插图';image.loading='lazy';image.draggable=false;image.tabIndex=0;image.setAttribute('role','button');image.setAttribute('aria-label','单击图片显示选项，双击重新生成');
+        const image=el('img');image.src=current.url;image.alt='生成的剧情插图';image.loading='lazy';image.decoding='async';image.draggable=false;image.tabIndex=0;image.setAttribute('role','button');image.setAttribute('aria-label','单击图片显示选项，双击重新生成');
         const setRatio=(width,height)=>{if(width>0&&height>0&&Number.isFinite(width/height))card.style.setProperty('--miao-image-ratio',String(width/height));};
         setRatio(current.request?.width,current.request?.height);
         image.addEventListener('load',()=>setRatio(image.naturalWidth,image.naturalHeight));
@@ -304,6 +313,8 @@ function makeCard(message,block) {
         }
         const operations=el('div',undefined,'miao-image-operations');actions.append(operations);
         button('提示词',()=>showPrompt(current.tagPrompt??block.prompt,current.request?.vibes,current.profileName,false,true,tagEditor(message,block)),operations).setAttribute('aria-label','查看提示词');
+        if(favoritesEnabled(settings))button('收藏提示词',()=>openSettings('favorites',draftFromImage(current.url,current.tagPrompt??block.prompt,current.profileName)),operations).setAttribute('aria-label','收藏提示词与例图');
+        operations.dataset.favorites=String(favoritesEnabled(settings));
         button('下载',()=>downloadImage(current.url),operations).setAttribute('aria-label','下载图片');button('放大',()=>openImage(current.url),operations).setAttribute('aria-label','放大查看');
         operations.dataset.hasDelete='true';
         const remove=button('删除',async()=>{
@@ -314,10 +325,13 @@ function makeCard(message,block) {
             finally{remove.disabled=false;}
         },operations);remove.setAttribute('aria-label','删除当前图');remove.title='删除当前图';
     }else if(!task){
-        actions.hidden=false;button(task?.status||'生成插图',()=>generate(message,block)).disabled=!!task;button('查看提示词',()=>{const profile=settings.profiles[settings.active],enabled=profileVibeEnabled(profile);return showPrompt(block.prompt,enabled?(profile.vibes||[]).map(v=>({...v,name:settings.vibeLibrary?.find(item=>item.id===v.id)?.name||v.name||v.id})):[],profile.name,true,enabled,tagEditor(message,block));});
+        if(favoritesEnabled(settings))actions.classList.add('miao-empty-tools');
+        actions.hidden=false;button(task?.status||'生成插图',()=>generate(message,block)).disabled=!!task;
+        if(favoritesEnabled(settings))button('收藏提示词',()=>openSettings('favorites',{name:'提示词收藏',positive:block.prompt,images:[]}));
+        button('查看提示词',()=>{const profile=settings.profiles[settings.active],enabled=profileVibeEnabled(profile);return showPrompt(block.prompt,enabled?(profile.vibes||[]).map(v=>({...v,name:settings.vibeLibrary?.find(item=>item.id===v.id)?.name||v.name||v.id})):[],profile.name,true,enabled,tagEditor(message,block));});
     }
     if(task){const progress=el('span',task.status,'miao-image-progress');progress.setAttribute('role','status');card.append(progress);}
-    card.dataset.status=String(selected)+':'+versions.map(v=>v.url+':'+!!v.deleted).join('|')+':'+(task?.status||'')+':'+(settings.rerollClicks===3?3:2);
+    card.dataset.status=String(selected)+':'+versions.map(v=>v.url+':'+!!v.deleted).join('|')+':'+(task?.status||'')+':'+(settings.rerollClicks===3?3:2)+':favorites='+favoritesEnabled(settings);
     card.append(actions);
     cardBindings.set(card,{message,controls:[...card.querySelectorAll('img,button')]});
     return card;
@@ -541,7 +555,7 @@ async function testImage() {
     const folder=validateFolder(settings.folder),scope={keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
     const url=await enqueue(async()=>{
         const data=await requestImage(request,scope);
-        return inStage('image-save',()=>saveBase64AsFile(data,folder,`test-${Date.now()}-${randomId()}`,'png'));
+        return saveGeneratedImage(data,folder,`test-${Date.now()}-${randomId()}`);
     });
     await openImage(url);
     }catch(error){generationError(error);}
@@ -661,6 +675,60 @@ function changeFolder(value) {
     if(!settings.folders.includes(settings.folder))settings.folders.push(settings.folder);
     save();
 }
+function sceneFromImage(url){
+    for(const message of ctx().chat)for(const {slot,record} of swipeImageRecords(message))for(const version of imageVersions(record))if(version.url&&localImagePath(version.url)===localImagePath(url))return version.tagPrompt??slot.replace(/^(?:body:)?\d+:/,'');
+    return '';
+}
+function draftFromImage(url,scenePrompt=sceneFromImage(url),profileName){
+    return {name:profileName?`${profileName} · 场景收藏`:'场景收藏',positive:scenePrompt,images:[url]};
+}
+const favoriteUploads=new WeakMap();
+async function saveFavorite(draft,files=[]){
+    if(!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
+    validateFavorite(draft,location.href);
+    if(draft.images.length+files.length>FAVORITE_IMAGE_LIMIT)throw Error(`每条收藏最多 ${FAVORITE_IMAGE_LIMIT} 张例图`);
+    for(const file of files){if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('例图仅支持 PNG、JPG、WebP');if(file.size>18*1024*1024)throw Error('每张例图不能超过 18 MB');}
+    const images=[...draft.images];
+    for(const file of files){
+        let url=favoriteUploads.get(file);
+        if(!url){
+            // Decode before storing so a corrupt upload cannot become a saved example.
+            await makeThumbnail(file);
+            const extension={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[file.type];
+            const data=await blobBase64(file);url=await inStage('image-save',()=>saveBase64AsFile(data,FAVORITE_FOLDER,`favorite-${Date.now()}-${randomId()}`,extension));
+            favoriteUploads.set(file,url);
+            try{await thumbnails.ensure(url,file);}catch{notices.warning('例图已保存，缩略图未生成，可在图片页重试','喵喵文生图');}
+        }
+        images.push(url);
+    }
+    const result=await favorites.save({...draft,images});notices.success('收藏已保存','喵喵文生图');return result;
+}
+async function generateFavorite(item,profileId){
+    if(!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
+    const favorite=favorites.list().find(value=>value.id===item.id);if(!favorite)throw Error('收藏已删除，请刷新列表');
+    if('negative' in favorite||'positiveSuffix' in favorite)throw Error('请先编辑这条收藏，确认只保留模型场景词后保存');
+    if(favorite.images.length>=FAVORITE_IMAGE_LIMIT)throw Error(`每条收藏最多 ${FAVORITE_IMAGE_LIMIT} 张例图，请先移除不需要的例图`);
+    const profile=settings.profiles.find(profile=>profile.id===profileId);if(!profile)throw Error('配置已删除，请重新选择');
+    const request=buildRequest(structuredClone(profile),favorite.positive);request.vibes=selectVibes(profile,settings.vibeLibrary);
+    const scope={folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl},id=favorite.id,scene=favorite.positive;
+    const valid=()=>{if(!favoritesEnabled(settings))throw Error('收藏功能已关闭，取消等待中的收藏生图');const current=favorites.list().find(item=>item.id===id);if(!current||current.positive!==scene)throw Error('收藏已删除或场景词已修改，取消本次生图');if(current.images.length>=FAVORITE_IMAGE_LIMIT)throw Error('收藏例图已满，请先移除部分例图');return true;};
+    notices.info(`已加入生图队列 · ${profile.name}`,'喵喵文生图');
+    return enqueue(async()=>{
+        valid();const data=await requestImage(request,scope,valid);
+        const url=await saveGeneratedImage(data,scope.folder,`miao-${Date.now()}-${randomId()}`);
+        const current=favorites.list().find(item=>item.id===id);
+        if(!current||current.positive!==scene){notices.info('收藏已删除或场景词已修改，原图仍保存在图片目录','喵喵文生图');return url;}
+        try{if(await favorites.addImage(id,url))notices.success('生成完成，已加入这条收藏的例图','喵喵文生图');else notices.info('收藏已删除，原图仍保存在图片目录','喵喵文生图');}
+        catch(error){throw Error('图片已保存，但加入收藏失败，可在图片页重新收藏：'+error.message);}
+        return url;
+    });
+}
+async function buildThumbnails(folder,onProgress=()=>{}){
+    const urls=[...new Set([...(await listImages(folder)).map(image=>image.url),...settings.profiles.map(profile=>profile.preview?.url).filter(Boolean),...favorites.list().flatMap(item=>item.images)])];
+    let done=0,failed=0;onProgress(done,urls.length);
+    for(const url of urls){try{await thumbnails.ensure(url);}catch{failed++;}onProgress(++done,urls.length);}
+    return {total:urls.length,failed};
+}
 async function imageAPI(endpoint,body) {
     const res=await checkedFetch(endpoint==='delete'?'image-delete':'image-list','/api/images/'+endpoint,{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(body)},{fetchImpl:hostFetch});
     return res;
@@ -683,14 +751,19 @@ async function deleteImages(folder,names) {
     const allowed=new Map((await listImages(folder)).map(item=>[item.name,item]));
     if(!names.length)return;
     if(names.some(name=>!allowed.has(name)))throw new Error('清理列表已变化，请刷新后重试');
+    const protectedCount=names.filter(name=>favorites.protects(allowed.get(name).url)).length;
+    names=names.filter(name=>!favorites.protects(allowed.get(name).url));
+    if(protectedCount)notices.info(`已保留 ${protectedCount} 张收藏例图；移除收藏中的例图后才能删除`,'喵喵文生图');
+    if(!names.length)return false;
     const question=el('div');question.append(el('p',`删除 ${names.length} 张图片？目录：${folder}`),el('p','永久删除后，聊天中引用的原图也将失效。'));
     const previews=el('div',undefined,'miao-history-grid');
-    for(const name of names.slice(0,24)){const image=el('img');image.src=allowed.get(name).url;image.alt=name;image.loading='lazy';previews.append(image);}
+    for(const name of names.slice(0,24)){const image=el('img');image.alt=name;bindThumbnail(image,allowed.get(name).url);previews.append(image);}
     if(names.length>24)question.append(el('p',`共 ${names.length} 张，下方预览前 24 张。`));
     question.append(previews);
     if(!await confirmSettings(question,'删除图片'))return false;
     const removed=[];let failure;
     for(const name of names) {
+        if(favorites.protects(allowed.get(name).url))continue;
         try {await imageAPI('delete',{path:`user/images/${allowed.get(name).folder}/${name}`});removed.push(name);}
         catch(error){failure=error;break;}
     }
@@ -705,19 +778,23 @@ async function deleteImages(folder,names) {
     if(failure)throw failure;
     return true;
 }
-async function openSettings(initialTab) {
-    if(initialTab!=='resources')initialTab=undefined;
-    if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:initialTab}));return;}
-    const panel=createSettingsPanel({settings,save,persistSettings,initialTab,getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
+async function openSettings(initialTab,initialFavorite) {
+    if(initialTab==='favorites'&&!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
+    if(!['resources','favorites'].includes(initialTab))initialTab=undefined;
+    if(settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
+    const panel=createSettingsPanel({settings,save,persistSettings,initialTab,initialFavorite,favorites,saveFavorite,generateFavorite,sceneFromImage,
+        removeFavorite:async id=>{if(!await confirmSettings('删除这条收藏？图片文件会保留。','删除收藏'))return false;await favorites.remove(id);return true;},
+        collectImage:url=>openSettings('favorites',draftFromImage(url)),buildThumbnails,
+        getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
         confirmDeleteProfiles:profiles=>{const question=el('div'),list=el('ul',undefined,'miao-delete-profile-list');question.append(el('p',`删除选中的 ${profiles.length} 个串？`));for(const profile of profiles)list.append(el('li',profile.name));question.append(list,el('p','只移除配置，保留已保存的例图文件和聊天图片。'));return confirmSettings(question,`删除 ${profiles.length} 个串`);},
         refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl}}),getPreviewState:profile=>profilePreviews.state(profile),
         exportPromptFile,restorePromptPreview:async(preview,profile)=>{
             const data=await previewPNG(preview);ensureProfileIds([profile]);
-            const url=await inStage('image-save',()=>saveBase64AsFile(data,validateFolder(settings.folder),`sample-${Date.now()}-${randomId()}`,'png'));
+            const url=await saveGeneratedImage(data,validateFolder(settings.folder),`sample-${Date.now()}-${randomId()}`);
             return {url,signature:sampleSignature(profile,settings.vibeLibrary,settings.samplePrompt),created:Date.now()};
         },
-        onChange:async()=>{
-            autoSession=null;refreshFloating();renderAll();
+        onChange:async reason=>{
+            if(reason!=='favorites'){autoSession=null;refreshFloating();}renderAll();
         },
         saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,
