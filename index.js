@@ -112,7 +112,7 @@ function el(tag,text,cls) { const n=document.createElement(tag); if(text!==undef
 async function showPopup(content,type,input='',options={}){
     if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-image-viewer')){
         const parent=settingsPopup?.dlg?.isConnected?settingsPopup.dlg:settingsHost?.closest('dialog');
-        return parent?showPanelPage(content,{...options,parent}):showPagePopup(content,options);
+        return parent?showPanelPage(content,{...options,parent}):openSettings(undefined,undefined,{content,options});
     }
     if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings,.miao-prompt-view'))return showPagePopup(content,{...options,parent:content.matches('.miao-settings')?undefined:settingsHost?.closest('dialog')});
     let dispose=()=>{};
@@ -239,7 +239,7 @@ function tagEditor(message,block){
 function startGeneration(message,block,{automatic=false}={}) {
     message=liveMessage(message);if(!message)throw Error('原楼层已切换，请重新点击当前图片');
     const key=identity(message,block), chat=currentChat(), taskId=`${chat}:${ctx().chat.indexOf(message)}:${key}`;
-    if(running.has(taskId)||taskFor(message,block))return;
+    const existing=running.get(taskId)||taskFor(message,block);if(existing)return existing.promise;
     message.miao_nai_image_id??=randomId();
     const profile=settings.profiles[settings.active],profileName=profile.name;
     const request=buildRequest(profile,block.prompt);
@@ -273,6 +273,31 @@ function startGeneration(message,block,{automatic=false}={}) {
         task.status='失败，点击重试'; task.error=String(error.message||error);
         generationError(error);
     }).finally(()=>{if(running.get(taskId)===task)running.delete(taskId);renderAll();});
+    task.promise=queue;return task.promise;
+}
+function selectedChatImage(message,block){
+    const record=state(message,identity(message,block)),versions=imageVersions(record),wanted=Math.min(record?.selected??versions.length-1,versions.length-1);
+    return versions[versions[wanted]?.deleted?versions.findLastIndex(v=>!v.deleted):wanted];
+}
+async function openChatImage(message,block,url){
+    const chat=currentChat(),swipe=message.swipe_id??0,all=blocks(message);
+    const resolve=item=>{
+        const live=liveMessage(message);
+        if(currentChat()!==chat||!live||(live.swipe_id??0)!==swipe)throw Error('聊天或分支已切换，请重新打开当前图片');
+        const target=blocks(live).filter(b=>promptIdentity(b.prompt)===item.prompt)[item.occurrence];
+        if(!target)throw Error('原提示词已删除或修改，请重新打开当前图片');
+        return {message:live,block:target};
+    };
+    const gallery=all.flatMap((b,index)=>{
+        const image=selectedChatImage(message,b);if(!image?.url||image.deleted)return [];
+        return [{url:image.url,name:`本楼层插图 ${index+1}`,prompt:promptIdentity(b.prompt),occurrence:all.filter(other=>promptIdentity(other.prompt)===promptIdentity(b.prompt)).findIndex(other=>other.start===b.start),start:b.start}];
+    });
+    const selected=gallery.find(item=>item.start===block.start);if(!selected)return;
+    await openImage(url,undefined,gallery,{selected,navigationLabel:'本楼层图片',regenerate:async item=>{
+        const target=resolve(item);await generate(target.message,target.block);
+        // A completed request may belong to an inactive swipe. Never retarget it.
+        try{const latest=resolve(item),image=selectedChatImage(latest.message,latest.block);if(image?.url&&!image.deleted)item.url=image.url;}catch{}
+    }});
 }
 function makeCard(message,block) {
     const key=identity(message,block), card=el('div',undefined,'miao-image-card');
@@ -322,7 +347,7 @@ function makeCard(message,block) {
         button('提示词',()=>showPrompt(current.tagPrompt??block.prompt,current.request?.vibes,current.profileName,false,true,tagEditor(message,block)),operations).setAttribute('aria-label','查看提示词');
         if(favoritesEnabled(settings))button('收藏提示词',()=>openSettings('favorites',draftFromImage(current.url,current.tagPrompt??block.prompt,current.profileName)),operations).setAttribute('aria-label','收藏提示词与例图');
         operations.dataset.favorites=String(favoritesEnabled(settings));
-        button('下载',()=>downloadImage(current.url),operations).setAttribute('aria-label','下载图片');button('放大',()=>openImage(current.url),operations).setAttribute('aria-label','放大查看');
+        button('下载',()=>downloadImage(current.url),operations).setAttribute('aria-label','下载图片');button('放大',()=>openChatImage(message,block,current.url),operations).setAttribute('aria-label','放大查看');
         operations.dataset.hasDelete='true';
         const remove=button('删除',async()=>{
             if(remove.disabled)return;remove.disabled=true;
@@ -642,37 +667,49 @@ async function showImageParameters(item,image,parent){
     }catch(error){status.textContent='原图读取失败：'+error.message;}
     finally{await popup;}
 }
-async function openImage(url,name,gallery) {
+async function openImage(url,name,gallery,options={}) {
     const view=el('div',undefined,'miao-image-viewer'),image=el('img');
     const items=gallery?.length?[...gallery]:[{url,name:name||decodeURIComponent(new URL(url,location.href).pathname.split('/').at(-1))}];
-    let index=Math.max(0,items.findIndex(item=>item.url===url)),dispose=()=>{},close=()=>{},dialog,controlsVisible=false,deleting=false;
+    let index=Math.max(0,items.findIndex(item=>options.selected?item===options.selected:item.url===url)),dispose=()=>{},close=()=>{},dialog,controlsVisible=false,deleting=false,regenerating=false;
     view.append(image);image.dataset.initialFocus='true';view.dataset.gallery=String(!!gallery);
     const setControls=visible=>{controlsVisible=visible;if(dialog)dialog.dataset.controlsVisible=String(visible);};
-    const actions=el('nav',undefined,'miao-viewer-actions'),parameters=el('button','图片参数','miao-button'),remove=el('button','删除图片','miao-button miao-danger');
+    const actions=el('nav',undefined,'miao-viewer-actions'),parameters=el('button','图片参数','miao-button'),remove=el('button','删除图片','miao-button miao-danger'),regenerate=el('button','重新生成','miao-button');
     actions.setAttribute('aria-label','图片操作');parameters.type=remove.type='button';actions.append(parameters,remove);view.append(actions);
-    const navigation=el('nav',undefined,'miao-gallery-navigation');navigation.setAttribute('aria-label','图库浏览');
+    if(options.regenerate){regenerate.type='button';actions.prepend(regenerate);}
+    const navigation=el('nav',undefined,'miao-gallery-navigation');navigation.setAttribute('aria-label',options.navigationLabel||'图库浏览');
     const previous=el('button','‹','miao-button'),next=el('button','›','miao-button'),position=el('span');
     previous.type=next.type='button';previous.setAttribute('aria-label','上一张');next.setAttribute('aria-label','下一张');position.setAttribute('aria-live','polite');
-    navigation.append(previous,position,next);if(gallery)view.append(navigation);
-    const change=step=>{const target=index+step;if(deleting||target<0||target>=items.length)return;index=target;paint();};
+    navigation.append(previous,position,next);if(gallery?.length>1)view.append(navigation);
+    const change=step=>{const target=index+step;if(deleting||regenerating||target<0||target>=items.length)return;index=target;paint();};
+    const updateButtons=()=>{
+        const busy=deleting||regenerating;
+        parameters.disabled=regenerate.disabled=busy;regenerate.textContent=regenerating?'生成中…':'重新生成';
+        previous.disabled=busy||index===0;next.disabled=busy||index===items.length-1;
+        navigation.hidden=items.length<2;
+        try{imageArchiveLocation(items[index].url,location.href);remove.disabled=busy;}catch{remove.disabled=true;}
+    };
     const paint=()=>{
         dispose();image.src=items[index].url;image.alt=items[index].name||'图片预览';
-        previous.disabled=index===0;next.disabled=index===items.length-1;position.textContent=`${index+1} / ${items.length}`;
-        try{imageArchiveLocation(items[index].url,location.href);remove.disabled=false;}catch{remove.disabled=true;}
+        position.textContent=`${index+1} / ${items.length}`;updateButtons();
         dispose=bindImageZoom(view,image,{onTap:()=>setControls(!controlsVisible),onPrevious:()=>change(-1),onNext:()=>change(1)});
     };
     bindButtonPress(previous,()=>change(-1));bindButtonPress(next,()=>change(1));paint();
-    bindButtonPress(parameters,guard(()=>{if(!deleting)return showImageParameters(items[index],image,dialog);}));
+    bindButtonPress(parameters,guard(()=>{if(!deleting&&!regenerating)return showImageParameters(items[index],image,dialog);}));
+    bindButtonPress(regenerate,guard(async()=>{
+        if(deleting||regenerating||!options.regenerate)return;
+        regenerating=true;updateButtons();
+        try{await options.regenerate(items[index]);}
+        finally{regenerating=false;if(view.isConnected)paint();}
+    }));
     bindButtonPress(remove,guard(async()=>{
-        if(deleting)return;deleting=true;remove.disabled=parameters.disabled=previous.disabled=next.disabled=true;
+        if(deleting||regenerating)return;deleting=true;updateButtons();
         try{
             const item=items[index],file=imageArchiveLocation(item.url,window.location.href);
             if(!await deleteImages(file.folder,[file.name],{parent:dialog}))return;
             if(!view.isConnected)return;
             items.splice(items.indexOf(item),1);if(!items.length){close();return;}index=Math.min(index,items.length-1);paint();
         }finally{
-            deleting=false;parameters.disabled=false;previous.disabled=index===0;next.disabled=index===items.length-1;
-            if(view.isConnected){try{imageArchiveLocation(items[index].url,location.href);remove.disabled=false;}catch{remove.disabled=true;}}
+            deleting=false;if(view.isConnected)updateButtons();
         }
     }));
     view.addEventListener('keydown',event=>{if(event.key==='Tab')setControls(true);});
@@ -851,7 +888,7 @@ async function deleteImages(folder,names,{parent}={}) {
     if(failure)throw failure;
     return true;
 }
-async function openSettings(initialTab,initialFavorite) {
+async function openSettings(initialTab,initialFavorite,initialPage) {
     if(initialTab==='favorites'&&!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
     if(!['resources','favorites'].includes(initialTab))initialTab=undefined;
     if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
@@ -879,7 +916,10 @@ async function openSettings(initialTab,initialFavorite) {
         encodeVibe:async body=>{const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;},generate=()=>{valid();return direct.encode(body,{expectedKeyHash:keyHash});};return enqueue(()=>cloudQueue?runWithQueue({url,keyHash,requestJSON:requestQueue,generate,canContinue:valid}):generate());},renameVibe:body=>direct.rename(body),
         deleteVibe:async id=>{if(!await confirmSettings('删除这个 Vibe？所有配置中的引用也会移除。','删除 Vibe'))return false;await direct.delete(id);for(const p of settings.profiles)p.vibes=(p.vibes||[]).filter(v=>v.id!==id);save();return true;}});
     settingsHost=panel;
-    try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}return true;},onOpen:popup=>{settingsPopup=popup;popup.dlg.classList.add('miao-settings-dialog');}});}
+    try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}return true;},onOpen:popup=>{
+        settingsPopup=popup;popup.dlg.classList.add('miao-settings-dialog');
+        if(initialPage)showPanelPage(initialPage.content,{...initialPage.options,parent:popup.dlg}).finally(()=>{if(popup.completeAffirmative)popup.completeAffirmative();else popup.dlg.close();}).catch(errorPopup);
+    }});}
     finally{pendingSettingsConfirm?.(false);settingsHost=null;settingsPopup=null;}
 }
 function mountMenu() {
