@@ -124,10 +124,12 @@
     container: miao-settings / inline-size;
     width: 100%;
     min-width: 0;
-    min-height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    background: var(--mi-bg);
+    background: transparent;
+    overflow: hidden;
     font: inherit;
     font-size: 14px;
     line-height: 1.6;
@@ -154,8 +156,7 @@
 }
 
 .miao-header {
-    position: sticky;
-    top: 0;
+    position: relative;
     z-index: 5;
     display: flex;
     align-items: center;
@@ -163,7 +164,7 @@
     min-height: 58px;
     padding: 6px 16px;
     border-bottom: 1px solid var(--mi-line);
-    background: var(--mi-bg);
+    background: transparent;
 }
 
 .miao-brand {
@@ -213,13 +214,12 @@
 }
 
 .miao-tabs {
-    position: sticky;
-    top: 58px;
+    position: relative;
     z-index: 4;
     display: flex;
     gap: 0;
     padding: 0 16px;
-    background: var(--mi-bg);
+    background: transparent;
     border-bottom: 1px solid var(--mi-line);
 }
 
@@ -1107,6 +1107,10 @@
     flex:1 1 auto;
     height:100%;
     min-height:0;
+    min-width:0;
+    padding:0;
+    margin:0;
+    background:transparent;
     overflow:hidden;
 }
 .miao-page-popup.miao-settings-dialog>.popup-body>.popup-content {
@@ -1115,11 +1119,7 @@
     flex:1 1 auto;
     min-height:0;
     min-width:0;
-    overflow-y:auto;
-    overflow-x:hidden;
-    overscroll-behavior-y:contain;
-    -webkit-overflow-scrolling:touch;
-    touch-action:pan-y;
+    overflow:hidden;
 }
 @media(prefers-reduced-motion:reduce){.miao-floating-entry {transition:none;}}
 
@@ -1185,17 +1185,36 @@
 }
 
 #miao-nai-settings>.miao-panel-body {
-    flex: 1 0 auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    scrollbar-gutter: stable;
 }
 
 #miao-nai-settings>.miao-footer {
     flex: none;
 }
 
-.miao-settings-dialog .popup-content {
+/* One tint on the shell avoids stacking translucent host colours. The body
+ * scrolls inside it, keeping the header edge-to-edge and the footer at bottom. */
+.miao-settings-dialog>.popup-body {
     padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+}
+.miao-settings-dialog>.popup-body>.popup-content {
+    display: flex;
+    flex-direction: column;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    background: transparent !important;
     text-align: left !important;
-    scrollbar-gutter: stable;
+    scrollbar-gutter: auto;
 }
 
 #miao-nai-settings[data-section=overview]>.miao-tabs {
@@ -1490,25 +1509,9 @@
 
 .miao-folder-browser {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.miao-folder-breadcrumbs,.miao-folder-children {
-    display: flex;
+    flex-direction: row;
     flex-wrap: wrap;
     gap: 8px;
-}
-
-.miao-folder-breadcrumbs .miao-button {
-    border: 0;
-    background: transparent;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.miao-folder-children .miao-button {
-    min-height: 44px;
 }
 
 .miao-sample-tile:focus-visible {
@@ -1949,4 +1952,102 @@
 .miao-history-pick[hidden] {display: none !important;}
 
 .miao-switch-row[hidden],.miao-button[hidden] {display: none !important;}
-.miao-image-viewer[data-gallery=true] .miao-zoom-reset {top: 12px; bottom: auto;}
+.miao-image-viewer[data-gallery=true] .miao-zoom-reset {top: 12px; bottom: auto; left: 12px; right: auto;}
+
+/* Nested gallery previews cover the entire settings panel, including its header. */
+.miao-page-overlay[data-fill-panel=true] {
+    padding: 0;
+    border-radius: inherit;
+    background: transparent;
+}
+.miao-page-overlay[data-fill-panel=true]>.miao-page-popup {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+.miao-page-overlay[data-fill-panel=true]>.miao-page-popup>.popup-content {
+    flex: 1 1 auto;
+    width: 100%;
+    padding: 0 !important;
+}
+.miao-page-overlay[data-fill-panel=true] .miao-page-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    z-index: 3;
+}
+.miao-page-overlay[data-fill-panel=true] .miao-page-controls button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    font-size: 28px;
+    background: var(--mi-bg);
+}
+.miao-archive-trigger {
+    flex: 1 1 180px;
+    justify-content: space-between;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.miao-archive-picker-dialog {
+    width: min(520px,100%) !important;
+    max-height: min(640px,100%);
+}
+.miao-archive-picker-dialog>.popup-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden !important;
+}
+.miao-archive-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    text-align: left;
+}
+.miao-archive-picker h3 {margin: 0; font-size: 16px;}
+.miao-archive-picker input {
+    flex: none;
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--mi-line);
+    border-radius: 6px;
+    background: var(--mi-field);
+    color: var(--mi-ink);
+    font: inherit;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+.miao-archive-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+.miao-archive-option {
+    flex: none;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    white-space: normal;
+}
+.miao-archive-option span {min-width: 0; overflow-wrap: anywhere;}
+.miao-archive-option small {flex: none; color: var(--mi-muted);}
+.miao-archive-option[aria-pressed=true] {border-color: var(--mi-blue); background: var(--mi-soft);}

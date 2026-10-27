@@ -99,6 +99,7 @@ const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHe
 }});
 function el(tag,text,cls) { const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n; }
 async function showPopup(content,type,input='',options={}){
+    if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-image-viewer[data-gallery=true]')&&settingsHost?.isConnected)return showPagePopup(content,{...options,parent:settingsHost.closest('dialog'),fillParent:true});
     if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings,.miao-prompt-view,.miao-image-viewer'))return showPagePopup(content,{...options,parent:content.matches('.miao-settings')?undefined:settingsHost?.closest('dialog')});
     let dispose=()=>{};
     try{return await callGenericPopup(content,type,input,{...options,animation:'none',onOpen:popup=>{

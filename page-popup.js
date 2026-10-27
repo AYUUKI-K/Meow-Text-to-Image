@@ -2,7 +2,7 @@ import {bindButtonPress} from './button-press.js';
 const activeViewers=new WeakMap();
 
 // TT content viewers use a page layer, avoiding the host's native modal lifecycle.
-export function showPagePopup(content,{parent,onOpen}={}){
+export function showPagePopup(content,{parent,onOpen,fillParent=false,closeLabel='完成'}={}){
     const doc=content.ownerDocument;
     // A second viewer replaces the first before capturing inert/scroll state.
     // Otherwise out-of-order closes can leave the entire page inert on TT.
@@ -12,14 +12,19 @@ export function showPagePopup(content,{parent,onOpen}={}){
     const settings=content.matches('.miao-settings');
     const layer=make('div','miao-page-overlay'),card=make(settings?'dialog':'section',settings?'popup miao-page-popup miao-settings-dialog':'popup miao-page-popup miao-content-dialog');
     if(settings)card.setAttribute('open','');
-    card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label',content.querySelector('h3')?.textContent||'图片预览');card.tabIndex=-1;
+    card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label',settings?'喵喵文生图':content.querySelector('h3')?.textContent||'图片预览');card.tabIndex=-1;
     const body=make('div','popup-content'),controls=make('div','miao-page-controls'),close=make('button','miao-button');
-    close.type='button';close.textContent='完成';close.setAttribute('aria-label','关闭预览');controls.append(close);body.append(content);
+    close.type='button';close.textContent=fillParent?'×':closeLabel;close.setAttribute('aria-label',closeLabel==='取消'?'取消选择':'关闭预览');controls.append(close);body.append(content);
     if(settings){const wrapper=make('div','popup-body');wrapper.append(body);card.append(wrapper);}else card.append(body,controls);layer.append(card);
     const mount=parent?.querySelector('.popup-body')||doc.body,nested=mount!==doc.body;
     layer.dataset.nested=String(nested);
+    // Keep Enter in a nested chooser/viewer from accepting the host settings dialog.
+    if(nested)card.addEventListener('keydown',event=>event.stopPropagation());
+    if(fillParent&&nested)layer.dataset.fillPanel='true';
     const blocked=nested?[...mount.children]:[...doc.body.children],inert=blocked.map(element=>[element,element.inert]);
     for(const [element] of inert)element.inert=true;
+    const visibility=fillParent&&nested?blocked.map(element=>[element,element.style.visibility]):[];
+    for(const [element] of visibility)element.style.visibility='hidden';
     const overflow=doc.body.style.overflow;if(!nested)doc.body.style.overflow='hidden';
     mount.append(layer);
     const viewport=win.visualViewport;
@@ -36,7 +41,7 @@ export function showPagePopup(content,{parent,onOpen}={}){
             activeViewers.delete(scope);
             viewport?.removeEventListener('resize',fit);viewport?.removeEventListener('scroll',fit);win.removeEventListener('resize',fit);
             if(win.__TAURITAVERN_HANDLE_BACK__===back)win.__TAURITAVERN_HANDLE_BACK__=previousBack;
-            layer.remove();for(const [element,value] of inert)element.inert=value;if(!nested)doc.body.style.overflow=overflow;
+            layer.remove();for(const [element,value] of visibility)element.style.visibility=value;for(const [element,value] of inert)element.inert=value;if(!nested)doc.body.style.overflow=overflow;
             if(previous?.isConnected&&!previous.closest('[inert]'))previous.focus({preventScroll:true});
             if(error)reject(error);else resolve(1);
         };
