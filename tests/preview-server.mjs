@@ -94,6 +94,17 @@ check(Math.abs(h.top-r.top)<2&&Math.abs(h.width-r.width)<2&&f.bottom<=r.bottom+1
 check([root,header,root.querySelector('.miao-tabs'),content].every(el=>getComputedStyle(el).backgroundColor==='rgba(0, 0, 0, 0)'),name+'半透明主题只在外壳绘制一次背景');
 body.scrollTop=body.scrollHeight;check(header.getBoundingClientRect().top===h.top&&body.getBoundingClientRect().bottom<=f.top+1,name+'内容独立滚动，标题和页脚保持可见');
 }
+if(new URL(location.href).searchParams.has('opacity-update')){
+    const root=document.querySelector('.miao-settings'),shell=root.closest('dialog'),footer=root.querySelector('footer'),initial=shell.style.getPropertyValue('--SmartThemeBlurTintColor'),canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d');
+    for(const alpha of [0,.05,.5,.9,.95,1]){
+        shell.style.setProperty('--SmartThemeBlurTintColor','rgba(44,66,88,'+alpha+')');context.clearRect(0,0,1,1);context.fillStyle=getComputedStyle(shell).backgroundColor;context.fillRect(0,0,1,1);const rgba=context.getImageData(0,0,1,1).data;
+        check(Math.abs(rgba[3]-Math.round(Math.max(alpha,.9)*255))<=1&&Math.abs(rgba[0]-44)<=1&&Math.abs(rgba[1]-66)<=1&&Math.abs(rgba[2]-88)<=1,'背景 alpha '+alpha+' 保留主题色并仅抬高不足 90% 的不透明度');
+    }
+    if(initial)shell.style.setProperty('--SmartThemeBlurTintColor',initial);else shell.style.removeProperty('--SmartThemeBlurTintColor');
+    const box=footer.getBoundingClientRect(),button=footer.querySelector('button').getBoundingClientRect();
+    check(box.height<=48&&footer.scrollWidth<=footer.clientWidth&&button.height>=44,'作者、版本和更新入口收为一行，保留 44px 触摸高度');
+    check(root.querySelector('.miao-version').textContent==='v2.2.3-test.3'&&footer.textContent.includes('检查并更新'),'精简版本显示，保留检查并更新操作');
+}
 const catalog=p.settings.imageArchive;for(let i=0;i<75;i++){const name='miao-'+(1892737847709+i)+'.png';p.files.push(name);catalog['/user/images/miao-nai/'+name]={folder:'miao-nai',name,cardId:i<40?'card:many':'card:stress-'+i,cardName:i<40?'很多聊天的角色':'角色 '+i,chatId:i<40?'聊天 '+String(i).padStart(2,'0')+' 很长的聊天名称用于检查换行':'独立聊天'};}
 action('刷新列表').click();await settle(()=>document.querySelector('.miao-history-tile'));
 const openPicker=async kind=>{document.querySelector('[data-archive-picker='+kind+']').click();await settle(()=>document.querySelector('.miao-archive-picker'));};
@@ -710,7 +721,8 @@ if(frame&&/^\d{3,4}x\d{3,4}$/.test(frame)){
 }
 const theme=new URL(req.url,'http://localhost').searchParams.get('theme'),dark=theme==='dark'||theme==='translucent-dark';
 const hostTheme=dark?'--SmartThemeBodyColor:#e5ebf5;--SmartThemeBlurTintColor:#121b2b;--SmartThemeQuoteColor:#83b7ff;--SmartThemeBorderColor:#35435b':'--SmartThemeBodyColor:#26364c;--SmartThemeBlurTintColor:#f8fbff;--SmartThemeQuoteColor:#3779c5;--SmartThemeBorderColor:#cedbea';
-const alpha=theme?.startsWith('translucent')?';--SmartThemeBlurTintColor:'+(dark?'rgba(18,27,43,.65)':'rgba(248,251,255,.65)'):'';
+const requestedAlpha=new URL(req.url,'http://localhost').searchParams.get('alpha'),opacity=requestedAlpha!==null&&Number.isFinite(Number(requestedAlpha))?Math.max(0,Math.min(1,Number(requestedAlpha))):.65;
+const alpha=theme?.startsWith('translucent')?';--SmartThemeBlurTintColor:'+(dark?'rgba(18,27,43,'+opacity+')':'rgba(248,251,255,'+opacity+')'):'';
 body=html.replace('<style>','<style>:root{'+hostTheme+alpha+'}'+(alpha?'body{background:repeating-linear-gradient(35deg,#798998 0 20px,#4d5e74 20px 40px)!important}':''));type='text/html';if(new URL(req.url,'http://localhost').searchParams.has('image-size'))body=body.replace('<style>','<style>#chat{max-width:920px;margin:auto;color:var(--SmartThemeBodyColor)}#extensionsMenu,#report{display:none}body{background:var(--SmartThemeBlurTintColor)!important;color:var(--SmartThemeBodyColor)!important}');}
 else if(req.url==='/script.js')body=`export async function saveSettings(){if(window.preview.holdSettingsSave)await new Promise(resolve=>window.preview.releaseSettingsSave=resolve);if(window.preview.failSettingsSave)return false;window.preview.settingsSaves=(window.preview.settingsSaves||0)+1;await window.preview.emit('SETTINGS_UPDATED');}`;
 else if(req.url==='/scripts/extensions.js')body=mock;
