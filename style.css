@@ -1385,7 +1385,8 @@
     position: sticky;
     bottom: 0;
     padding-top: 8px;
-    background: var(--mi-bg);
+    background: transparent;
+    box-shadow: none;
 }
 
 .miao-confirmation-actions .miao-button,.miao-image-operations .miao-button,.miao-history-selection .miao-button,.miao-date-row .miao-button {
@@ -2208,4 +2209,34 @@
 }
 @container miao-settings (max-width:600px) {
     .miao-favorite-grid {grid-template-columns:minmax(0,1fr);}
+}
+
+.miao-floating-entry>.miao-fa-icon {font-size: 24px; pointer-events: none;}
+.miao-floating-options {display: grid; gap: 12px;}
+.miao-floating-options[hidden],.miao-floating-icon-choice[hidden] {display: none !important;}
+.miao-floating-icon-choice,.miao-floating-icon-preview {display: flex; align-items: center; gap: 12px; min-width: 0;}
+.miao-floating-icon-preview {flex: 1; overflow-wrap: anywhere; font-size: 13px;}
+.miao-floating-icon-preview>.miao-fa-icon {font-size: 24px; flex: none;}
+.miao-icon-picker {display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; min-width: 0; text-align: left;}
+.miao-icon-picker>header {display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; flex: none; border-bottom: 1px solid var(--mi-line);}
+.miao-icon-picker h3 {margin: 0; font-size: 17px;}
+.miao-icon-tools {display: flex; gap: 8px; padding: 12px 16px 0; flex: none;}
+.miao-icon-tools>input,.miao-icon-tools>select {min-width: 0; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--mi-line); border-radius: 8px; background: var(--mi-field); color: var(--mi-ink); font: inherit;}
+.miao-icon-tools>input {flex: 1; width: 0;}
+.miao-icon-picker>p {margin: 8px 16px; flex: none; font-size: 12px;}
+.miao-icon-scroll {flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding: 0 16px 16px;}
+.miao-icon-grid {display: grid; grid-template-columns: repeat(auto-fill,minmax(100px,1fr)); gap: 8px;}
+.miao-icon-option {display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 100px; gap: 7px; padding: 12px 6px; border: 1px solid var(--mi-line); border-radius: 8px; background: transparent; color: var(--mi-ink); cursor: pointer; touch-action: manipulation;}
+.miao-icon-option:hover,.miao-icon-option[aria-pressed=true] {background: var(--mi-soft); border-color: var(--mi-blue);}
+.miao-icon-option:focus-visible {outline: 2px solid var(--mi-blue); outline-offset: -2px;}
+.miao-icon-option>.miao-fa-icon {font-size: 26px;}
+.miao-icon-option>span:not(.miao-fa-icon) {width: 100%; font-size: 12px; overflow-wrap: anywhere; text-align: center;}
+.miao-icon-option>small {font-size: 10px; color: var(--mi-muted);}
+.miao-icon-pagination {display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 16px; flex: none; border-top: 1px solid var(--mi-line);}
+.miao-icon-picker .miao-button,.miao-icon-picker-dialog .miao-page-controls .miao-button {min-height: 44px;}
+.miao-icon-picker-dialog .miao-page-controls {background: transparent;}
+@media(max-width:400px) {
+    .miao-icon-picker>header {padding: 12px; gap: 8px;}
+    .miao-icon-picker h3 {font-size: 16px;}
+    .miao-icon-grid {grid-template-columns: repeat(3,minmax(0,1fr));}
 }

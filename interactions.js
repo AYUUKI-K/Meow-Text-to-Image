@@ -1,3 +1,4 @@
+import {validFontAwesomeIcon,fontAwesomeElement} from './fontawesome-icons.js';
 // One click stream for mouse, pen and touch. Do not also handle touchend/dblclick.
 export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now,delay=380}){
     let count=0,last=0,point=null,down=null,blocked=false,timer;
@@ -26,6 +27,7 @@ export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,docum
     if(!settings.floatingEntry)return ()=>{};
     const button=documentImpl.createElement('button');button.id='miao-nai-floating';button.type='button';
     button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label',settings.floatingReroll?'喵喵文生图：单击打开设置，双击生成最新楼层所有图片':'喵喵文生图：单击打开设置');button.title=settings.floatingReroll?'单击设置 · 双击生成最新楼层所有图片 · 拖动调整位置':'单击设置 · 拖动调整位置';
+    if(settings.floatingIconType==='fontawesome'&&validFontAwesomeIcon(settings.floatingIcon))button.replaceChildren(fontAwesomeElement(settings.floatingIcon,documentImpl));
     documentImpl.body.append(button);let down,moved=false,collapseTimer,docked=null,expanded=false;
     button.dataset??={};
     const mobile=()=>!!windowImpl.matchMedia?.('(pointer:coarse), (max-width:680px)').matches;

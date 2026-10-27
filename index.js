@@ -6,6 +6,8 @@ import {retryGeneration} from './generation-retry.js';
 import {waitForGeneration} from './generation-delay.js';
 import {showPagePopup} from './page-popup.js';
 import {showPanelPage} from './panel-page.js';
+import {showFloatingIconPicker} from './icon-picker.js';
+import {defaultFontAwesomeIcon,validFontAwesomeIcon} from './fontawesome-icons.js';
 import {createNotifications} from './notifications.js';
 import {createQueueTransport} from './queue-network.js';
 import {hostFetch} from './host-fetch.js';
@@ -64,6 +66,8 @@ settings.profiles=settings.profiles.map(normalizeProfile);
 settings.cloudQueue ??= false;
 settings.retryQueue ??= true;
 settings.floatingReroll ??= false;
+settings.floatingIconType=settings.floatingIconType==='fontawesome'?'fontawesome':'default';
+if(!validFontAwesomeIcon(settings.floatingIcon))settings.floatingIcon={...defaultFontAwesomeIcon};
 settings.exportFormat=settings.exportFormat==='jpg'?'jpg':'png';
 settings.queueUrl ||= 'https://miao-image-queue.savlu329.workers.dev';
 settings.keyHash ??= '';
@@ -908,6 +912,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },
         saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,
+        chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
         directKeyStatus:async()=>{const status=await directVault.status(),key=await directVault.get();return {...status,ready:Boolean(key&&settings.keyHash&&await fingerprintKey(key)===settings.keyHash),serverSaved:!!settings.keyHash};},clearDirectKey:()=>directVault.clear(),

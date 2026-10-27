@@ -9,9 +9,9 @@ export function showPanelPage(content,{parent,kind='image',closeLabel='返回',o
     const scroll=[...mount.querySelectorAll('*')].filter(el=>el.scrollTop||el.scrollLeft).map(el=>[el,el.scrollTop,el.scrollLeft]);
     const old={classes:parent.className,page:parent.getAttribute('data-panel-page'),controls:parent.getAttribute('data-controls-visible'),label:parent.getAttribute('aria-label'),sizes:['width','height'].map(key=>[key,parent.style.getPropertyValue(key),parent.style.getPropertyPriority(key)])};
     const rect=parent.getBoundingClientRect();for(const node of oldNodes)fragment.append(node);
-    parent.classList.remove('miao-image-viewer-dialog','miao-image-parameters-dialog');
-    parent.classList.add(kind==='image'?'miao-image-viewer-dialog':'miao-image-parameters-dialog');parent.dataset.panelPage=kind;
-    parent.setAttribute('aria-label',kind==='image'?'图片预览':'图片参数');
+    parent.classList.remove('miao-image-viewer-dialog','miao-image-parameters-dialog','miao-icon-picker-dialog');
+    parent.classList.add(kind==='image'?'miao-image-viewer-dialog':kind==='icons'?'miao-icon-picker-dialog':'miao-image-parameters-dialog');parent.dataset.panelPage=kind;
+    parent.setAttribute('aria-label',kind==='image'?'图片预览':kind==='icons'?'选择悬浮图标':'图片参数');
     if(!parent.matches('.miao-settings-dialog')){
         parent.style.setProperty('width',`min(${rect.width}px,calc(100vw - 24px))`,'important');
         parent.style.setProperty('height',`min(${rect.height}px,calc(100dvh - 24px))`,'important');
