@@ -5,7 +5,8 @@ export async function withGenerationTimeout(run,{timeoutMs=30000,source='nai-gen
     const controller=new AbortController();let timer;
     try{return await Promise.race([Promise.resolve().then(()=>run(controller.signal)),new Promise((_,reject)=>{timer=setTimeout(()=>{
         const error=stageError(source,Object.assign(Error('timeout'),{name:'TimeoutError'}));
-        error.message=`单张生图超过 ${timeoutMs/1000} 秒，已中止本地等待；NAI 可能仍在处理，不会自动重试。`;
+        error.localGenerationTimeout=true;
+        error.message=`单张生图超过 ${Math.ceil(timeoutMs/1000)} 秒，已中止本地等待，不会自动重试；开启云端排队时同步释放占位。NAI 服务端可能仍在处理。`;
         reject(error);controller.abort();
     },timeoutMs);})]);}finally{clearTimeout(timer);}
 }

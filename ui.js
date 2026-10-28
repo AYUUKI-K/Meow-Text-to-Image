@@ -148,7 +148,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const toggle=node('label',undefined,'miao-switch-row');const checkbox=node('input');checkbox.type='checkbox';checkbox.checked=settings.enabled;checkbox.onchange=()=>{settings.enabled=checkbox.checked;save();onChange();};toggle.append(node('span','启用自动生图'),checkbox);main.append(toggle);
             field(main,'生成模式',settings.mode,v=>{settings.mode=v;save();onChange(true);render();},{options:[['manual','手动'],['auto','回复后生成'],['stream','流式生成']]});
             const timeoutField=field(main,'单张生图超时（秒）',generationTimeoutSeconds(settings.generationTimeoutSeconds),v=>{settings.generationTimeoutSeconds=generationTimeoutSeconds(v);save();},{type:'number'});timeoutField.min='5';timeoutField.max='180';timeoutField.step='1';
-            main.append(node('p','默认 30 秒，从请求 NAI 开始计时，不含排队。超时中止本地等待，不自动重试；NAI 可能仍在处理。','miao-muted'));
+            main.append(node('p','默认 30 秒，从请求 NAI 开始计时，不含排队。超时由云端释放占位并中止本地等待，不自动重试；NAI 服务端可能仍在处理。','miao-muted'));
             const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.retryQueue;retryCheck.onchange=()=>{settings.retryQueue=retryCheck.checked;save();};retry.append(node('span','遇到占线自动排队'),retryCheck);main.append(retry);
             main.append(node('p','最多重试 3 次','miao-muted'));
             const connection=section(account,'连接 NovelAI');
@@ -427,7 +427,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             refresh();
         }
         paintResourceEntries();
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','v2.4.2','miao-version'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','v2.4.3','miao-version'),updateBox);root.append(footer);
         if(keep){const restore=()=>{if(epoch!==renderEpoch)return;for(const item of root.querySelectorAll('[data-scroll-key]')){const position=positions.get(item.dataset.scrollKey);if(position){item.scrollTop=position.top;item.scrollLeft=position.left;}}if(scroller&&outerTop!==undefined)scroller.scrollTop=outerTop;};restore();requestAnimationFrame(restore);}
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});

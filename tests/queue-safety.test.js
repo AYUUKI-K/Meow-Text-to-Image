@@ -45,6 +45,35 @@ test('a live lease survives a long preparation and is refreshed before sending e
  await runWithQueue({url:'https://fixture.invalid',keyHash,now:()=>now,requestJSON:dispatcher(queue),generate:async({beforeSend})=>{now=20000;await beforeSend();sent++;}});
  assert.equal(sent,1);assert.equal(queue.stats().active,0);
 });
+test('cloud generation deadline releases the key without a client notification and cannot be extended',()=>{
+ let now=0;const queue=new LeaseQueue({now:()=>now}),a=who('deadline'),b=who('next');
+ const first=queue.join(a);queue.turn({...a,lock_token:first.lock_token,generation_timeout_ms:30000});queue.join(b);
+ now=10000;queue.turn(a);assert.equal(queue.lanes.get(keyHash).active.expires,30000);
+ now=20000;const remaining=queue.turn({...a,lock_token:first.lock_token,generation_timeout_ms:180000});assert.equal(remaining.generation_remaining_ms,10000);
+ now=30001;assert.equal(queue.turn(b).your_turn,true);assert.throws(()=>queue.turn(a),/过期/);
+});
+test('registering a deadline requires the current holder proof and validates the requested range',()=>{
+ const queue=new LeaseQueue({now:()=>0}),a=who('owner');queue.join(a);
+ assert.throws(()=>queue.turn({...a,lock_token:'incorrect',generation_timeout_ms:30000}),/凭据/);
+ assert.equal(queue.lanes.get(keyHash).active.expires,240000);
+ for(const timeout of [-1,0,4999,180001,NaN,30000.5])assert.throws(()=>queue.turn({...a,generation_timeout_ms:timeout}),/超时/);
+});
+test('before-send registers the deadline and a local timeout explicitly releases the cloud lease',async()=>{
+ const queue=new LeaseQueue();let sent=0;const paths=[];
+ await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,generationTimeoutMs:30000,requestJSON:async(url,options)=>{paths.push(url);return dispatcher(queue)(url,options);},generate:async({beforeSend})=>{
+  const remaining=await beforeSend();assert.ok(remaining>0&&remaining<=30000);sent++;
+  return withGenerationTimeout(()=>new Promise(()=>{}),{timeoutMs:10});
+ }}),error=>error.localGenerationTimeout===true);
+ assert.equal(sent,1);assert.equal(queue.stats().active,0);assert.ok(paths.at(-1).endsWith('/complete'));
+});
+
+test('a deadline acknowledgement arriving after its remaining budget never sends an image',async()=>{
+ let now=0,sent=0;const queue=new LeaseQueue({now:()=>now});
+ await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,now:()=>now,generationTimeoutMs:5000,requestJSON:async(url,options)=>{
+  const result=await dispatcher(queue)(url,options);if(options.body.generation_timeout_ms)now+=6000;return result;
+ },generate:async({beforeSend})=>{await beforeSend();sent++;}}),/未发送新的生图请求/);
+ assert.equal(sent,0);assert.equal(queue.stats().active,0);
+});
 test('Vibe preparation transport failures release the lease; actual NAI timeout retains it',async()=>{
  for(const source of ['vibe-file','nai-generation']){
   const queue=new LeaseQueue();await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,requestJSON:dispatcher(queue),generate:async()=>{throw stageError(source,new TypeError('offline'));}}));

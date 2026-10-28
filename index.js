@@ -766,17 +766,17 @@ async function requestImage(request,task,canContinue) {
         onStatus('正在生图');
         notices.info('正在生图','喵喵文生图');
         if(isTT()||request.vibes?.length)return direct.generate(request,{expectedKeyHash:scope.keyHash,timeoutMs,beforeSend});
-        await beforeSend?.();
+        const remaining=await beforeSend?.();
         return withGenerationTimeout(async signal=>{
         const response=await checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(request),signal});
         const data=(await response.text()).trim();
         if(!data||data.startsWith('{')||data.startsWith('<'))throw new Error('酒馆生图接口未返回有效图片');
         return data;
-        },{timeoutMs,source:'tavern-generation'});
+        },{timeoutMs:remaining??timeoutMs,source:'tavern-generation'});
     };
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
-    const run=attempt=>(scope.cloudQueue||attempt>0)?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,requestJSON:requestQueue,generate,canContinue:valid,onStatus,
+    const run=attempt=>(scope.cloudQueue||attempt>0)?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,requestJSON:requestQueue,generationTimeoutMs:timeoutMs,generate,canContinue:valid,onStatus,
         onReleaseError:()=>notices.info('队列连接中断，占用将自动到期释放')}):generate();
     let notified=false;
     return retryGeneration({run,enabled:!!settings.retryQueue,canContinue:valid,onStatus:(status,error)=>{

@@ -12,7 +12,7 @@ export async function fingerprintKey(key) {
 }
 // Keep the next waiter responsive; distant jobs need fewer position queries.
 export const queuePollMs=position=>Math.min(15000,5000+Math.max(0,position-1)*2500);
-export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()=>{},canContinue=()=>true,onReleaseError=()=>{},fetchImpl=fetch,requestJSON=queueJSON,pollMs,heartbeatMs=60000,retryDelays=[1000,3000,5000],sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}) {
+export async function runWithQueue({url,keyHash,greeting='',generationTimeoutMs,generate,onStatus=()=>{},canContinue=()=>true,onReleaseError=()=>{},fetchImpl=fetch,requestJSON=queueJSON,pollMs,heartbeatMs=60000,retryDelays=[1000,3000,5000],sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),now=Date.now}) {
     url=validateQueueURL(url);
     if(!/^[a-f0-9]{64}$/i.test(keyHash||''))throw new Error('请在本插件重新保存一次 NAI Key，用于自动识别队列；Key 不会发送给排队服务。');
     const cancelProof=await sha256(randomId()),cancelHash=await sha256(cancelProof);
@@ -63,14 +63,19 @@ export async function runWithQueue({url,keyHash,greeting='',generate,onStatus=()
         },heartbeatMs);
         const beforeSend=async()=>{
             if(!canContinue())throw Error('原消息已变化，已退出待生成队列');
-            if(now()-verifiedAt>15000){
-                const checkedAt=now(),current=await call('/my-turn',{lock_token:lockToken});
+            if(generationTimeoutMs!==undefined||now()-verifiedAt>15000){
+                const checkedAt=now(),current=await call('/my-turn',{lock_token:lockToken,...(generationTimeoutMs!==undefined?{generation_timeout_ms:generationTimeoutMs}:{})});
                 if(now()-checkedAt>15000||current.your_turn!==true||current.lock_token!==lockToken)throw stageError('queue',Error('排队权限已失效，未发送新的生图请求，请重新生成'));
                 verifiedAt=checkedAt;
+                if(generationTimeoutMs!==undefined&&Number.isFinite(current.generation_remaining_ms)){
+                    const remaining=Math.min(generationTimeoutMs,current.generation_remaining_ms-(now()-checkedAt));
+                    if(remaining<=0)throw stageError('queue',Error('排队权限已失效，未发送新的生图请求，请重新生成'));
+                    return remaining;
+                }
             }
         };
         try{generationStarted=true;return await generate({beforeSend});}
-        catch(error){uncertain=(!error.source||['nai-generation','tavern-generation','nai-encode'].includes(error.source))&&(['AbortError','TimeoutError','TypeError'].includes(error.name)||[408,504].includes(error.status));throw error;}
+        catch(error){uncertain=!error.localGenerationTimeout&&(!error.source||['nai-generation','tavern-generation','nai-encode'].includes(error.source))&&(['AbortError','TimeoutError','TypeError'].includes(error.name)||[408,504].includes(error.status));throw error;}
     }catch(error){
         if(error.source==='queue'&&!generationStarted&&!error.message.includes('未发送新的生图请求'))error.message+='\n尚未取得排队权限，未发送新的生图请求。请检查当前浏览器能否访问队列地址。';
         throw error;

@@ -31,9 +31,9 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
     };
     const nai=async(endpoint,body,{expectedKeyHash,timeoutMs,beforeSend}={},consume=response=>response)=>{
         const key=await getKey(expectedKeyHash);if(!key)throw Error('请先在「生成」页重新填写并保存 NAI Key，用于当前浏览器直连');
-        await beforeSend?.();
+        const remaining=await beforeSend?.();
         const send=async signal=>consume(await checkedFetch(endpoint==='encode-vibe'?'nai-encode':'nai-generation','https://image.novelai.net/ai/'+endpoint,{method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal},{fetchImpl,secrets:[key]}));
-        return endpoint==='generate-image'?withGenerationTimeout(send,{timeoutMs:timeoutMs??generationTimeoutSeconds(settings.generationTimeoutSeconds)*1000}):send(AbortSignal.timeout(180000));
+        return endpoint==='generate-image'?withGenerationTimeout(send,{timeoutMs:remaining??timeoutMs??generationTimeoutSeconds(settings.generationTimeoutSeconds)*1000}):send(AbortSignal.timeout(180000));
     };
     return {
         async list(){return structuredClone(settings.vibeLibrary);},

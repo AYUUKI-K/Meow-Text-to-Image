@@ -5,7 +5,7 @@ export default {
     async fetch(request,env){
         const path=new URL(request.url).pathname;
         if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
-        if(request.method==='GET'&&path==='/ping')return reply({ready:true,version:'0.6.2',runtime:'cloudflare',relay:1});
+        if(request.method==='GET'&&path==='/ping')return reply({ready:true,version:'0.6.3',runtime:'cloudflare',relay:1});
         // ST's existing visit endpoint supports GET resources. The envelope
         // preserves queue status codes through hosts which flatten HTTP errors.
         if(request.method==='GET'&&path==='/relay'){
@@ -16,7 +16,7 @@ export default {
                 if(data.length>8192)return wrap({error:'请求过大'},413);
                 if(!['join-queue','my-turn','complete','leave-queue'].includes(operation))throw Error();
                 input=JSON.parse(data);new LeaseQueue().validate(input);
-                if(Object.keys(input).some(key=>!['key_hash','user_id','task_id','release_proof','cancel_hash','cancel_proof'].includes(key))||input.release_proof!==undefined&&!/^[a-f0-9]{64}$/.test(input.release_proof))throw Error();
+                if(Object.keys(input).some(key=>!['key_hash','user_id','task_id','release_proof','cancel_hash','cancel_proof','generation_timeout_ms'].includes(key))||input.release_proof!==undefined&&!/^[a-f0-9]{64}$/.test(input.release_proof))throw Error();
             }catch{return wrap({error:'排队请求无效'},400);}
             try{
                 const id=env.MIAO_KEY_QUEUE.idFromName(input.key_hash.toLowerCase());

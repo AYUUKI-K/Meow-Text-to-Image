@@ -28,9 +28,9 @@ export function createQueueTransport({getHeaders=()=>({'Content-Type':'applicati
     const throughServer=async(root,op,body,timeout)=>{
         if(op==='ping'){const result=await visit(root+'/ping',timeout);if(result.ready!==true||result.relay!==1)throw invalidResponse('电脑转接不可用，请联系管理员更新队列服务');return result;}
         const input={key_hash:body.key_hash,user_id:body.user_id,task_id:body.task_id};
-        for(const field of ['cancel_hash','cancel_proof'])if(body[field])input[field]=body[field];
+        for(const field of ['cancel_hash','cancel_proof','generation_timeout_ms'])if(body[field])input[field]=body[field];
         // The raw lock token never enters a URL or the host's visited-URL log.
-        if(body.lock_token&&['complete','leave-queue'].includes(op))input.release_proof=await sha256(body.lock_token+'\0release');
+        if(body.lock_token&&(['complete','leave-queue'].includes(op)||op==='my-turn'&&body.generation_timeout_ms!==undefined))input.release_proof=await sha256(body.lock_token+'\0release');
         const relay=new URL(root+'/relay');relay.searchParams.set('op',op);relay.searchParams.set('data',JSON.stringify(input));
         const result=await visit(relay.href,timeout);
         if(!Number.isInteger(result.relay_status)||result.relay_status<200||result.relay_status>599||!result.body||typeof result.body!=='object'||Array.isArray(result.body))throw stageError('queue',Error('电脑转接返回无效队列内容，请联系管理员更新队列服务'));

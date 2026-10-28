@@ -13,6 +13,15 @@ function context(data=new Map()){
 }
 const call=async(object,path,body)=>{const res=await object.fetch(new Request('https://queue.test'+path,{method:'POST',body:JSON.stringify(body)}));return {...await res.json(),status:res.status};};
 
+test('generation deadline survives eviction and advances without a client completion',async()=>{
+ let now=0;const ctx=context(),a=identity('deadline','A'),b=identity('deadline','B');let object=new MiaoKeyQueue(ctx);object.queue.now=()=>now;
+ const first=await call(object,'/join-queue',a);await call(object,'/my-turn',{...a,lock_token:first.lock_token,generation_timeout_ms:30000});
+ await call(object,'/join-queue',b);assert.equal(ctx.alarmAt,30000);
+ object=new MiaoKeyQueue(context(ctx.data));object.queue.now=()=>now;
+ now=30001;await object.alarm();assert.equal((await call(object,'/my-turn',b)).your_turn,true);
+ assert.equal((await call(object,'/complete',{...a,lock_token:first.lock_token})).released,false);
+});
+
 test('unclaimed handoff survives eviction and expires without stealing a claimed lease',async()=>{
  let now=0;const ctx=context(),a=identity('one','A'),b=identity('one','B'),c=identity('one','C');let object=new MiaoKeyQueue(ctx);object.queue.now=()=>now;
  const first=await call(object,'/join-queue',a);await call(object,'/join-queue',b);await call(object,'/join-queue',c);

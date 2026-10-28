@@ -39,5 +39,10 @@ try{
     assert.equal((await call('/join-queue',b)).your_turn,false);
     assert.equal((await relay('leave-queue',{...a,cancel_proof:cancelProof})).released,true);
     const recovered=await call('/my-turn',b);assert.equal(recovered.your_turn,true);await call('/complete',{...b,lock_token:recovered.lock_token});
+    const deadline=await call('/join-queue',a);
+    const deadlineAck=await relay('my-turn',{...a,release_proof:createHash('sha256').update(deadline.lock_token+'\0release').digest('hex'),generation_timeout_ms:30000});
+    assert.ok(deadlineAck.generation_remaining_ms>0&&deadlineAck.generation_remaining_ms<=30000);
+    const repeat=await call('/my-turn',{...a,lock_token:deadline.lock_token,generation_timeout_ms:180000});assert.ok(repeat.generation_remaining_ms<=30000);
+    await call('/complete',{...a,lock_token:deadline.lock_token});
     console.log('workerd + SQLite: isolation, polling, transactional handoff, idle cleanup and rejoin passed. No NAI requests.');
 }finally{await mf.dispose();}
