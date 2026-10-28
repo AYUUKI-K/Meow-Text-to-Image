@@ -1,3 +1,4 @@
+import {worldMacros,patchWorldMacros} from './world-macros.js';
 import {withGenerationTimeout,generationTimeoutSeconds} from './generation-timeout.js';
 import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
@@ -504,12 +505,12 @@ function observeChat(){
     if(!chatObserver)chatObserver=new MutationObserver(()=>scheduleRender(false));
     observedChat=root;chatObserver.observe(observedChat,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['src','mesid']});
 }
-async function installWorld(file,{targetName,activate=true,existing}={}) {
+async function installWorld(file,{targetName,activate=true,existing,preserveMacros=false}={}) {
     const data=JSON.parse(await file.text());if(!data.entries)throw new Error('世界书需要 entries 字段');
     const name=targetName||file.name.replace(/\.json$/i,'');
     const previous=existing??(wi.world_names.includes(name)?await wi.loadWorldInfo(name):{entries:{}});
     if(!previous)throw Error('无法读取原世界书，请重试');
-    const merged=mergeWorldEntries(previous,data);
+    const merged=mergeWorldEntries(previous,data,{preserveMacros});
     const response=await fetch('/api/worldinfo/edit',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name,data:merged})});
     if(!response.ok)throw Error(`世界书更新失败：HTTP ${response.status}`);
     wi.worldInfoCache?.set(name,merged);await wi.updateWorldInfoList();
@@ -517,6 +518,25 @@ async function installWorld(file,{targetName,activate=true,existing}={}) {
     if(ctx().eventTypes.WORLDINFO_UPDATED)await ctx().eventSource.emit(ctx().eventTypes.WORLDINFO_UPDATED,name,merged);
     if(activate&&!wi.selected_world_info.includes(name))wi.onWorldInfoChange({state:'on',silent:'true'},name);
     settings.world=name;save();
+}
+async function readResourceMacros(){
+    const world=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(name=>name&&wi.world_names.includes(name));
+    if(!world)return {world:'',macros:[]};
+    wi.worldInfoCache?.delete(world);
+    const book=await wi.loadWorldInfo(world);if(!book)throw Error('无法读取插件世界书，请重试');
+    return {world,macros:worldMacros(book)};
+}
+async function saveResourceMacros(snapshot,values){
+    if(resourceInstallPromise)throw Error('资源正在更新，请稍后重新读取酒馆宏');
+    if(!wi.world_names.includes(snapshot.world))throw Error('世界书已更名或删除，请重新读取酒馆宏');
+    wi.worldInfoCache?.delete(snapshot.world);
+    const book=await wi.loadWorldInfo(snapshot.world);if(!book)throw Error('无法读取原世界书，请重试');
+    const next=patchWorldMacros(book,snapshot.macros,values);
+    const response=await hostFetch('/api/worldinfo/edit',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name:snapshot.world,data:next})});
+    if(!response.ok)throw Error(`酒馆宏保存失败：HTTP ${response.status}`);
+    wi.worldInfoCache?.set(snapshot.world,next);
+    if(ctx().eventTypes.WORLDINFO_UPDATED)await ctx().eventSource.emit(ctx().eventTypes.WORLDINFO_UPDATED,snapshot.world,next);
+    return {world:snapshot.world,macros:worldMacros(next)};
 }
 async function installRegex(rules) {
     const existing=getScriptsByType(SCRIPT_TYPES.GLOBAL,{allowedOnly:false});
@@ -563,9 +583,9 @@ async function installResourcePack(){
     let existing={entries:{}};
     for(const name of targets.filter(name=>wi.world_names.includes(name))){
         const data=await wi.loadWorldInfo(name);if(!data)throw Error('无法读取原世界书，请重试');
-        existing=mergeWorldEntries(existing,data);
+        existing=mergeWorldEntries(existing,data,{preserveMacros:true});
     }
-    await installWorld(new File([world],worldName+'.json',{type:'application/json'}),{targetName:worldName,existing,activate:!targets.some(name=>wi.world_names.includes(name))});
+    await installWorld(new File([world],worldName+'.json',{type:'application/json'}),{targetName:worldName,existing,preserveMacros:true,activate:!targets.some(name=>wi.world_names.includes(name))});
     await installRegex(rules);
     const oldNames=targets.filter(name=>name!==worldName);
     if(oldNames.length){
@@ -926,7 +946,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
             if(reason!=='favorites'){autoSession=null;refreshFloating();}renderAll();
         },
         saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
-        testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
+        testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
