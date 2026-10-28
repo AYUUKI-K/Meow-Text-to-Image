@@ -1,3 +1,4 @@
+import {withGenerationTimeout,generationTimeoutSeconds} from './generation-timeout.js';
 import {importVibeData,resolveVibes,vibeSummary,vibeModelKeys,stripImage} from './vibe.js';
 import {randomId} from './browser-crypto.js';
 import {hostFetch} from './host-fetch.js';
@@ -28,9 +29,11 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
         const summary=vibeSummary(item),index=settings.vibeLibrary.findIndex(v=>v.id===item.id);
         if(index<0)settings.vibeLibrary.push(summary);else settings.vibeLibrary[index]=summary;save();return summary;
     };
-    const nai=async(endpoint,body,{expectedKeyHash}={})=>{
+    const nai=async(endpoint,body,{expectedKeyHash,timeoutMs,beforeSend}={},consume=response=>response)=>{
         const key=await getKey(expectedKeyHash);if(!key)throw Error('请先在「生成」页重新填写并保存 NAI Key，用于当前浏览器直连');
-        return checkedFetch(endpoint==='encode-vibe'?'nai-encode':'nai-generation','https://image.novelai.net/ai/'+endpoint,{method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(180000)},{fetchImpl,secrets:[key]});
+        await beforeSend?.();
+        const send=async signal=>consume(await checkedFetch(endpoint==='encode-vibe'?'nai-encode':'nai-generation','https://image.novelai.net/ai/'+endpoint,{method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal},{fetchImpl,secrets:[key]}));
+        return endpoint==='generate-image'?withGenerationTimeout(send,{timeoutMs:timeoutMs??generationTimeoutSeconds(settings.generationTimeoutSeconds)*1000}):send(AbortSignal.timeout(180000));
     };
     return {
         async list(){return structuredClone(settings.vibeLibrary);},
@@ -65,8 +68,7 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
             if(!Array.isArray(request.vibes)||request.vibes.length>4)throw Error('Vibe 列表格式错误，本插件最多启用 4 个');
             const library=[];for(const binding of request.vibes||[]){const item=await read(binding.id);library.push({id:item.id,name:item.name,encodings:item.encodings});}
             const references=resolveVibes(request.model,request.vibes,library);
-            const response=await nai('generate-image',naiPayload(request,references),scope);
-            return unzipPNG(new Uint8Array(await response.arrayBuffer()));
+            return nai('generate-image',naiPayload(request,references),scope,async response=>unzipPNG(new Uint8Array(await response.arrayBuffer())));
         },
     };
 }

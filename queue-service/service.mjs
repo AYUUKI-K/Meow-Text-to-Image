@@ -17,7 +17,7 @@ export function createQueueServer({queue=new LeaseQueue()}={}){
             else if(req.url==='/complete'||req.url==='/leave-queue')result=queue.release(input);
             else{res.writeHead(404);res.end(JSON.stringify({error:'Not found'}));return;}
             res.end(JSON.stringify(result));
-        }catch{res.writeHead(400);res.end(JSON.stringify({error:'队列请求无效或任务已过期'}));}
+        }catch(error){const status=error.status===429?429:400;res.writeHead(status);res.end(JSON.stringify({error:status===429?'队列暂时满了':error.message==='排队任务已过期，请重新生成'?error.message:'队列请求无效'}));}
     });
     server.requestTimeout=15000;const sweep=setInterval(()=>queue.cleanup(),10000);sweep.unref();server.on('close',()=>clearInterval(sweep));return server;
 }

@@ -28,6 +28,7 @@ export function createQueueTransport({getHeaders=()=>({'Content-Type':'applicati
     const throughServer=async(root,op,body,timeout)=>{
         if(op==='ping'){const result=await visit(root+'/ping',timeout);if(result.ready!==true||result.relay!==1)throw invalidResponse('电脑转接不可用，请联系管理员更新队列服务');return result;}
         const input={key_hash:body.key_hash,user_id:body.user_id,task_id:body.task_id};
+        for(const field of ['cancel_hash','cancel_proof'])if(body[field])input[field]=body[field];
         // The raw lock token never enters a URL or the host's visited-URL log.
         if(body.lock_token&&['complete','leave-queue'].includes(op))input.release_proof=await sha256(body.lock_token+'\0release');
         const relay=new URL(root+'/relay');relay.searchParams.set('op',op);relay.searchParams.set('data',JSON.stringify(input));
@@ -41,7 +42,15 @@ export function createQueueTransport({getHeaders=()=>({'Content-Type':'applicati
         const target=new URL(url),op=target.pathname.split('/').at(-1),root=url.slice(0,url.lastIndexOf('/'));
         if(!['ping','join-queue','my-turn','complete','leave-queue'].includes(op)||target.username||target.password||target.search||target.hash||target.protocol!=='https:'&&!(target.protocol==='http:'&&['localhost','127.0.0.1'].includes(target.hostname)))throw stageError('queue',Error('队列地址无效'));
         const route=routes.get(root);
-        if(allowRelay()&&route?.relay)return throughServer(root,op,options.body,remaining());
+        if(allowRelay()&&route?.relay){
+            try{return await throughServer(root,op,options.body,Math.max(1,budget*2/3));}
+            catch(error){
+                if(!['TypeError','TimeoutError','AbortError'].includes(error.name)&&error.code!=='invalid-queue-response')throw error;
+                const result=await queueJSON(url,options,{fetchImpl,timeoutMs:remaining()});
+                if(op==='ping'&&result.ready!==true)throw invalidResponse('队列未返回就绪状态，请检查地址');
+                routes.delete(root);return result;
+            }
+        }
         try{const result=await queueJSON(url,options,{fetchImpl,timeoutMs:allowRelay()?Math.min(5000,Math.max(1,budget/3)):budget});if(op==='ping'&&result.ready!==true)throw invalidResponse('队列未返回就绪状态，请检查地址');return result;}
         catch(error){
             if(!allowRelay()||!['TypeError','TimeoutError','AbortError'].includes(error.name)&&error.code!=='invalid-queue-response')throw error;

@@ -116,7 +116,7 @@ test('real HTTP coordination: same-key waits, different-key runs; no raw key or 
   const c=runWithQueue({...options,keyHash:hash('two'),generate:async()=>{started.push('c');return 'image-c';}});
   assert.equal(await c,'image-c');assert.deepEqual(started,['a','c']);finishA('image-a');assert.equal(await a,'image-a');assert.equal(await b,'image-b');assert.deepEqual(started,['a','c','b']);
   assert.deepEqual(queue.stats(),{active:0,waiting:0});
-  assert.ok(bodies.every(body=>Object.keys(body).every(key=>['key_hash','user_id','task_id','greeting','lock_token'].includes(key))));
+  assert.ok(bodies.every(body=>Object.keys(body).every(key=>['key_hash','user_id','task_id','greeting','lock_token','cancel_hash','cancel_proof'].includes(key))));
  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
 test('generation errors release the lock without retrying NAI',async()=>{

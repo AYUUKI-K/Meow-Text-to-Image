@@ -34,5 +34,10 @@ try{
     assert.equal((await relay('join-queue',a)).lock_token,held.lock_token);
     const proof=createHash('sha256').update(held.lock_token+'\0release').digest('hex');
     await relay('complete',{...a,release_proof:proof});const granted=await call('/my-turn',b);assert.equal(granted.your_turn,true);await call('/complete',{...b,lock_token:granted.lock_token});
+    const cancelProof=createHash('sha256').update('runtime-only-cancellation').digest('hex'),cancelHash=createHash('sha256').update(cancelProof).digest('hex');
+    await relay('join-queue',{...a,cancel_hash:cancelHash});
+    assert.equal((await call('/join-queue',b)).your_turn,false);
+    assert.equal((await relay('leave-queue',{...a,cancel_proof:cancelProof})).released,true);
+    const recovered=await call('/my-turn',b);assert.equal(recovered.your_turn,true);await call('/complete',{...b,lock_token:recovered.lock_token});
     console.log('workerd + SQLite: isolation, polling, transactional handoff, idle cleanup and rejoin passed. No NAI requests.');
 }finally{await mf.dispose();}

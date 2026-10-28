@@ -54,7 +54,7 @@ test('a lost direct join and relay retry retain the same identity and one lock',
 test('old relays and TT remain explicit failures and never bypass queueing',async()=>{
     const legacy=relayFixture({legacy:true});let generated=0;
     await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:'a'.repeat(64),requestJSON:legacy.requestJSON,generate:async()=>{generated++;}}),/联系管理员更新队列/);
-    assert.equal(generated,0);assert.equal(legacy.calls.length,2);
+    assert.equal(generated,0);assert.equal(legacy.calls.length,3);
     const paths=[];const request=createQueueTransport({allowRelay:()=>false,fetchImpl:async url=>{paths.push(url);throw new TypeError('offline');}});
     await assert.rejects(request('https://queue.example/ping'),/连接队列服务失败/);assert.deepEqual(paths,['https://queue.example/ping']);
 });
@@ -76,6 +76,6 @@ test('queue timeouts include a hung bridge or body and retain the queue error so
 test('broken queue connections never fall back to uncoordinated generation or claim NAI returned an error',async()=>{
     let calls=0,sent=0;
     await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:'a'.repeat(64),sleep:async()=>{},fetchImpl:async()=>{calls++;throw new TypeError('offline');},generate:async()=>{sent++;}}),e=>e.source==='queue'&&e.message.includes('未发送新的生图请求')&&!e.message.includes('不会自动重试'));
-    assert.equal(calls,4);assert.equal(sent,0);
+    assert.equal(calls,8);assert.equal(sent,0);
     await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:'a'.repeat(64),fetchImpl:async()=>Response.json({your_turn:true}),generate:async()=>{sent++;}}),/队列状态无效/);assert.equal(sent,0);
 });

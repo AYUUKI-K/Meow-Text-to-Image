@@ -1,3 +1,4 @@
+import {withGenerationTimeout,generationTimeoutSeconds} from './generation-timeout.js';
 import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
 import {createThumbnails,imageBlob,blobBase64,localImagePath,makeThumbnail} from './image-thumbnails.js';
@@ -67,6 +68,7 @@ settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
 settings.cloudQueue ??= false;
 settings.retryQueue ??= true;
+settings.generationTimeoutSeconds=generationTimeoutSeconds(settings.generationTimeoutSeconds);
 settings.floatingReroll ??= false;
 settings.floatingIconType=settings.floatingIconType==='fontawesome'?'fontawesome':'default';
 if(!validFontAwesomeIcon(settings.floatingIcon))settings.floatingIcon={...defaultFontAwesomeIcon};
@@ -738,15 +740,19 @@ async function queueStatus() {
 async function requestImage(request,task,canContinue) {
     const scope=task||{keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
     const assertKey=()=>{if(settings.keyHash!==scope.keyHash)throw Error('NAI Key 已更换，请重新生成');};
-    const generate=async()=>{
+    const timeoutMs=generationTimeoutSeconds(settings.generationTimeoutSeconds)*1000;
+    const generate=async({beforeSend}={})=>{
         await waitForGeneration({canContinue:valid,onStatus});
         onStatus('正在生图');
         notices.info('正在生图','喵喵文生图');
-        if(isTT()||request.vibes?.length)return direct.generate(request,{expectedKeyHash:scope.keyHash});
-        const response=await checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(request),signal:AbortSignal.timeout(180000)});
+        if(isTT()||request.vibes?.length)return direct.generate(request,{expectedKeyHash:scope.keyHash,timeoutMs,beforeSend});
+        await beforeSend?.();
+        return withGenerationTimeout(async signal=>{
+        const response=await checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(request),signal});
         const data=(await response.text()).trim();
         if(!data||data.startsWith('{')||data.startsWith('<'))throw new Error('酒馆生图接口未返回有效图片');
         return data;
+        },{timeoutMs,source:'tavern-generation'});
     };
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
@@ -927,7 +933,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         directKeyStatus:async()=>{const status=await directVault.status(),key=await directVault.get();return {...status,ready:Boolean(key&&settings.keyHash&&await fingerprintKey(key)===settings.keyHash),serverSaved:!!settings.keyHash};},clearDirectKey:()=>directVault.clear(),
         closeSettings:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return;}return settingsPopup?.completeAffirmative?settingsPopup.completeAffirmative():settingsPopup?.dlg.close();},
         setRememberDirectKey:async value=>{await directVault.remember(value);settings.rememberDirectKey=value;save();},
-        encodeVibe:async body=>{const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;},generate=()=>{valid();return direct.encode(body,{expectedKeyHash:keyHash});};return enqueue(()=>cloudQueue?runWithQueue({url,keyHash,requestJSON:requestQueue,generate,canContinue:valid}):generate());},renameVibe:body=>direct.rename(body),
+        encodeVibe:async body=>{const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;},generate=({beforeSend}={})=>{valid();return direct.encode(body,{expectedKeyHash:keyHash,beforeSend});};return enqueue(()=>cloudQueue?runWithQueue({url,keyHash,requestJSON:requestQueue,generate,canContinue:valid}):generate());},renameVibe:body=>direct.rename(body),
         deleteVibe:async id=>{if(!await confirmSettings('删除这个 Vibe？所有配置中的引用也会移除。','删除 Vibe'))return false;await direct.delete(id);for(const p of settings.profiles)p.vibes=(p.vibes||[]).filter(v=>v.id!==id);save();return true;}});
     settingsHost=panel;
     try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}return true;},onOpen:popup=>{

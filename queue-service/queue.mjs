@@ -5,6 +5,7 @@ export class LeaseQueue {
     constructor({now=Date.now,leaseMs=240000,waitingMs=90000,maxHoldMs=600000,maxJobs=1000,renewalMs=0,pickupMs=45000}={}){Object.assign(this,{now,leaseMs,waitingMs,maxHoldMs,maxJobs,renewalMs,pickupMs});this.lanes=new Map();}
     validate(input){
         if(!input||'key' in input||!/^([a-f0-9]{64})$/i.test(input.key_hash||'')||!/^[-a-zA-Z0-9_]{8,100}$/.test(input.user_id||'')||!/^[-a-zA-Z0-9_]{8,100}$/.test(input.task_id||''))throw new Error('无效排队信息');
+        for(const field of ['cancel_hash','cancel_proof'])if(input[field]!==undefined&&!/^[a-f0-9]{64}$/.test(input[field]))throw new Error('无效撤销凭据');
     }
     cleanup(){
         const now=this.now();
@@ -25,7 +26,7 @@ export class LeaseQueue {
         const previous=this.find(lane,input);if(previous){if(previous===lane.active)this.pickup(previous);this.touch(previous);return this.view(lane,previous);}
         const total=[...this.lanes.values()].reduce((sum,l)=>sum+l.waiting.length+(l.active?1:0),0);
         if(total>=this.maxJobs||lane.waiting.length>=64)throw Object.assign(new Error('队列暂时满了'),{status:429});
-        const job={user:input.user_id,task:input.task_id,seen:this.now()};
+        const job={user:input.user_id,task:input.task_id,seen:this.now(),...(input.cancel_hash?{cancelHash:input.cancel_hash}:{})};
         if(!lane.active){lane.active={...job,token:randomUUID(),started:this.now(),expires:this.now()+this.leaseMs};return this.view(lane,lane.active);}
         lane.waiting.push(job);return this.view(lane,job);
     }
@@ -40,7 +41,7 @@ export class LeaseQueue {
     release(input){
         this.validate(input);this.cleanup();const hash=input.key_hash.toLowerCase(),lane=this.lanes.get(hash);
         if(!lane)return {released:false};const job=this.find(lane,input);if(!job)return {released:false};
-        if(lane.active===job){const proof=createHash('sha256').update(job.token+'\0release').digest('hex');if(!equal(job.token,input.lock_token)&&!equal(proof,input.release_proof))throw new Error('无效队列凭据');lane.active=null;}
+        if(lane.active===job){const proof=createHash('sha256').update(job.token+'\0release').digest('hex');const cancelled=job.cancelHash&&input.cancel_proof&&equal(job.cancelHash,createHash('sha256').update(input.cancel_proof).digest('hex'));if(!equal(job.token,input.lock_token)&&!equal(proof,input.release_proof)&&!cancelled)throw new Error('无效队列凭据');lane.active=null;}
         else lane.waiting=lane.waiting.filter(j=>j!==job);
         this.cleanup();return {released:true};
     }
