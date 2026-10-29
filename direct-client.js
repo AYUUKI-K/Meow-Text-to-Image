@@ -1,9 +1,10 @@
+import {reportNAIFailure} from './nai-diagnostics.js';
 import {generationTimeoutSeconds} from './generation-timeout.js';
 import {prepareGeneration,sendPrepared} from './generation-lifecycle.js';
 import {importVibeData,resolveVibes,vibeSummary,vibeModelKeys,stripImage} from './vibe.js';
 import {randomId} from './browser-crypto.js';
 import {hostFetch} from './host-fetch.js';
-import {checkedFetch} from './request-errors.js';
+import {checkedFetch,stageError,redactErrorText} from './request-errors.js';
 import {varietyBoostSigma} from './core.js';
 import {connectionSnapshot,assertConnection,validateEndpoint} from './nai-connection.js';
 import {parseNAIImage,payloadSecrets,requestSummary} from './nai-response.js';
@@ -12,7 +13,7 @@ export function base64Bytes(bytes){let binary='';for(let i=0;i<bytes.length;i+=3
 export function naiPayload(request,references={}){
     return {action:'generate',input:request.prompt,model:request.model,parameters:{params_version:3,width:request.width,height:request.height,steps:request.steps,scale:request.scale,seed:request.seed,sampler:request.sampler,noise_schedule:request.scheduler,n_samples:1,negative_prompt:request.negative_prompt,qualityToggle:false,ucPreset:0,sm:false,sm_dyn:false,dynamic_thresholding:false,legacy:false,legacy_v3_extend:false,add_original_image:false,controlnet_strength:1,deliberate_euler_ancestral_bug:false,prefer_brownian:true,cfg_rescale:0,uncond_scale:1,skip_cfg_above_sigma:varietyBoostSigma(request),use_coords:false,characterPrompts:[],...references,v4_prompt:{caption:{base_caption:request.prompt,char_captions:[]},use_coords:false,use_order:true},v4_negative_prompt:{caption:{base_caption:request.negative_prompt,char_captions:[]}}}};
 }
-export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fetchImpl=fetch}){
+export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fetchImpl=fetch,onDiagnostic=()=>{},runtime}){
     settings.vibeLibrary??=[];
     let importing=false;
     const filename=id=>{if(!/^[a-f0-9-]{36}$/i.test(id||''))throw Error('无效 Vibe ID');return `miao-vibe-${id}.json`;};
@@ -40,7 +41,16 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
         const source=endpoint==='encode-vibe'?'nai-encode':'nai-generation',serialized=JSON.stringify(body);
         const secrets=[key,...payloadSecrets(body)];
         const options={method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:serialized};
-        return {source,secrets,send:signal=>{assertConnection(settings,connection);return checkedFetch(source,url,{...options,signal,...(custom?{redirect:'error'}:{})},{fetchImpl,secrets,custom,summary:summary?requestSummary(summary,secrets):''}).then(response=>response.arrayBuffer());}};
+        let phase='prepared',httpStatus;
+        const onError=custom?error=>{error.message=redactErrorText(error.message,secrets);return reportNAIFailure(error,{phase,source,protocol:new URL(url).protocol,httpStatus,runtime,onDiagnostic});}:undefined;
+        return {source,secrets,onError,send:signal=>{
+            assertConnection(settings,connection);phase='fetch';httpStatus=undefined;
+            return checkedFetch(source,url,{...options,signal,...(custom?{redirect:'error'}:{})},{fetchImpl,secrets,custom,summary:summary?requestSummary(summary,secrets):''}).then(async response=>{
+                httpStatus=response.status;phase='body';let bytes;
+                try{bytes=await response.arrayBuffer();}catch(error){if(!custom)throw error;throw stageError(source,Object.assign(Error('读取响应正文失败；结果尚不确定，不会自动重试'),{name:['TypeError','AbortError','TimeoutError'].includes(error?.name)?error.name:'Error'}));}
+                phase='parse';return bytes;
+            });
+        }};
     };
     const prepareGenerate=async(request,scope={})=>{
         scope={...scope,connection:{...(scope.connection||connectionSnapshot(settings))}};

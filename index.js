@@ -5,7 +5,7 @@ import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
 import {createThumbnails,imageBlob,blobBase64,localImagePath,makeThumbnail} from './image-thumbnails.js';
 import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORITE_IMAGE_LIMIT} from './prompt-favorites.js';
-import {generationOptions,migrateGenerationOptions,runGenerationTask} from './generation-options.js';
+import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from './generation-options.js';
 import {waitForGeneration} from './generation-delay.js';
 import {showPagePopup} from './page-popup.js';
 import {showPanelPage} from './panel-page.js';
@@ -59,9 +59,10 @@ const base=new URL('.',import.meta.url);
 const ctx=()=>getContext();
 const requestQueue=createQueueTransport({getHeaders:()=>ctx().getRequestHeaders(),allowRelay:()=>!isTT()});
 const updater=createExtensionUpdater({moduleURL:import.meta.url,getHeaders:()=>ctx().getRequestHeaders(),getGlobal:name=>extensionAPI.extensionTypes?.[name]==='global'});
+const newInstallation=extension_settings[ID]==null;
 const settings=extension_settings[ID] ??= {enabled:true,stream:false,pattern:'image###([\\s\\S]*?)###',profiles:[{...defaults}],active:0,installed:false};
 const notices=createNotifications(settings,toastr);
-settings.mode ??= settings.stream ? 'stream' : 'manual';
+const generationModeMigrated=migrateGenerationMode(settings);
 settings.theme = 'auto';
 settings.folder ??= 'miao-nai';
 settings.folders ??= ['miao-nai'];
@@ -70,10 +71,8 @@ delete settings.archiveMode;
 delete settings.libraryView;
 settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
-const retryOptionsMigrated=settings.autoRetryEnabled===undefined;
-const generationOptionsMigrated=migrateGenerationOptions(settings);
+const generationOptionsMigrated=migrateGenerationOptions(settings,{newInstallation});
 const connectionMigrated=migrateConnection(settings);
-if(retryOptionsMigrated&&settings.retryQueue===true)notices.info('自动重试默认关闭；如需在明确占线后等待 10 秒、最多重试 3 次，请主动勾选「遇到占线自动重试」。','喵喵文生图');
 settings.floatingReroll ??= false;
 settings.floatingIconType=settings.floatingIconType==='fontawesome'?'fontawesome':'default';
 if(!validFontAwesomeIcon(settings.floatingIcon))settings.floatingIcon={...defaultFontAwesomeIcon};
@@ -96,7 +95,7 @@ let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
 const save=()=>ctx().saveSettingsDebounced();
-if(generationOptionsMigrated||connectionMigrated)save();
+if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const favorites=createFavorites({settings,persist:persistSettings});
@@ -114,7 +113,7 @@ const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,libr
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
 const activeVault=()=>settings.naiConnection==='custom'?customVault:directVault;
-const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHeaders(),getKey:async(expectedKeyHash,connection)=>{
+const direct=createDirectClient({settings,save,onDiagnostic:entry=>console.error('[Mewo NAI]',JSON.stringify(entry)),getHeaders:()=>ctx().getRequestHeaders(),getKey:async(expectedKeyHash,connection)=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
     assertConnection(settings,connection);
     const key=await (connection.naiConnection==='custom'?customVault:directVault).get();
@@ -955,8 +954,8 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         onChange:async reason=>{
             if(reason!=='favorites'){autoSession=null;refreshFloating();}renderAll();
         },
-        saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
-        saveCustomConnection:async values=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});notices.success('自定义连接已保存；仅完成本地校验，未调用接口');},
+        saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
+        saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
         testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),

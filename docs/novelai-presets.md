@@ -1,38 +1,41 @@
-# NovelAI 官网预设核对（2026-10-27）
+# 质量标签与负面预设
 
-配置页的「质量 Tags」和「UC 负面预设」独立保存到每套配置，并随 NAI 串导入／导出。新配置和缺少预设字段的旧配置默认 Standard／Heavy；已经明确保存的选项（包括 None）继续保留。切换模型时，不支持的选项退回 None。
+在「配置」页，可以为每套配置分别选择「质量 Tags」和「UC 负面预设」。它们用于自动补充常用标签，不会改写输入框中保存的提示词。
 
-## 插入位置
+## 选择预设
 
-- 正面先按原有顺序拼接「前置正面 → 本次场景 → 后置正面」，再把质量预设追加到末尾。按用户要求，所有官网预设词串最后补上逗号和空格 `, `；有自定义负面时复用这一分隔符，不重复加逗号。
-- UC 预设加到自定义负面开头。与官网 `solveUc` 一致，非 Curated 模型选用 UC 预设且正面不含 `nsfw`（大小写不敏感）时，负面最前额外加入 `nsfw`。
-- V4／V4.5／V5 质量预设只作用于基础提示词（`|` 前，保留 `||...||` 块），并放在 `text:` 内容之前；UC 也仅加在基础负面前。V3 的提示词混合为每段添加质量预设，保留末尾混合权重。
-- **None 不加任何标签**。官网 V3 的 None 在负面完全为空时仍有 `lowres` 的历史回退；这里遵循插件选项语义，不采用该回退。
+- **质量 Tags**：在正面提示词末尾添加所选模型对应的质量标签。
+- **UC 负面预设**：在自定义负面提示词前添加所选模型对应的负面标签。
+- **None**：不添加这类预设标签。仍保留你自己输入的内容。
 
-## 当前官网代码与文档的差异
+可选项取决于模型，以界面实际显示为准。切换模型时，不支持的选项会退回 None。新配置默认使用 Standard 质量预设和 Heavy 负面预设；明确保存的 None 不会被默认值替换。
 
-数据来自官网公开客户端的 `qualityPresetsForModel` / `getModelUcPreset`，覆盖插件已有的八种模型，保留大小括号与数值权重：
+预设随配置独立保存，并随 NAI 串导入和导出。
 
-- V5 Full／Curated：Standard、Light、None；其他已支持模型：Standard、None。
-- V4.5 Full、V5：UC 支持 Heavy、Light、Furry Focus、Human Focus、None。
-- V4.5 Curated、V3 Anime：UC 支持 Heavy、Light、Human Focus、None。
-- V4、V3 Furry：UC 支持 Heavy、Light、None。
-- 当前客户端 V4.5 Full 的 Standard 是 `very aesthetic, masterpiece, no text`，不含文档仍列出的 `location`，与用户截图一致。
-- 当前客户端 V4.5 Curated 的 Standard 是 `very aesthetic, masterpiece, no text, -0.8::feet::, rating:general`；V4 Curated 使用 `rating:general, best quality, very aesthetic, absurdres`。
-- 当前客户端 V4 的 UC 末尾还包含 `white blank page, blank page`，官网文档未完整列出。
+## 最终提示词的顺序
 
-## 去重
+正面按以下顺序组合：
 
-官网 `resolvePromptAndUc` 调用 `addQualityToPrompt` 与 `solveUc`。`applyPreset` 直接连接前／后缀，`solveUc` 直接在负面前连接预设，**没有按 tag 去重**。因此插件保留所有重复词与权重，不引入全局去重。输入框保留用户原文，最终请求记录添加后的实际提示词。配置页只显示选择器，不在下方显示说明文字；图库刷新也不显示进度或完成说明，失败仍通过原有错误提示报告。
+```text
+前置正面 → 本次场景提示词 → 后置正面 → 质量 Tags
+```
 
-插件在构造请求时处理一次；SillyTavern 转发端和插件 NAI 直连端均使用 `qualityToggle: false`，防止请求端再次添加质量预设。该实现为纯前端模块，不依赖 Node 后端插件或桌面 API。
+负面按以下顺序组合：
 
-## 核对来源
+```text
+UC 负面预设 → 自定义负面提示词
+```
 
-- [官网质量标签文档](https://docs.novelai.net/en/image/qualitytags/)
-- [官网 UC 文档](https://docs.novelai.net/en/image/undesiredcontent/)
-- [官网图像客户端](https://novelai.net/image)，部署 `ddf7a39-40369342490-1`，数据及处理代码位于 `/_next/static/chunks/1e943u861145k.js`；调用位置位于 `42wv5qb9evl5c.js`。部署文件名会变化。
-- [SillyTavern 转发接口](https://github.com/SillyTavern/SillyTavern/blob/release/src/endpoints/novelai.js)
-- [TauriTavern 扩展指南](https://github.com/Darkatse/TauriTavern/blob/main/ExtensionDEV.md)
+使用非 Curated 模型、选择 UC 预设且正面不含 `nsfw` 时，可能还会在负面开头添加 `nsfw`。切换到 None 可关闭 UC 预设添加的内容。
 
-验证覆盖模型差异、插入顺序、None 与旧配置、重复／加权词保留、字符和文本边界、直连请求一致性、导入导出和例图签名。浏览器预览使用模拟响应，不调用真实 NAI；实体 iOS 客户端仍需设备验收。
+重复标签和原有权重会保留，不会自动去重。若你已经手动写入相同标签，可以删除重复内容，或将相应预设设为 None。生成记录保存的是组合后的实际请求提示词，可通过图片的提示词查看入口核对。
+
+对于包含提示词混合、字符提示或文本生成语法的内容，预设只按相应模型的拼接规则插入，不会作为独立场景发送。预设在 Mewo 构造请求时添加一次，官方直连、自定义兼容接口和酒馆转发使用相同的结果。
+
+## 与 NovelAI 官网的关系
+
+插件内置的是一套随版本发布的模型预设，不会在线同步官网的每次调整。即使名称相同，官网后续修改标签后也可能与插件存在差异。第三方兼容站点是否支持所选模型，以该站点说明为准。
+
+想完全控制请求内容时，将两项预设都设为 None，再自行填写正负面提示词。
+
+[返回项目首页](../README.md) · [连接设置](CONNECTIONS.md)

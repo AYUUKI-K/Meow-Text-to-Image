@@ -28,12 +28,14 @@ export async function prepareGeneration(run,{timeoutMs=20000,canContinue=()=>tru
 // send() must invoke fetch synchronously before its first await. All key reads,
 // serialization and host headers belong to prepare, not to this boundary.
 export async function sendPrepared(prepared,{beforeSend,assertSend,onResponse,canContinue=()=>true,timeoutMs=DEFAULT_GENERATION_TIMEOUT_MS}={}){
-    const remaining=await beforeSend?.();
-    const result=await withGenerationTimeout(signal=>{
-        if(!canContinue())throw Error('原消息已变化，已退出待生成队列');
-        assertSend?.();
-        return prepared.send(signal);
-    },{timeoutMs:remaining??timeoutMs,source:prepared.source});
-    await onResponse?.();
-    return prepared.postprocess?prepared.postprocess(result):result;
+    try{
+        const remaining=await beforeSend?.();
+        const result=await withGenerationTimeout(signal=>{
+            if(!canContinue())throw Error('原消息已变化，已退出待生成队列');
+            assertSend?.();
+            return prepared.send(signal);
+        },{timeoutMs:remaining??timeoutMs,source:prepared.source});
+        await onResponse?.();
+        return prepared.postprocess?await prepared.postprocess(result):result;
+    }catch(error){try{prepared.onError?.(error);}catch{}throw error;}
 }

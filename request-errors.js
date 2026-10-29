@@ -77,7 +77,7 @@ export function stageError(source,error){
 export async function inStage(source,run){try{return await run();}catch(error){throw stageError(source,error);}}
 export async function checkedFetch(source,url,options={}, {fetchImpl=fetch,secrets=[],custom=false,summary=''}={}){
     let response;try{response=await fetchImpl(url,options);}catch(error){const wrapped=stageError(source,error);if(custom&&wrapped.name==='TypeError')wrapped.message+='；自定义接口可能受浏览器跨域（CORS）或 HTTPS 页面访问 HTTP 的混合内容限制，请检查站点配置及浏览器控制台';throw wrapped;}
-    if(!response.ok){let body;try{body=await response.text();}catch(error){throw stageError(source,error);}throw httpRequestError({source,status:response.status,body,secrets,custom,summary,retryAfterMs:parseRetryAfter(response.headers.get('Retry-After'))});}
+    if(!response.ok){let body;try{body=await response.text();}catch(error){const wrapped=stageError(source,error);if(custom){wrapped.responseStatus=response.status;wrapped.responseBodyFailure=true;}throw wrapped;}throw httpRequestError({source,status:response.status,body,secrets,custom,summary,retryAfterMs:parseRetryAfter(response.headers.get('Retry-After'))});}
     return response;
 }
 export function errorTitle(error,fallback='操作失败'){return error?.source?(labels[error.source]||fallback)+'失败':fallback;}

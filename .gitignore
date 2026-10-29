@@ -5,3 +5,14 @@ node_modules/
 .env
 
 .wrangler/
+
+# Local work records stay private; only the listed user guides are public.
+/docs/*
+!/docs/ARCHIVES.md
+!/docs/CONNECTIONS.md
+!/docs/QUEUE.md
+!/docs/VIBE.md
+!/docs/novelai-presets.md
+
+.DS_Store
+/scripts/queue-phase*-report.mjs

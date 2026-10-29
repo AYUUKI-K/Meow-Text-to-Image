@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {retryGeneration} from '../generation-retry.js';
-import {generationOptions,migrateGenerationOptions,runGenerationTask} from '../generation-options.js';
+import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from '../generation-options.js';
 import {httpRequestError,parseRetryAfter} from '../request-errors.js';
 const refused=(status=429,retryAfterMs=0)=>httpRequestError({source:'nai-generation',status,retryAfterMs});
 test('R01–R03: local mode never uses cloud, opt-in fixed 10s and at most four POSTs',async()=>{
@@ -46,4 +46,26 @@ test('R06/R18: cancel or frozen local retry does not resume or call cloud; resta
   await assert.rejects(runGenerationTask({scope:{cloudQueue:false,autoRetryEnabled:true},canContinue:()=>valid,queueOptions:{requestJSON:()=>assert.fail('cloud RPC')},retryOptions:{now:()=>now,sleep:async()=>{if(freeze)now=21000;else valid=false;}},generate:async()=>{posts++;throw refused();}}),freeze?/过期/:/原消息/);assert.equal(posts,1);
  }
  const settings={retryQueue:true};migrateGenerationOptions(settings);let posts=0;await assert.rejects(runGenerationTask({scope:generationOptions(settings),generate:async()=>{posts++;throw refused();},queueOptions:{requestJSON:()=>assert.fail('cloud RPC')}}));assert.equal(posts,1);
+});
+
+
+test('new installation enables cloud queue only by default, preserving existing choices and local retry defaults',()=>{
+ const fresh={};migrateGenerationOptions(fresh,{newInstallation:true});
+ assert.equal(fresh.cloudQueue,true);assert.equal(fresh.autoRetryEnabled,false);assert.equal(fresh.generationTimeoutSeconds,60);
+ for(const cloudQueue of [false,true]){
+  const existing={cloudQueue};migrateGenerationOptions(existing);assert.equal(existing.cloudQueue,cloudQueue);
+  const reloaded=JSON.parse(JSON.stringify(existing));migrateGenerationOptions(reloaded);assert.equal(reloaded.cloudQueue,cloudQueue);
+ }
+ const legacy={retryQueue:true};migrateGenerationOptions(legacy);assert.equal(legacy.cloudQueue,false);
+});
+test('generation mode replaces legacy disabled switch without unexpectedly enabling automatic generation',()=>{
+ for(const mode of ['manual','auto','stream']){
+  const settings={mode,enabled:false};assert.equal(migrateGenerationMode(settings),true);
+  assert.equal(settings.mode,'manual');assert.equal(settings.enabled,true);assert.equal(migrateGenerationMode(settings),false);
+  settings.mode=mode;assert.equal(migrateGenerationMode(settings),false);assert.equal(settings.mode,mode);
+ }
+ for(const mode of ['manual','auto','stream']){
+  const settings={mode,enabled:true};migrateGenerationMode(settings);assert.equal(settings.mode,mode);
+ }
+ const legacy={stream:true};migrateGenerationMode(legacy);assert.equal(legacy.mode,'stream');
 });

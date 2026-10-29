@@ -3,8 +3,14 @@ import {retryGeneration} from './generation-retry.js';
 import {runWithQueue} from './cloud-queue.js';
 import {connectionSnapshot} from './nai-connection.js';
 
-export function migrateGenerationOptions(settings){
-    settings.cloudQueue??=false;
+export function migrateGenerationMode(settings){
+    const mode=settings.enabled===false?'manual':settings.mode??(settings.stream?'stream':'manual');
+    const changed=settings.mode!==mode||settings.enabled!==true;
+    settings.mode=mode;settings.enabled=true;
+    return changed;
+}
+export function migrateGenerationOptions(settings,{newInstallation=false}={}){
+    settings.cloudQueue??=newInstallation;
     const retryMigrated=settings.autoRetryEnabled===undefined;
     const timeoutMigrated=settings.generationTimeoutDefaultVersion!==1;
     if(retryMigrated)settings.autoRetryEnabled=false;
