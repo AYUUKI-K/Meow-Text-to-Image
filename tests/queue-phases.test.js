@@ -182,11 +182,11 @@ test('browser resuming after its preparing deadline cannot POST after the next h
 test('new direct-image response releases before an indefinitely blocked ZIP and cannot turn local decode failure into uncertain generation',async()=>{
  const {createDirectClient}=await import('../direct-client.js');
  let resume,entered;const ready=new Promise(r=>entered=r),q=new LeaseQueue();
- const direct=createDirectClient({settings:{},save(){},getHeaders:()=>({}),getKey:async()=>'fixture-only',fetchImpl:async()=>new Response('zip'),unzipPNG:()=>{entered();return new Promise((_,reject)=>resume=reject);}});
+ const direct=createDirectClient({settings:{},save(){},getHeaders:()=>({}),getKey:async()=>'fixture-only',fetchImpl:async()=>new Response(new Uint8Array([80,75,3,4])),unzipPNG:()=>{entered();return new Promise((_,reject)=>resume=reject);}});
  const prepared=await direct.prepareGenerate({vibes:[]});
  const pending=runWithQueue({url:'https://fixture.invalid',keyHash:hash,requestJSON:dispatch(q),generate:controls=>sendPrepared(prepared,controls)});
  await ready;assert.equal(q.stats().active,0);resume(new TypeError('local ZIP failure'));
- await assert.rejects(pending,/local ZIP/);assert.equal(q.stats().active,0);
+ await assert.rejects(pending,/ZIP 损坏/);assert.equal(q.stats().active,0);
 });
 
 test('Vibe encoding keeps its 180s local budget and bounded protection when the host ignores abort',async t=>{

@@ -11,9 +11,10 @@ import {createFavoritesView} from './favorites-view.js';
 import {FAVORITE_FOLDER,favoritesEnabled} from './prompt-favorites.js';
 import {novelAIPresets,resolvePresetId} from './novelai-presets.js';
 import {fontAwesomeElement} from './fontawesome-icons.js';
+import {onlineEncodingAvailable,connectionSnapshot} from './nai-connection.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
     let activeTab=initialTab||(matchMedia('(max-width:680px), (max-height:500px)').matches?'overview':'generation'),fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft,sortingProfiles=false;
@@ -156,24 +157,39 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const toggle=node('label',undefined,'miao-switch-row');const checkbox=node('input');checkbox.type='checkbox';checkbox.checked=settings.enabled;checkbox.onchange=()=>{settings.enabled=checkbox.checked;save();onChange();};toggle.append(node('span','启用自动生图'),checkbox);main.append(toggle);
             field(main,'生成模式',settings.mode,v=>{settings.mode=v;save();onChange(true);render();},{options:[['manual','手动'],['auto','回复后生成'],['stream','流式生成']]});
             const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.autoRetryEnabled;retryCheck.onchange=()=>{settings.autoRetryEnabled=retryCheck.checked;save();};retry.append(node('span','遇到占线自动重试'),retryCheck);main.append(retry);
-            main.append(node('p','仅在 NAI 明确拒绝本次请求时，等待 10 秒后最多重试 3 次；关闭则立即报错。启用云端排队时仍由本地发起重试，云端只协调发送许可。服务端要求更久时以服务端为准；超过 120 秒则停止。超时、断网和未知 5xx 不重发。','miao-muted'));
+            main.append(node('p','最多重试 3 次，超时、断网和未知 5xx 报错不重试。','miao-muted'));
             const connection=section(account,'连接 NovelAI');
 
-            const key=field(connection,'API Key','',()=>{},{type:'password'});key.autocomplete='new-password';key.placeholder='输入你的 NovelAI Key';
-            const remember=node('label',undefined,'miao-switch-row'),rememberCheck=node('input');rememberCheck.type='checkbox';rememberCheck.checked=!!settings.rememberDirectKey;rememberCheck.onchange=safe(async()=>{try{await setRememberDirectKey(rememberCheck.checked);}finally{rememberCheck.checked=!!settings.rememberDirectKey;await updateKeyState();}});remember.append(node('span','记住 Key'),rememberCheck);connection.append(remember);
+            const custom=settings.naiConnection==='custom',epoch=renderEpoch;
+            field(connection,'连接方式',custom?'custom':'official',value=>{settings.naiConnection=value;settings.connectionRevision=(settings.connectionRevision||0)+1;save();render();},{options:[['official','官方 NovelAI'],['custom','自定义 NovelAI 兼容接口']]});
+            let generationURL,encodeURL;
+            if(custom){
+                connection.append(node('p','适用于 NovelAI 原生兼容接口。请填写完整请求地址。模型、Vibe、额度及调用频率以站点说明为准。使用公益站时，建议关闭自动生图和自动重试，少量提交任务，并按站方要求控制节奏。','miao-muted'));
+                generationURL=field(connection,'生图完整 URL（必填）',settings.customGenerationURL,()=>{});
+                encodeURL=field(connection,'Vibe 编码完整 URL（可选）',settings.customEncodeURL,()=>{});
+                connection.append(node('p','在线编码需要另行配置完整端点；留空时仍可导入和使用已有编码的 Vibe。地址原样请求，不追加路径。','miao-muted'));
+            }
+            const key=field(connection,'API Key','',()=>{},{type:'password'});key.autocomplete='new-password';key.placeholder=custom?'输入完整 Bearer Token（不含 Bearer 前缀）':'输入你的 NovelAI Key';
+            const rememberSetting=custom?'rememberCustomKey':'rememberDirectKey';
+            const remember=node('label',undefined,'miao-switch-row'),rememberCheck=node('input');rememberCheck.type='checkbox';rememberCheck.checked=!!settings[rememberSetting];rememberCheck.onchange=safe(async()=>{try{await setRememberDirectKey(rememberCheck.checked);}finally{rememberCheck.checked=!!settings[rememberSetting];await updateKeyState();}});remember.append(node('span','记住 Key'),rememberCheck);connection.append(remember);
 
             const keyState=node('p','检查中…','miao-muted');connection.append(keyState);
             const mask='••••••••••••';let directReady=false;
             key.addEventListener('focus',()=>{if(key.value===mask)key.value='';});
             key.addEventListener('blur',()=>{if(!key.value&&directReady)key.value=mask;});
-            const updateKeyState=async()=>{const status=await directKeyStatus();directReady=status.ready;keyState.textContent=directReady?(status.persistent?'已记住':'本次有效'):status.serverSaved?'请填写直连 Key':'未设置';if(document.activeElement!==key&&(!key.value||key.value===mask))key.value=directReady?mask:'';};safe(updateKeyState)();
-            const actions=node('div',undefined,'miao-actions');connection.append(actions);action(actions,'保存密钥',async()=>{try{await saveKey(key.value===mask?'':key.value.trim());key.value='';}finally{await updateKeyState();}},true);action(actions,'测试生成',testImage);
+            const updateKeyState=async()=>{const status=await directKeyStatus();if(epoch!==renderEpoch)return;directReady=status.ready;keyState.textContent=directReady?(status.persistent?'已记住':'本次有效'):status.serverSaved?'请填写直连 Key':'未设置';if(document.activeElement!==key&&(!key.value||key.value===mask))key.value=directReady?mask:'';};safe(updateKeyState)();
+            const saveConnection=async()=>{try{const input=key.value===mask?'':key.value.trim();if(custom)await saveCustomConnection({input,generationURL:generationURL.value,encodeURL:encodeURL.value});else await saveKey(input);key.value='';}finally{await updateKeyState();}};
+            const actions=node('div',undefined,'miao-actions');connection.append(actions);action(actions,custom?'保存自定义连接':'保存密钥',saveConnection,true);action(actions,'实际测试生图（可能消耗额度）',async()=>{await commitPage();return testImage();});
+            connection.append(node('p','测试生图会实际调用当前接口，可能消耗额度；保存配置仅做本地校验。','miao-muted'));
             action(connection,'清除 Key',async()=>{await clearDirectKey();await updateKeyState();});
-            commitPage=async()=>{if(key.value.trim()&&key.value!==mask){await saveKey(key.value.trim());key.value='';await updateKeyState();}};
+            commitPage=async()=>{if(custom||key.value.trim()&&key.value!==mask)await saveConnection();};
             const queue=section(account,'共享 Key 排队');
+            account.insertBefore(queue,connection);
             const queueToggle=node('label',undefined,'miao-switch-row'),queueCheck=node('input');queueCheck.type='checkbox';queueCheck.checked=settings.cloudQueue;queueCheck.onchange=()=>{settings.cloudQueue=queueCheck.checked;save();};queueToggle.append(node('span','启用云端排队'),queueCheck);queue.append(queueToggle);
+            queue.append(node('p','仅协调使用同一队列服务地址的 Mewo 请求。官网、其他插件或不同队列的请求不受保护，仍可能发生占线。','miao-muted'));
             field(queue,'队列服务地址',settings.queueUrl,v=>{settings.queueUrl=v.trim();save();}).placeholder='https://miao-image-queue.savlu329.workers.dev';
-            const status=node('p',settings.keyHash?'Key 已就绪':'未设置 Key','miao-muted');queue.append(status);
+            const queueDocs=node('a','自行部署 Mewo 队列服务');queueDocs.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/test/QUEUE.md#cloudflare-workers-部署';queueDocs.target='_blank';queueDocs.rel='noopener noreferrer';queue.append(queueDocs);
+            const status=node('p',connectionSnapshot(settings).keyHash?'Key 已就绪':'未设置 Key','miao-muted');queue.append(status);
             action(queue,'测试连接',async()=>{validateQueueURL(settings.queueUrl);await queueStatus();status.textContent='连接正常';});
         } else if(activeTab==='config') {
             const profiles=section(body,'配置');profiles.classList.add('miao-profile-section');
@@ -312,7 +328,9 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                             let model=vibeModelKeys[p.model]?p.model:'nai-diffusion-4-5-full',information=1;
                             field(grid,'编码模型',model,v=>model=v,{options:models.filter(([id])=>vibeModelKeys[id])});
                             const amount=field(grid,'信息提取量',information,v=>information=v,{type:'number'});amount.min='0';amount.max='1';amount.step='0.05';
-                            action(card,'编码并保存（2 Anlas）',async()=>{await encodeVibe({id:item.id,model,information});await refresh();});
+                            const encode=action(card,settings.naiConnection==='custom'?'在线编码并保存（可能消耗额度）':'编码并保存（2 Anlas）',async()=>{await encodeVibe({id:item.id,model,information});await refresh();});
+                            encode.disabled=!onlineEncodingAvailable(settings);
+                            if(encode.disabled)card.append(node('p','自定义连接未配置 Vibe 编码完整 URL，在线编码已禁用；仍可导入已有编码的 Vibe 文件。','miao-muted'));
                         }
                         action(card,'删除 Vibe',async()=>{if(await deleteVibe(item.id))await refresh();});list.append(card);
                     }

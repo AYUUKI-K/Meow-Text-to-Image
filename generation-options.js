@@ -1,6 +1,7 @@
 import {generationTimeoutSeconds} from './generation-timeout.js';
 import {retryGeneration} from './generation-retry.js';
 import {runWithQueue} from './cloud-queue.js';
+import {connectionSnapshot} from './nai-connection.js';
 
 export function migrateGenerationOptions(settings){
     settings.cloudQueue??=false;
@@ -15,7 +16,7 @@ export function migrateGenerationOptions(settings){
     return retryMigrated||timeoutMigrated;
 }
 export function generationOptions(settings){
-    return {keyHash:settings.keyHash,cloudQueue:settings.cloudQueue===true,autoRetryEnabled:settings.autoRetryEnabled===true,queueUrl:settings.queueUrl,generationTimeoutSeconds:generationTimeoutSeconds(settings.generationTimeoutSeconds)};
+    return {...connectionSnapshot(settings),cloudQueue:settings.cloudQueue===true,autoRetryEnabled:settings.autoRetryEnabled===true,queueUrl:settings.queueUrl,generationTimeoutSeconds:generationTimeoutSeconds(settings.generationTimeoutSeconds)};
 }
 // The snapshot is created when enqueueing, never read again during retries.
 export function runGenerationTask({scope,generate,queueOptions={},retryOptions={},canContinue=()=>true,onStatus=()=>{}}){

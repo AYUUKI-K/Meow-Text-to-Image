@@ -14,7 +14,7 @@ test('frontend-only Vibe uses existing ST file API and sends key only to NovelAI
  if(url==='/api/files/delete'){files.delete(JSON.parse(options.body).path);return new Response('OK');}
  if(url.startsWith('/user/files/'))return files.has(url)?Response.json(files.get(url)):new Response('missing',{status:404});
  if(url==='https://image.novelai.net/ai/encode-vibe'){encodes++;return new Response(Buffer.from('encoding'));}
- if(url==='https://image.novelai.net/ai/generate-image')return new Response(Buffer.from('zip fixture'));
+ if(url==='https://image.novelai.net/ai/generate-image')return new Response(Buffer.from([80,75,3,4]));
  throw Error('Unexpected endpoint '+url);
  };
  const client=createDirectClient({settings,save(){},getHeaders:()=>({'Content-Type':'application/json'}),getKey:async()=>'test-only-key',unzipPNG:async()=>Buffer.from('PNG').toString('base64'),fetchImpl});

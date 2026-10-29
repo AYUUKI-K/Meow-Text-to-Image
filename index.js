@@ -39,6 +39,8 @@ import { getScriptsByType, saveScriptsByType, SCRIPT_TYPES } from '../../regex/e
 import { createSettingsPanel } from './ui.js';
 import {createDirectClient} from './direct-client.js';
 import {createKeyVault,saveCurrentKey} from './direct-key.js';
+import {migrateConnection,connectionSnapshot,assertConnection,usesDirectGeneration,saveCustomConnection} from './nai-connection.js';
+import {unzipNAIPNG} from './nai-response.js';
 import {appendImageVersion,imageVersions,selectImageVersion,markImageVersionsDeleted} from './image-history.js';
 import {selectVibes,profileVibeEnabled} from './vibe.js';
 import {readVibeFiles,createVibePackage} from './vibe-files.js';
@@ -70,6 +72,7 @@ settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
 const retryOptionsMigrated=settings.autoRetryEnabled===undefined;
 const generationOptionsMigrated=migrateGenerationOptions(settings);
+const connectionMigrated=migrateConnection(settings);
 if(retryOptionsMigrated&&settings.retryQueue===true)notices.info('自动重试默认关闭；如需在明确占线后等待 10 秒、最多重试 3 次，请主动勾选「遇到占线自动重试」。','喵喵文生图');
 settings.floatingReroll ??= false;
 settings.floatingIconType=settings.floatingIconType==='fontawesome'?'fontawesome':'default';
@@ -93,7 +96,7 @@ let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
 const save=()=>ctx().saveSettingsDebounced();
-if(generationOptionsMigrated)save();
+if(generationOptionsMigrated||connectionMigrated)save();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const favorites=createFavorites({settings,persist:persistSettings});
@@ -109,18 +112,17 @@ const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChan
 ensureProfileIds(settings.profiles);
 const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
-const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHeaders(),getKey:async expectedKeyHash=>{
+const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
+const activeVault=()=>settings.naiConnection==='custom'?customVault:directVault;
+const direct=createDirectClient({settings,save,getHeaders:()=>ctx().getRequestHeaders(),getKey:async(expectedKeyHash,connection)=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
-    const key=await directVault.get();
+    assertConnection(settings,connection);
+    const key=await (connection.naiConnection==='custom'?customVault:directVault).get();
     const actualHash=key?await fingerprintKey(key):'';
     if(expectedKeyHash&&actualHash!==expectedKeyHash)throw Error('NAI Key 已更换，请重新生成');
-    if(key&&(!settings.keyHash||actualHash!==settings.keyHash))throw Error('直连 Key 与当前配置不匹配，请在本插件重新保存当前 Key');
+    if(key&&(!connection.keyHash||actualHash!==connection.keyHash))throw Error('直连 Key 与当前配置不匹配，请在本插件重新保存当前 Key');
     return key;
-},unzipPNG:async bytes=>{
-    if(!globalThis.JSZip)await import('/lib/jszip.min.js');
-    const archive=await globalThis.JSZip.loadAsync(bytes),image=Object.values(archive.files).find(file=>!file.dir&&/\.png$/i.test(file.name));
-    if(!image)throw Error('NAI 返回结果中没有 PNG 图片');return image.async('base64');
-}});
+},unzipPNG:unzipNAIPNG});
 function el(tag,text,cls) { const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n; }
 async function showPopup(content,type,input='',options={}){
     if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-image-viewer')){
@@ -761,16 +763,16 @@ async function queueStatus() {
 }
 async function requestImage(request,task,canContinue) {
     const scope=task||generationOptions(settings);
-    const assertKey=()=>{if(settings.keyHash!==scope.keyHash)throw Error('NAI Key 已更换，请重新生成');};
+    const assertKey=()=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');assertConnection(settings,scope);};
     const timeoutMs=generationTimeoutSeconds(scope.generationTimeoutSeconds)*1000;
     request=structuredClone(request);
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
-    const directRoute=isTT()||request.vibes?.length;
+    const directRoute=usesDirectGeneration(scope,isTT(),request.vibes);
     const run=async()=>{
         onStatus('准备中');
         const prepared=await prepareGeneration(async()=>{
-            if(directRoute)return direct.prepareGenerate(request,{expectedKeyHash:scope.keyHash});
+            if(directRoute)return direct.prepareGenerate(request,{expectedKeyHash:scope.keyHash,connection:scope});
             const headers=ctx().getRequestHeaders(),body=JSON.stringify(request);
             return {source:'tavern-generation',send:signal=>checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers,body,signal}).then(response=>response.text()),postprocess:data=>{
                 data=data.trim();if(!data||data.startsWith('{')||data.startsWith('<'))throw Error('酒馆生图接口未返回有效图片');return data;
@@ -954,17 +956,18 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
             if(reason!=='favorites'){autoSession=null;refreshFloating();}renderAll();
         },
         saveKey:async input=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
+        saveCustomConnection:async values=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});notices.success('自定义连接已保存；仅完成本地校验，未调用接口');},
         testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
-        directKeyStatus:async()=>{const status=await directVault.status(),key=await directVault.get();return {...status,ready:Boolean(key&&settings.keyHash&&await fingerprintKey(key)===settings.keyHash),serverSaved:!!settings.keyHash};},clearDirectKey:()=>directVault.clear(),
+        directKeyStatus:async()=>{const vault=activeVault(),hash=connectionSnapshot(settings).keyHash,status=await vault.status(),key=await vault.get();return {...status,ready:Boolean(key&&hash&&await fingerprintKey(key)===hash),serverSaved:settings.naiConnection!=='custom'&&!!settings.keyHash};},clearDirectKey:async()=>{const custom=settings.naiConnection==='custom';await activeVault().clear();if(custom){settings.customKeyHash='';settings.connectionRevision++;save();}},
         closeSettings:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return;}return settingsPopup?.completeAffirmative?settingsPopup.completeAffirmative():settingsPopup?.dlg.close();},
-        setRememberDirectKey:async value=>{await directVault.remember(value);settings.rememberDirectKey=value;save();},
+        setRememberDirectKey:async value=>{const custom=settings.naiConnection==='custom';await activeVault().remember(value);settings[custom?'rememberCustomKey':'rememberDirectKey']=value;save();},
         encodeVibe:async body=>{
-            const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,snapshot=structuredClone(body),valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;};
+            const connection=connectionSnapshot(settings),keyHash=connection.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,snapshot=structuredClone(body),valid=()=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');assertConnection(settings,connection);return true;};
             return enqueue(async()=>{
-                const prepared=await prepareGeneration(()=>direct.prepareEncode(snapshot,{expectedKeyHash:keyHash}),{canContinue:valid});
+                const prepared=await prepareGeneration(()=>direct.prepareEncode(snapshot,{expectedKeyHash:keyHash,connection}),{canContinue:valid});
                 if(prepared.cached)return prepared.value;
                 const generate=async controls=>{await waitForGeneration({canContinue:valid});return sendPrepared(prepared,{...controls,canContinue:valid,timeoutMs:180000});};
                 return cloudQueue?runWithQueue({url,keyHash,requestJSON:requestQueue,generationTimeoutMs:180000,generate,canContinue:valid}):generate();

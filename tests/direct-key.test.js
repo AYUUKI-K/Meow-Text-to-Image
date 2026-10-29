@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createKeyVault,saveCurrentKey} from '../direct-key.js';
+import {saveCustomConnection} from '../nai-connection.js';
 function memoryIndexedDB(){
     const keys=new Map();let exists=false;
     const db={createObjectStore(){},close(){},transaction(){const tx={objectStore:()=>Object.fromEntries(['get','put','delete'].map(method=>[method,(value,id)=>{const request={};queueMicrotask(()=>{if(method==='get')request.result=keys.get(value);if(method==='put')keys.set(id,value);if(method==='delete')keys.delete(value);request.onsuccess?.();queueMicrotask(()=>tx.oncomplete?.());});return request;}] ))};return tx;}};
@@ -32,4 +33,17 @@ test('failed server writes and mismatched old keys never report a successful sav
     assert.equal(settings.keyHash,'old');assert.equal(await vault.get(),'');
     await vault.set('old-local-key',false);
     await assert.rejects(saveCurrentKey({input:'',vault,settings,writeServerKey:async()=>writes++,fingerprint:async()=> 'different',save(){}}),/不匹配/);assert.equal(writes,0);
+});
+
+test('custom credential has an independent persistent slot and never calls the official secret writer',async()=>{
+    const indexedDBImpl=memoryIndexedDB(),user='fixture-user',customScope=JSON.stringify([user,'custom-novelai']);
+    const official=createKeyVault(user,{indexedDBImpl}),custom=createKeyVault(customScope,{indexedDBImpl}),settings={keyHash:'official-hash',rememberDirectKey:true,rememberCustomKey:true};
+    await official.set('official-token',true);
+    await saveCustomConnection({settings,vault:custom,input:'custom-token',generationURL:'https://relay.invalid/custom',fingerprint:async()=> 'custom-hash',save(){}});
+    assert.equal(await createKeyVault(user,{indexedDBImpl}).get(),'official-token');
+    assert.equal(await createKeyVault(customScope,{indexedDBImpl}).get(),'custom-token');
+    assert.equal(settings.keyHash,'official-hash');assert.equal(settings.customKeyHash,'custom-hash');
+    assert.equal(JSON.stringify(settings).includes('token'),false);
+    await custom.clear();assert.equal(await official.get(),'official-token');
+    assert.equal(await createKeyVault(customScope,{indexedDBImpl}).get(),'');
 });

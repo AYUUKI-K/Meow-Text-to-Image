@@ -5,6 +5,8 @@ import {randomId} from './browser-crypto.js';
 import {hostFetch} from './host-fetch.js';
 import {checkedFetch} from './request-errors.js';
 import {varietyBoostSigma} from './core.js';
+import {connectionSnapshot,assertConnection,validateEndpoint} from './nai-connection.js';
+import {parseNAIImage,payloadSecrets,requestSummary} from './nai-response.js';
 
 export function base64Bytes(bytes){let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(binary);}
 export function naiPayload(request,references={}){
@@ -30,26 +32,35 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
         const summary=vibeSummary(item),index=settings.vibeLibrary.findIndex(v=>v.id===item.id);
         if(index<0)settings.vibeLibrary.push(summary);else settings.vibeLibrary[index]=summary;save();return summary;
     };
-    const prepareNAI=async(endpoint,body,{expectedKeyHash}={})=>{
-        const key=await getKey(expectedKeyHash);if(!key)throw Error('请先在「生成」页重新填写并保存 NAI Key，用于当前浏览器直连');
+    const prepareNAI=async(endpoint,body,{expectedKeyHash,connection=connectionSnapshot(settings),summary=''}={})=>{
+        connection={...connection};assertConnection(settings,connection);
+        const custom=connection.naiConnection==='custom';
+        const url=custom?validateEndpoint(endpoint==='encode-vibe'?connection.customEncodeURL:connection.customGenerationURL,{label:endpoint==='encode-vibe'?'Vibe 编码完整 URL':'生图完整 URL'}):'https://image.novelai.net/ai/'+endpoint;
+        const key=await getKey(expectedKeyHash,connection);if(!key)throw Error('请先在「生成」页重新填写并保存当前连接的 API Key，用于当前浏览器直连');
         const source=endpoint==='encode-vibe'?'nai-encode':'nai-generation',serialized=JSON.stringify(body);
+        const secrets=[key,...payloadSecrets(body)];
         const options={method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:serialized};
-        return {source,send:signal=>checkedFetch(source,'https://image.novelai.net/ai/'+endpoint,{...options,signal},{fetchImpl,secrets:[key]}).then(response=>response.arrayBuffer())};
+        return {source,secrets,send:signal=>{assertConnection(settings,connection);return checkedFetch(source,url,{...options,signal,...(custom?{redirect:'error'}:{})},{fetchImpl,secrets,custom,summary:summary?requestSummary(summary,secrets):''}).then(response=>response.arrayBuffer());}};
     };
     const prepareGenerate=async(request,scope={})=>{
+        scope={...scope,connection:{...(scope.connection||connectionSnapshot(settings))}};
+        assertConnection(settings,scope.connection);
         request=structuredClone(request);
         if(!Array.isArray(request.vibes)||request.vibes.length>4)throw Error('Vibe 列表格式错误，本插件最多启用 4 个');
         const library=[];for(const binding of request.vibes){const item=await read(binding.id);library.push({id:item.id,name:item.name,encodings:item.encodings});}
-        const prepared=await prepareNAI('generate-image',naiPayload(request,resolveVibes(request.model,request.vibes,library)),scope);
-        return {...prepared,postprocess:bytes=>unzipPNG(new Uint8Array(bytes))};
+        const prepared=await prepareNAI('generate-image',naiPayload(request,resolveVibes(request.model,request.vibes,library)),{...scope,summary:request});
+        return {...prepared,postprocess:bytes=>parseNAIImage(bytes,{unzipPNG,secrets:prepared.secrets})};
     };
     const prepareEncode=async({id,model,information},scope={})=>{
+        const connection=scope.connection||connectionSnapshot(settings);
+        assertConnection(settings,connection);
+        if(connection.naiConnection==='custom'&&!connection.customEncodeURL)throw Error('自定义接口未配置 Vibe 编码完整 URL，无法在线编码；仍可导入已有编码的 Vibe 文件');
         information=Number(information);const modelKey=vibeModelKeys[model];
         if(!modelKey||!Number.isFinite(information)||information<0||information>1)throw Error('请选择 V4/V4.5 模型，信息提取量为 0～1');
         const item=await read(id),key='miao-'+information;
         if(item.encodings?.[modelKey]?.[key])return {cached:true,value:vibeSummary(item)};
         if(!item.image)throw Error('这个 Vibe 没有原图，无法重新编码');
-        const prepared=await prepareNAI('encode-vibe',{image:item.image,model,information_extracted:information},scope);
+        const prepared=await prepareNAI('encode-vibe',{image:item.image,model,information_extracted:information},{...scope,connection});
         return {...prepared,postprocess:async bytes=>{
             const encoding=base64Bytes(new Uint8Array(bytes));if(!encoding)throw Error('NAI 未返回 Vibe 编码');
             const latest=await read(id);(latest.encodings[modelKey]??={})[key]={encoding,params:{information_extracted:information}};return write(latest);

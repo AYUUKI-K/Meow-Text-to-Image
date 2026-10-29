@@ -39,7 +39,7 @@ test('baseline: timeout releases at 30s while mock upstream busy until 70s; B/C/
 });
 test('regression: ZIP processing releases the queue after receiving all bytes',async()=>{
  const q=new LeaseQueue();let unzip,entered;const ready=new Promise(r=>entered=r);
- const direct=createDirectClient({settings:{},save(){},getHeaders:()=>({}),getKey:async()=>'fixture',fetchImpl:async()=>new Response('zip'),unzipPNG:()=>{entered();return new Promise(r=>unzip=r);}});
+ const direct=createDirectClient({settings:{},save(){},getHeaders:()=>({}),getKey:async()=>'fixture',fetchImpl:async()=>new Response(new Uint8Array([80,75,3,4])),unzipPNG:()=>{entered();return new Promise(r=>unzip=r);}});
  const pending=runWithQueue({twoPhase:false,url:'https://fixture.invalid',keyHash:hash,requestJSON:dispatch(q),generate:scope=>direct.generate({vibes:[]},scope)});
  await ready;assert.equal(q.stats().active,0);unzip('image');await pending;assert.equal(q.stats().active,0);
 });
