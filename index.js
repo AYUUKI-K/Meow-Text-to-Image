@@ -1,10 +1,11 @@
+import {prepareGeneration,sendPrepared} from './generation-lifecycle.js';
 import {worldMacros,patchWorldMacros} from './world-macros.js';
-import {withGenerationTimeout,generationTimeoutSeconds} from './generation-timeout.js';
+import {generationTimeoutSeconds} from './generation-timeout.js';
 import {fingerprintKey,runWithQueue,validateQueueURL} from './cloud-queue.js';
 import {randomId} from './browser-crypto.js';
 import {createThumbnails,imageBlob,blobBase64,localImagePath,makeThumbnail} from './image-thumbnails.js';
 import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORITE_IMAGE_LIMIT} from './prompt-favorites.js';
-import {retryGeneration} from './generation-retry.js';
+import {generationOptions,migrateGenerationOptions,runGenerationTask} from './generation-options.js';
 import {waitForGeneration} from './generation-delay.js';
 import {showPagePopup} from './page-popup.js';
 import {showPanelPage} from './panel-page.js';
@@ -67,9 +68,8 @@ delete settings.archiveMode;
 delete settings.libraryView;
 settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
-settings.cloudQueue ??= false;
-settings.retryQueue ??= true;
-settings.generationTimeoutSeconds=generationTimeoutSeconds(settings.generationTimeoutSeconds);
+const retryOptionsMigrated=migrateGenerationOptions(settings);
+if(retryOptionsMigrated&&settings.retryQueue===true)notices.info('自动重试默认关闭；如需在明确占线后等待 10 秒、最多重试 3 次，请主动勾选「遇到占线自动重试」。','喵喵文生图');
 settings.floatingReroll ??= false;
 settings.floatingIconType=settings.floatingIconType==='fontawesome'?'fontawesome':'default';
 if(!validFontAwesomeIcon(settings.floatingIcon))settings.floatingIcon={...defaultFontAwesomeIcon};
@@ -92,6 +92,7 @@ let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
 const save=()=>ctx().saveSettingsDebounced();
+if(retryOptionsMigrated)save();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const favorites=createFavorites({settings,persist:persistSettings});
@@ -258,7 +259,7 @@ function startGeneration(message,block,{automatic=false}={}) {
     request.vibes=selectVibes(settings.profiles[settings.active],settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
     attempted.add(taskId);
-    const task={status:'排队中',keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl,message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
+    const task={status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
     const waiting=running.size>0||settings.cloudQueue;running.set(taskId,task);renderAll();
     if(waiting)notices.info('已加入生图队列','喵喵文生图');
     queue=queue.then(async()=>{
@@ -615,7 +616,7 @@ async function testImage() {
     try{
     const request=buildRequest(settings.profiles[settings.active],'1girl, adult woman, white dress, flower garden, sunlight');
     request.vibes=selectVibes(settings.profiles[settings.active],settings.vibeLibrary);
-    const folder=validateFolder(settings.folder),scope={keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
+    const folder=validateFolder(settings.folder),scope={...generationOptions(settings)};
     const url=await enqueue(async()=>{
         const data=await requestImage(request,scope);
         return saveGeneratedImage(data,folder,`test-${Date.now()}-${randomId()}`);
@@ -758,30 +759,36 @@ async function queueStatus() {
     return requestQueue(url+'/ping');
 }
 async function requestImage(request,task,canContinue) {
-    const scope=task||{keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl};
+    const scope=task||generationOptions(settings);
     const assertKey=()=>{if(settings.keyHash!==scope.keyHash)throw Error('NAI Key 已更换，请重新生成');};
-    const timeoutMs=generationTimeoutSeconds(settings.generationTimeoutSeconds)*1000;
-    const generate=async({beforeSend}={})=>{
-        await waitForGeneration({canContinue:valid,onStatus});
-        onStatus('正在生图');
-        notices.info('正在生图','喵喵文生图');
-        if(isTT()||request.vibes?.length)return direct.generate(request,{expectedKeyHash:scope.keyHash,timeoutMs,beforeSend});
-        const remaining=await beforeSend?.();
-        return withGenerationTimeout(async signal=>{
-        const response=await checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify(request),signal});
-        const data=(await response.text()).trim();
-        if(!data||data.startsWith('{')||data.startsWith('<'))throw new Error('酒馆生图接口未返回有效图片');
-        return data;
-        },{timeoutMs:remaining??timeoutMs,source:'tavern-generation'});
-    };
+    const timeoutMs=generationTimeoutSeconds(scope.generationTimeoutSeconds)*1000;
+    request=structuredClone(request);
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
-    const run=attempt=>(scope.cloudQueue||attempt>0)?runWithQueue({url:scope.queueUrl,keyHash:scope.keyHash,requestJSON:requestQueue,generationTimeoutMs:timeoutMs,generate,canContinue:valid,onStatus,
-        onReleaseError:()=>notices.info('队列连接中断，占用将自动到期释放')}):generate();
+    const directRoute=isTT()||request.vibes?.length;
+    const run=async()=>{
+        onStatus('准备中');
+        const prepared=await prepareGeneration(async()=>{
+            if(directRoute)return direct.prepareGenerate(request,{expectedKeyHash:scope.keyHash});
+            const headers=ctx().getRequestHeaders(),body=JSON.stringify(request);
+            return {source:'tavern-generation',send:signal=>checkedFetch('tavern-generation','/api/novelai/generate-image',{method:'POST',headers,body,signal}).then(response=>response.text()),postprocess:data=>{
+                data=data.trim();if(!data||data.startsWith('{')||data.startsWith('<'))throw Error('酒馆生图接口未返回有效图片');return data;
+            }};
+        },{canContinue:valid});
+        const generate=async controls=>{
+            await waitForGeneration({canContinue:valid,onStatus});
+            notices.info('正在生图','喵喵文生图');
+            return sendPrepared(prepared,{...controls,canContinue:valid,timeoutMs});
+        };
+        return runGenerationTask({scope,generate,canContinue:valid,onStatus:retryStatus,
+            queueOptions:{requestJSON:requestQueue,generationTimeoutMs:timeoutMs,
+                onReleaseError:()=>notices.info('队列连接中断，占用将自动到期释放')}});
+    };
     let notified=false;
-    return retryGeneration({run,enabled:!!settings.retryQueue,canContinue:valid,onStatus:(status,error)=>{
-        onStatus(status);if(!notified){notified=true;notices.info(`生图请求失败（HTTP ${error.status}），等待云端排队重试`,'喵喵文生图');}
-    }});
+    const retryStatus=(status,error)=>{
+        onStatus(status);if(error&&!notified){notified=true;notices.info(`生图请求被明确拒绝（HTTP ${error.status}），等待本地自动重试`,'喵喵文生图');}
+    };
+    return run();
 }
 const translatePrompt=createPromptTranslator({getHeaders:()=>ctx().getRequestHeaders()});
 async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabled=true,onEdit){
@@ -858,7 +865,7 @@ async function generateFavorite(item,profileId){
     if(favorite.images.length>=FAVORITE_IMAGE_LIMIT)throw Error(`每条收藏最多 ${FAVORITE_IMAGE_LIMIT} 张例图，请先移除不需要的例图`);
     const profile=settings.profiles.find(profile=>profile.id===profileId);if(!profile)throw Error('配置已删除，请重新选择');
     const request=buildRequest(structuredClone(profile),favorite.positive);request.vibes=selectVibes(profile,settings.vibeLibrary);
-    const scope={folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl},id=favorite.id,scene=favorite.positive;
+    const scope={folder:validateFolder(settings.folder),...generationOptions(settings)},id=favorite.id,scene=favorite.positive;
     const valid=()=>{if(!favoritesEnabled(settings))throw Error('收藏功能已关闭，取消等待中的收藏生图');const current=favorites.list().find(item=>item.id===id);if(!current||current.positive!==scene)throw Error('收藏已删除或场景词已修改，取消本次生图');if(current.images.length>=FAVORITE_IMAGE_LIMIT)throw Error('收藏例图已满，请先移除部分例图');return true;};
     notices.info(`已加入生图队列 · ${profile.name}`,'喵喵文生图');
     return enqueue(async()=>{
@@ -936,7 +943,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         collectImage:url=>openSettings('favorites',draftFromImage(url)),buildThumbnails,
         getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,
         confirmDeleteProfiles:profiles=>{const question=el('div'),list=el('ul',undefined,'miao-delete-profile-list');question.append(el('p',`删除选中的 ${profiles.length} 个串？`));for(const profile of profiles)list.append(el('li',profile.name));question.append(list,el('p','只移除配置，保留已保存的例图文件和聊天图片。'));return confirmSettings(question,`删除 ${profiles.length} 个串`);},
-        refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),keyHash:settings.keyHash,cloudQueue:settings.cloudQueue,queueUrl:settings.queueUrl}}),getPreviewState:profile=>profilePreviews.state(profile),
+        refreshProfilePreview:(profile,options)=>profilePreviews.refresh(profile,{...options,scope:{folder:validateFolder(settings.folder),...generationOptions(settings)}}),getPreviewState:profile=>profilePreviews.state(profile),
         exportPromptFile,restorePromptPreview:async(preview,profile)=>{
             const data=await previewPNG(preview);ensureProfileIds([profile]);
             const url=await saveGeneratedImage(data,validateFolder(settings.folder),`sample-${Date.now()}-${randomId()}`);
@@ -953,7 +960,15 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         directKeyStatus:async()=>{const status=await directVault.status(),key=await directVault.get();return {...status,ready:Boolean(key&&settings.keyHash&&await fingerprintKey(key)===settings.keyHash),serverSaved:!!settings.keyHash};},clearDirectKey:()=>directVault.clear(),
         closeSettings:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return;}return settingsPopup?.completeAffirmative?settingsPopup.completeAffirmative():settingsPopup?.dlg.close();},
         setRememberDirectKey:async value=>{await directVault.remember(value);settings.rememberDirectKey=value;save();},
-        encodeVibe:async body=>{const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;},generate=({beforeSend}={})=>{valid();return direct.encode(body,{expectedKeyHash:keyHash,beforeSend});};return enqueue(()=>cloudQueue?runWithQueue({url,keyHash,requestJSON:requestQueue,generate,canContinue:valid}):generate());},renameVibe:body=>direct.rename(body),
+        encodeVibe:async body=>{
+            const keyHash=settings.keyHash,cloudQueue=settings.cloudQueue,url=settings.queueUrl,snapshot=structuredClone(body),valid=()=>{if(settings.keyHash!==keyHash)throw Error('NAI Key 已更换，请重新编码');return true;};
+            return enqueue(async()=>{
+                const prepared=await prepareGeneration(()=>direct.prepareEncode(snapshot,{expectedKeyHash:keyHash}),{canContinue:valid});
+                if(prepared.cached)return prepared.value;
+                const generate=async controls=>{await waitForGeneration({canContinue:valid});return sendPrepared(prepared,{...controls,canContinue:valid,timeoutMs:180000});};
+                return cloudQueue?runWithQueue({url,keyHash,requestJSON:requestQueue,generationTimeoutMs:180000,generate,canContinue:valid}):generate();
+            });
+        },renameVibe:body=>direct.rename(body),
         deleteVibe:async id=>{if(!await confirmSettings('删除这个 Vibe？所有配置中的引用也会移除。','删除 Vibe'))return false;await direct.delete(id);for(const p of settings.profiles)p.vibes=(p.vibes||[]).filter(v=>v.id!==id);save();return true;}});
     settingsHost=panel;
     try{await showPopup(panel,POPUP_TYPE.TEXT,'',{wide:true,okButton:'完成',onClosing:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return false;}return true;},onOpen:popup=>{

@@ -16,6 +16,7 @@ const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
+    const versionLabel=node('span','版本读取中…','miao-version');
     let activeTab=initialTab||(matchMedia('(max-width:680px), (max-height:500px)').matches?'overview':'generation'),fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft,sortingProfiles=false;
     const safe=fn=>async()=>{try{await fn();}catch(e){onError(e);}};
     const updateBox=node('div',undefined,'miao-update-status');updateBox.setAttribute('aria-live','polite');
@@ -37,6 +38,14 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         });
     }
     async function checkLatest(force=false){updateBusy=true;paintUpdate();try{updateData=await checkUpdate(force);}catch(error){updateError=error.message;}finally{updateBusy=false;paintUpdate();}}
+    async function readVersion(){
+        try{
+            const response=await fetch(new URL('./manifest.json',import.meta.url),{cache:'no-store'});
+            if(!response.ok)throw Error('版本读取失败');
+            const {version}=await response.json();
+            versionLabel.textContent=typeof version==='string'&&version.trim()?`v${version.trim()}`:'版本未知';
+        }catch{versionLabel.textContent='版本未知';}
+    }
     function action(parent,label,fn,primary=false) {
         const b=node('button',label,`miao-button${primary?' miao-primary':''}`);b.type='button';
         const invoke=safe(async()=>{if(b.disabled)return;b.disabled=true;try{await fn();}finally{b.disabled=false;}});if(/^(删除|清理)/.test(label))bindButtonPress(b,invoke);else b.onclick=invoke;parent.append(b);return b;
@@ -147,10 +156,11 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const main=section(preferences,'生成方式');
             const toggle=node('label',undefined,'miao-switch-row');const checkbox=node('input');checkbox.type='checkbox';checkbox.checked=settings.enabled;checkbox.onchange=()=>{settings.enabled=checkbox.checked;save();onChange();};toggle.append(node('span','启用自动生图'),checkbox);main.append(toggle);
             field(main,'生成模式',settings.mode,v=>{settings.mode=v;save();onChange(true);render();},{options:[['manual','手动'],['auto','回复后生成'],['stream','流式生成']]});
-            const timeoutField=field(main,'单张生图超时（秒）',generationTimeoutSeconds(settings.generationTimeoutSeconds),v=>{settings.generationTimeoutSeconds=generationTimeoutSeconds(v);save();},{type:'number'});timeoutField.min='5';timeoutField.max='180';timeoutField.step='1';
-            main.append(node('p','默认 30 秒，从请求 NAI 开始计时，不含排队。超时由云端释放占位并中止本地等待，不自动重试；NAI 服务端可能仍在处理。','miao-muted'));
-            const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.retryQueue;retryCheck.onchange=()=>{settings.retryQueue=retryCheck.checked;save();};retry.append(node('span','遇到占线自动排队'),retryCheck);main.append(retry);
-            main.append(node('p','最多重试 3 次','miao-muted'));
+            const advanced=node('details'),advancedBody=node('div');advanced.append(node('summary','高级：请求等待预算'),advancedBody);main.append(advanced);
+            const timeoutField=field(advancedBody,'单张生图超时（秒）',generationTimeoutSeconds(settings.generationTimeoutSeconds),v=>{settings.generationTimeoutSeconds=generationTimeoutSeconds(v);save();},{type:'number'});timeoutField.min='5';timeoutField.max='180';timeoutField.step='1';
+            advancedBody.append(node('p','默认 30 秒，仅等待 NAI 请求和响应，不含排队、准备或解图保存。准备另限 20 秒，Vibe 编码仍为 180 秒。超时停止本地等待；云端保留至生图期限加 20 秒保护，不自动重试。NAI 可能仍在处理。','miao-muted'));
+            const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.autoRetryEnabled;retryCheck.onchange=()=>{settings.autoRetryEnabled=retryCheck.checked;save();};retry.append(node('span','遇到占线自动重试'),retryCheck);main.append(retry);
+            main.append(node('p','仅在 NAI 明确拒绝本次请求时，等待 10 秒后最多重试 3 次；关闭则立即报错。启用云端排队时仍由本地发起重试，云端只协调发送许可。服务端要求更久时以服务端为准；超过 120 秒则停止。超时、断网和未知 5xx 不重发。','miao-muted'));
             const connection=section(account,'连接 NovelAI');
 
             const key=field(connection,'API Key','',()=>{},{type:'password'});key.autocomplete='new-password';key.placeholder='输入你的 NovelAI Key';
@@ -427,12 +437,12 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             refresh();
         }
         paintResourceEntries();
-        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),node('span','v2.4.3','miao-version'),updateBox);root.append(footer);
+        const footer=node('footer',undefined,'miao-footer');footer.append(node('span','by 喵喵电波-NUE','miao-credit'),versionLabel,updateBox);root.append(footer);
         if(keep){const restore=()=>{if(epoch!==renderEpoch)return;for(const item of root.querySelectorAll('[data-scroll-key]')){const position=positions.get(item.dataset.scrollKey);if(position){item.scrollTop=position.top;item.scrollLeft=position.left;}}if(scroller&&outerTop!==undefined)scroller.scrollTop=outerTop;};restore();requestAnimationFrame(restore);}
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});
     root.addEventListener('miao-resources-changed',paintResourceEntries);
     root.addEventListener('miao-profile-previews',()=>paintPreviews());
     root.addEventListener('miao-open-section',event=>{const detail=typeof event.detail==='string'?{section:event.detail}:event.detail||{};if(detail.section==='resources'||detail.section==='favorites'&&favoritesEnabled(settings)){activeTab=detail.section;initialFavorite=detail.favorite;render();root.closest('.popup-content')?.scrollTo({top:0});}});
-    render();checkLatest(false);checkResources(false).catch(()=>{});return root;
+    render();readVersion();checkLatest(false);checkResources(false).catch(()=>{});return root;
 }

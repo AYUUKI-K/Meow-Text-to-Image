@@ -1,39 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {retryGeneration} from '../generation-retry.js';
-import {runWithQueue} from '../cloud-queue.js';
-import {httpRequestError,checkedFetch,parseRetryAfter} from '../request-errors.js';
-test('explicit 500 waits then rejoins the queue; each failed attempt releases its lock',async()=>{
-    let attempts=0;const calls=[],waits=[];
-    const result=await retryGeneration({enabled:true,delays:[2000,3000],sleep:async ms=>waits.push(ms),run:()=>runWithQueue({url:'https://queue.example',keyHash:'a'.repeat(64),
-        fetchImpl:async url=>{calls.push(new URL(url).pathname);return Response.json({your_turn:true,lock_token:'lease'});},
-        generate:async()=>{if(++attempts<3)throw Object.assign(Error('500'),{status:500});return 'image';}})});
-    assert.equal(result,'image');assert.equal(attempts,3);assert.equal(waits.reduce((a,b)=>a+b,0),5000);
-    assert.deepEqual(calls,['/join-queue','/complete','/join-queue','/complete','/join-queue','/complete']);
+import {generationOptions,migrateGenerationOptions,runGenerationTask} from '../generation-options.js';
+import {httpRequestError,parseRetryAfter} from '../request-errors.js';
+const refused=(status=429,retryAfterMs=0)=>httpRequestError({source:'nai-generation',status,retryAfterMs});
+test('R01–R03: local mode never uses cloud, opt-in fixed 10s and at most four POSTs',async()=>{
+ for(const enabled of [false,true])for(const success of [false,true]){
+  let now=0;const posts=[],statuses=[],scope={cloudQueue:false,autoRetryEnabled:enabled};
+  const job=runGenerationTask({scope,queueOptions:{requestJSON:()=>assert.fail('cloud RPC')},retryOptions:{now:()=>now,sleep:async ms=>{now+=ms;}},onStatus:s=>statuses.push(s),generate:async()=>{posts.push(now);if(success&&posts.length===4)return 'image';throw refused();}});
+  if(enabled&&success)assert.equal(await job,'image');else await assert.rejects(job,/HTTP 429/);
+  assert.deepEqual(posts,enabled?[0,10000,20000,30000]:[0]);if(!enabled)assert.equal(statuses.length,0);
+ }
 });
-test('retry is opt-in, bounded and never repeats transport failures or other HTTP errors',async()=>{
-    for(const [enabled,error,count] of [[false,{status:500},1],[true,{status:500},4],[true,{status:401},1],[true,{status:429},1],[true,{name:'TimeoutError'},1],[true,{name:'TypeError'},1],[true,{},1]]){
-        let attempts=0;await assert.rejects(retryGeneration({enabled,run:async()=>{attempts++;throw Object.assign(Error('failure'),error);},sleep:async()=>{}}));assert.equal(attempts,count);
-    }
+test('R11: legacy defaults do not opt in; explicit new choice, cloud choice and timeout survive reload',()=>{
+ for(const cloudQueue of [false,true])for(const retryQueue of [false,true]){
+  const s={cloudQueue,retryQueue,generationTimeoutSeconds:77};assert.equal(migrateGenerationOptions(s),true);assert.equal(s.autoRetryEnabled,false);assert.equal(s.cloudQueue,cloudQueue);assert.equal(s.generationTimeoutSeconds,77);
+  s.autoRetryEnabled=true;const reloaded=JSON.parse(JSON.stringify(s));assert.equal(migrateGenerationOptions(reloaded),false);assert.equal(reloaded.autoRetryEnabled,true);
+ }
+ const empty={};migrateGenerationOptions(empty);assert.equal(empty.cloudQueue,false);assert.equal(empty.autoRetryEnabled,false);
 });
-test('message or key change while waiting prevents another billable request',async()=>{
-    let valid=true,attempts=0;
-    await assert.rejects(retryGeneration({enabled:true,canContinue:()=>valid,run:async()=>{attempts++;throw Object.assign(Error('500'),{status:500});},sleep:async()=>{valid=false;}}),/原消息/);
-    assert.equal(attempts,1);
+test('R12: queued tasks snapshot mode and serialize through all local retries',async()=>{
+ let now=0;const settings={cloudQueue:false,autoRetryEnabled:true},first=generationOptions(settings),posts=[];let tail=Promise.resolve();
+ const enqueue=fn=>{const p=tail.then(fn);tail=p.catch(()=>{});return p;};
+ const run=(scope,id)=>runGenerationTask({scope,queueOptions:{requestJSON:()=>assert.fail('cloud RPC')},retryOptions:{now:()=>now,sleep:async ms=>{now+=ms;settings.cloudQueue=true;settings.autoRetryEnabled=false;}},generate:async()=>{posts.push([id,now]);throw refused();}});
+ const a=enqueue(()=>run(first,'A'));const second={...generationOptions(settings),autoRetryEnabled:false};const b=enqueue(()=>run(second,'B'));
+ await assert.rejects(a);await assert.rejects(b);assert.deepEqual(posts.map(x=>x[0]),['A','A','A','A','B']);assert.equal(generationOptions(settings).cloudQueue,true);assert.equal(generationOptions(settings).autoRetryEnabled,false);
 });
-
-test('busy, rate-limit and unavailable errors enter cloud retry after an initially unqueued attempt',async()=>{
-    const calls=[],statuses=[];let attempts=0;
-    const run=async()=>{const status=[409,429,503][attempts++];if(status)throw httpRequestError({source:'nai-generation',status});return 'image';};
-    const queued=()=>runWithQueue({url:'https://queue.example',keyHash:'a'.repeat(64),generate:run,fetchImpl:async url=>{calls.push(new URL(url).pathname);return Response.json({your_turn:true,lock_token:'lease'});}});
-    const result=await retryGeneration({enabled:true,run:attempt=>attempt?queued():run(),sleep:async()=>{},onStatus:status=>statuses.push(status)});
-    assert.equal(result,'image');assert.equal(attempts,4);assert.equal(statuses.length,105);assert.deepEqual(calls,['/join-queue','/complete','/join-queue','/complete','/join-queue','/complete']);
+test('R08/R09: ambiguous errors, encoding, queue errors and postprocessing never qualify',async()=>{
+ for(const source of ['nai-generation','tavern-generation','nai-encode','queue','image-save'])for(const status of [408,500,502,503,504,429]){
+  if(['nai-generation','tavern-generation'].includes(source)&&status===429)continue;
+  let posts=0;await assert.rejects(retryGeneration({enabled:true,run:async()=>{posts++;throw httpRequestError({source,status,body:'concurrent generation busy'});},sleep:async()=>assert.fail('sleep')}));assert.equal(posts,1);
+ }
+ for(const name of ['AbortError','TimeoutError','TypeError']){let posts=0;await assert.rejects(retryGeneration({enabled:true,run:()=>{posts++;throw Object.assign(refused(),{name});},sleep:async()=>assert.fail('sleep')}));assert.equal(posts,1);}
 });
-test('Retry-After is respected but bounded, and non-generation failures never enter retry',async()=>{
-    let count=0,waited=0;
-    const result=await retryGeneration({enabled:true,delays:[1000],sleep:async ms=>{waited+=ms;},run:async()=>{if(count++===0)await checkedFetch('nai-generation','/fixture',{}, {fetchImpl:async()=>new Response('rate limit',{status:429,headers:{'Retry-After':'20'}})});return 'ok';}});
-    assert.equal(result,'ok');assert.equal(waited,20000);assert.equal(parseRetryAfter('999999'),120000);assert.equal(parseRetryAfter('bad'),0);assert.equal(parseRetryAfter(new Date(20000).toUTCString(),10000),10000);
-    for(const input of [{source:'nai-generation',status:401},{source:'nai-generation',status:403},{source:'nai-generation',status:402},{source:'nai-generation',status:400},{source:'nai-generation',status:500,body:'Invalid access token'},{source:'nai-generation',status:500,body:'Not enough Anlas'},{source:'queue',status:429},{source:'image-delete',status:503},{source:'nai-generation',status:504},{source:'nai-generation',status:408}]){
-        let attempts=0;await assert.rejects(retryGeneration({enabled:true,run:async()=>{attempts++;throw httpRequestError(input);},sleep:async()=>{}}));assert.equal(attempts,1);
-    }
+test('R10: Retry-After 20/120s honored; above 120s stops instead of sending early',async()=>{
+ for(const delay of [20000,120000,120001]){
+  let now=0;const posts=[];const job=retryGeneration({enabled:true,now:()=>now,sleep:async ms=>{now+=ms;},run:async()=>{posts.push(now);if(posts.length===1)throw refused(429,delay);return 'ok';}});
+  if(delay>120000){await assert.rejects(job,/超过 120 秒/);assert.deepEqual(posts,[0]);}else{assert.equal(await job,'ok');assert.deepEqual(posts,[0,delay]);}
+ }
+ assert.equal(parseRetryAfter('999999'),999999000);assert.equal(parseRetryAfter('bad'),0);assert.equal(parseRetryAfter(new Date(20000).toUTCString(),10000),10000);
+});
+test('R06/R18: cancel or frozen local retry does not resume or call cloud; restart is opt-in',async()=>{
+ for(const freeze of [false,true]){
+  let valid=true,now=0,posts=0;
+  await assert.rejects(runGenerationTask({scope:{cloudQueue:false,autoRetryEnabled:true},canContinue:()=>valid,queueOptions:{requestJSON:()=>assert.fail('cloud RPC')},retryOptions:{now:()=>now,sleep:async()=>{if(freeze)now=21000;else valid=false;}},generate:async()=>{posts++;throw refused();}}),freeze?/过期/:/原消息/);assert.equal(posts,1);
+ }
+ const settings={retryQueue:true};migrateGenerationOptions(settings);let posts=0;await assert.rejects(runGenerationTask({scope:generationOptions(settings),generate:async()=>{posts++;throw refused();},queueOptions:{requestJSON:()=>assert.fail('cloud RPC')}}));assert.equal(posts,1);
 });

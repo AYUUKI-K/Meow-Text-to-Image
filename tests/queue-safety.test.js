@@ -36,13 +36,13 @@ test('direct generation covers body reads, validates lease after key lookup and 
 });
 test('a page resuming after lease expiry cannot send NAI while another holder is active',async()=>{
  let now=0,sent=0;const queue=new LeaseQueue({now:()=>now});
- await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,now:()=>now,requestJSON:dispatcher(queue),generate:async({beforeSend})=>{
+ await assert.rejects(runWithQueue({twoPhase:false,url:'https://fixture.invalid',keyHash,now:()=>now,requestJSON:dispatcher(queue),generate:async({beforeSend})=>{
   now=240001;assert.equal(queue.join(who('other')).your_turn,true);await beforeSend();sent++;
  }}));assert.equal(sent,0);assert.equal(queue.lanes.get(keyHash).active.user,who('other').user_id);
 });
 test('a live lease survives a long preparation and is refreshed before sending exactly once',async()=>{
  let now=0,sent=0;const queue=new LeaseQueue({now:()=>now});
- await runWithQueue({url:'https://fixture.invalid',keyHash,now:()=>now,requestJSON:dispatcher(queue),generate:async({beforeSend})=>{now=20000;await beforeSend();sent++;}});
+ await runWithQueue({twoPhase:false,url:'https://fixture.invalid',keyHash,now:()=>now,requestJSON:dispatcher(queue),generate:async({beforeSend})=>{now=20000;await beforeSend();sent++;}});
  assert.equal(sent,1);assert.equal(queue.stats().active,0);
 });
 test('cloud generation deadline releases the key without a client notification and cannot be extended',()=>{
@@ -60,7 +60,7 @@ test('registering a deadline requires the current holder proof and validates the
 });
 test('before-send registers the deadline and a local timeout explicitly releases the cloud lease',async()=>{
  const queue=new LeaseQueue();let sent=0;const paths=[];
- await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,generationTimeoutMs:30000,requestJSON:async(url,options)=>{paths.push(url);return dispatcher(queue)(url,options);},generate:async({beforeSend})=>{
+ await assert.rejects(runWithQueue({twoPhase:false,url:'https://fixture.invalid',keyHash,generationTimeoutMs:30000,requestJSON:async(url,options)=>{paths.push(url);return dispatcher(queue)(url,options);},generate:async({beforeSend})=>{
   const remaining=await beforeSend();assert.ok(remaining>0&&remaining<=30000);sent++;
   return withGenerationTimeout(()=>new Promise(()=>{}),{timeoutMs:10});
  }}),error=>error.localGenerationTimeout===true);
@@ -69,20 +69,20 @@ test('before-send registers the deadline and a local timeout explicitly releases
 
 test('a deadline acknowledgement arriving after its remaining budget never sends an image',async()=>{
  let now=0,sent=0;const queue=new LeaseQueue({now:()=>now});
- await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,now:()=>now,generationTimeoutMs:5000,requestJSON:async(url,options)=>{
+ await assert.rejects(runWithQueue({twoPhase:false,url:'https://fixture.invalid',keyHash,now:()=>now,generationTimeoutMs:5000,requestJSON:async(url,options)=>{
   const result=await dispatcher(queue)(url,options);if(options.body.generation_timeout_ms)now+=6000;return result;
  },generate:async({beforeSend})=>{await beforeSend();sent++;}}),/未发送新的生图请求/);
  assert.equal(sent,0);assert.equal(queue.stats().active,0);
 });
 test('Vibe preparation transport failures release the lease; actual NAI timeout retains it',async()=>{
  for(const source of ['vibe-file','nai-generation']){
-  const queue=new LeaseQueue();await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,requestJSON:dispatcher(queue),generate:async()=>{throw stageError(source,new TypeError('offline'));}}));
+  const queue=new LeaseQueue();await assert.rejects(runWithQueue({twoPhase:false,url:'https://fixture.invalid',keyHash,requestJSON:dispatcher(queue),generate:async()=>{throw stageError(source,new TypeError('offline'));}}));
   assert.equal(queue.stats().active,source==='vibe-file'?0:1);
  }
 });
 test('lost join replies are cancelled with a client-owned proof, without making an image request',async()=>{
  const queue=new LeaseQueue();let joins=0,sent=0;
- await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash,sleep:async()=>{},requestJSON:async(url,options)=>{
+ await assert.rejects(runWithQueue({twoPhase:false,url:'https://fixture.invalid',keyHash,sleep:async()=>{},requestJSON:async(url,options)=>{
   const result=await dispatcher(queue)(url,options);if(url.endsWith('/join-queue')){joins++;throw new TypeError('reply lost');}return result;
  },generate:async()=>{sent++;}}));assert.equal(joins,4);assert.equal(sent,0);assert.deepEqual(queue.stats(),{active:0,waiting:0});
  const first=queue.join({...who('owner'),cancel_hash:hash(hash('owner-secret'))});

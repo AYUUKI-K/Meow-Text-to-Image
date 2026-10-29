@@ -41,17 +41,17 @@ test('picking up a promoted slot restores a full lease and duplicate join is als
 });
 test('release retries survive multiple lost replies without regenerating or overwriting the final status',async()=>{
  let releases=0,images=0;const statuses=[],waits=[];
- const result=await runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async ms=>waits.push(ms),onStatus:status=>statuses.push(status),requestJSON:async url=>{
+ const result=await runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),sleep:async ms=>waits.push(ms),onStatus:status=>statuses.push(status),requestJSON:async url=>{
   if(url.endsWith('/complete')){releases++;if(releases<4)throw new TypeError('lost release');return {released:true};}
   return {your_turn:true,lock_token:'lease'};
  },generate:async()=>{images++;return 'image';}});
- assert.equal(result,'image');assert.equal(images,1);assert.equal(releases,4);assert.deepEqual(waits,[1000,1000,1000]);assert.deepEqual(statuses,['正在生图']);
+ assert.equal(result,'image');assert.equal(images,1);assert.equal(releases,4);assert.deepEqual(waits,[1000,1000,1000]);assert.deepEqual(statuses,['准备提交']);
 });
 
 test('distant waiters poll less and return to fast polling near the front',async()=>{
  assert.equal(queuePollMs(1),5000);assert.equal(queuePollMs(64),15000);
  const waits=[],positions=[64,3,1];let generated=0;
- await runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async ms=>waits.push(ms),fetchImpl:async url=>{
+ await runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),sleep:async ms=>waits.push(ms),fetchImpl:async url=>{
   if(url.endsWith('/complete'))return Response.json({released:true});
   return Response.json(positions.length?{your_turn:false,position:positions.shift()}:{your_turn:true,lock_token:'lease'});
  },generate:async()=>{generated++;}});
@@ -60,7 +60,7 @@ test('distant waiters poll less and return to fast polling near the front',async
 
 test('a backgrounded phone rejoins an expired waiting task before any image request',async()=>{
  let now=0,polls=0,joins=0,images=0;const statuses=[],identities=[];
- await runWithQueue({url:'https://queue.example',keyHash:hash('one'),now:()=>now,sleep:async()=>{now+=120000;},onStatus:text=>statuses.push(text),fetchImpl:async(url,options)=>{
+ await runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),now:()=>now,sleep:async()=>{now+=120000;},onStatus:text=>statuses.push(text),fetchImpl:async(url,options)=>{
   const body=JSON.parse(options.body);identities.push(body);
   if(url.endsWith('/join-queue')){joins++;return Response.json(joins===1?{your_turn:false,position:1}:{your_turn:true,lock_token:'lease'});}
   if(url.endsWith('/my-turn')){polls++;return Response.json({error:'队列请求无效或任务已过期'},{status:400});}
@@ -73,7 +73,7 @@ test('a backgrounded phone rejoins an expired waiting task before any image requ
 test('expired waiting recovery is bounded, while other 400 errors do not rejoin',async()=>{
  for(const expired of [true,false]){
   let joins=0,images=0;
-  await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async url=>{
+  await assert.rejects(runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async url=>{
    if(url.endsWith('/join-queue')){joins++;return Response.json({your_turn:false,position:1});}
    if(url.endsWith('/my-turn'))return Response.json({error:expired?'排队任务已过期':'无效排队信息'},{status:400});
    return Response.json({released:true});
@@ -84,7 +84,7 @@ test('expired waiting recovery is bounded, while other 400 errors do not rejoin'
 
 test('generation renews its lease every minute and stops heartbeats on completion',async t=>{
  t.mock.timers.enable({apis:['setInterval']});let finish,turns=0;
- const running=runWithQueue({url:'https://queue.example',keyHash:hash('one'),fetchImpl:async url=>{if(url.endsWith('/my-turn'))turns++;return Response.json({your_turn:true,lock_token:'lease'});},generate:()=>new Promise(resolve=>finish=resolve)});
+ const running=runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),fetchImpl:async url=>{if(url.endsWith('/my-turn'))turns++;return Response.json({your_turn:true,lock_token:'lease'});},generate:()=>new Promise(resolve=>finish=resolve)});
  while(!finish)await new Promise(resolve=>setImmediate(resolve));
  t.mock.timers.tick(59999);assert.equal(turns,0);t.mock.timers.tick(1);
  await new Promise(resolve=>setImmediate(resolve));assert.equal(turns,1);
@@ -93,7 +93,7 @@ test('generation renews its lease every minute and stops heartbeats on completio
 
 test('temporary queue failures retry the same identity without duplicating generation',async()=>{
  const joins=[];let generated=0;
- const result=await runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async(url,options)=>{
+ const result=await runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async(url,options)=>{
   if(url.endsWith('/join-queue')){joins.push(JSON.parse(options.body));if(joins.length===1)throw new TypeError('response lost');if(joins.length===2)return new Response('busy',{status:503});}
   return Response.json({your_turn:true,lock_token:'lease'});
  },generate:async()=>{generated++;return 'image';}});
@@ -102,7 +102,7 @@ test('temporary queue failures retry the same identity without duplicating gener
 
 test('queue outage is bounded and never calls the image service before a confirmed lease',async()=>{
  let joins=0,generated=0;
- await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async url=>{if(url.endsWith('/join-queue')){joins++;return new Response('unavailable',{status:503});}return Response.json({released:true});},generate:async()=>{generated++;}}),/503/);
+ await assert.rejects(runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),sleep:async()=>{},fetchImpl:async url=>{if(url.endsWith('/join-queue')){joins++;return new Response('unavailable',{status:503});}return Response.json({released:true});},generate:async()=>{generated++;}}),/503/);
  assert.equal(joins,4);assert.equal(generated,0);
 });
 test('real HTTP coordination: same-key waits, different-key runs; no raw key or prompt sent',async()=>{
@@ -110,10 +110,10 @@ test('real HTTP coordination: same-key waits, different-key runs; no raw key or 
  const url='http://127.0.0.1:'+server.address().port,started=[],bodies=[];let finishA;
  const options={url,pollMs:2,heartbeatMs:100,fetchImpl:(u,o)=>{bodies.push(JSON.parse(o.body));return fetch(u,o);}};
  try{
-  const a=runWithQueue({...options,keyHash:hash('one'),generate:()=>{started.push('a');return new Promise(r=>finishA=r);}});
+  const a=runWithQueue({twoPhase:false,...options,keyHash:hash('one'),generate:()=>{started.push('a');return new Promise(r=>finishA=r);}});
   while(!finishA)await new Promise(r=>setTimeout(r,2));
-  const b=runWithQueue({...options,keyHash:hash('one'),generate:async()=>{started.push('b');return 'image-b';}});
-  const c=runWithQueue({...options,keyHash:hash('two'),generate:async()=>{started.push('c');return 'image-c';}});
+  const b=runWithQueue({twoPhase:false,...options,keyHash:hash('one'),generate:async()=>{started.push('b');return 'image-b';}});
+  const c=runWithQueue({twoPhase:false,...options,keyHash:hash('two'),generate:async()=>{started.push('c');return 'image-c';}});
   assert.equal(await c,'image-c');assert.deepEqual(started,['a','c']);finishA('image-a');assert.equal(await a,'image-a');assert.equal(await b,'image-b');assert.deepEqual(started,['a','c','b']);
   assert.deepEqual(queue.stats(),{active:0,waiting:0});
   assert.ok(bodies.every(body=>Object.keys(body).every(key=>['key_hash','user_id','task_id','greeting','lock_token','cancel_hash','cancel_proof'].includes(key))));
@@ -121,14 +121,14 @@ test('real HTTP coordination: same-key waits, different-key runs; no raw key or 
 });
 test('generation errors release the lock without retrying NAI',async()=>{
  const queue=new LeaseQueue(),server=createQueueServer({queue});await new Promise(r=>server.listen(0,'127.0.0.1',r));let calls=0;
- try{await assert.rejects(()=>runWithQueue({url:'http://127.0.0.1:'+server.address().port,keyHash:hash('one'),generate:async()=>{calls++;throw new Error('upstream failed');}}),/upstream failed/);assert.equal(calls,1);assert.deepEqual(queue.stats(),{active:0,waiting:0});}
+ try{await assert.rejects(()=>runWithQueue({twoPhase:false,url:'http://127.0.0.1:'+server.address().port,keyHash:hash('one'),generate:async()=>{calls++;throw new Error('upstream failed');}}),/upstream failed/);assert.equal(calls,1);assert.deepEqual(queue.stats(),{active:0,waiting:0});}
  finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
 
 test('HTTP timeouts retain the lease because a billable request may still be running',async()=>{
  for(const status of [408,504]){
   const paths=[];let attempts=0;
-  await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),fetchImpl:async url=>{paths.push(new URL(url).pathname);return Response.json({your_turn:true,lock_token:'lease'});},generate:async()=>{attempts++;throw httpRequestError({source:'nai-generation',status});}}),error=>error.status===status&&error.retryableGeneration===false);
+  await assert.rejects(runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),fetchImpl:async url=>{paths.push(new URL(url).pathname);return Response.json({your_turn:true,lock_token:'lease'});},generate:async()=>{attempts++;throw httpRequestError({source:'nai-generation',status});}}),error=>error.status===status&&error.retryableGeneration===false);
   assert.equal(attempts,1);assert.deepEqual(paths,['/join-queue']);
  }
 });
@@ -136,7 +136,7 @@ test('HTTP timeouts retain the lease because a billable request may still be run
 test('after an uncertain response the next same-key task waits for expiry while another key is independent',async()=>{
  let now=0;const queue=new LeaseQueue({now:()=>now}),calls=[];
  const fetchImpl=async(url,options)=>{const input=JSON.parse(options.body),path=new URL(url).pathname;calls.push(path);return Response.json(path==='/join-queue'?queue.join(input):path==='/my-turn'?queue.turn(input):queue.release(input));};
- await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:hash('one'),fetchImpl,generate:async()=>{throw httpRequestError({source:'tavern-generation',status:504});}}));
+ await assert.rejects(runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:hash('one'),fetchImpl,generate:async()=>{throw httpRequestError({source:'tavern-generation',status:504});}}));
  assert.equal(queue.join(identity('one','next')).your_turn,false);assert.equal(queue.join(identity('two','other')).your_turn,true);
  now=80000;queue.turn(identity('one','next'));now=160000;queue.turn(identity('one','next'));assert.equal(queue.stats().waiting,1);
  now=240001;assert.equal(queue.turn(identity('one','next')).your_turn,true);assert.deepEqual(calls,['/join-queue']);
@@ -146,7 +146,7 @@ test('HTTP burst with 12 keys and 48 clients never overlaps the same key and all
  const queue=new LeaseQueue(),server=createQueueServer({queue});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const active=new Map();let parallel=0,peak=0;
  try{
-  const jobs=Array.from({length:48},(_,i)=>{const key='burst-key-'+(i%12);return runWithQueue({url:'http://127.0.0.1:'+server.address().port,keyHash:hash(key),pollMs:2,heartbeatMs:100,generate:async()=>{
+  const jobs=Array.from({length:48},(_,i)=>{const key='burst-key-'+(i%12);return runWithQueue({twoPhase:false,url:'http://127.0.0.1:'+server.address().port,keyHash:hash(key),pollMs:2,heartbeatMs:100,generate:async()=>{
    assert.equal(active.get(key)||0,0);active.set(key,1);parallel++;peak=Math.max(peak,parallel);
    await new Promise(resolve=>setTimeout(resolve,5));active.set(key,0);parallel--;return i;
   }});});

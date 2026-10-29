@@ -21,7 +21,7 @@ function responseDetail(body,secrets){
 export function parseRetryAfter(value,now=Date.now()){
     if(!value?.trim())return 0;
     const seconds=Number(value),delay=Number.isFinite(seconds)?seconds*1000:Date.parse(value)-now;
-    return Number.isFinite(delay)&&delay>0?Math.min(delay,120000):0;
+    return Number.isFinite(delay)&&delay>0?delay:0;
 }
 export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=0}){
     const label=labels[source]||source||'请求',detail=responseDetail(body,secrets),generation=['tavern-generation','nai-generation','nai-encode'].includes(source);
@@ -47,10 +47,11 @@ export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=
         else if(status===429)reason='请求过于频繁，请稍后重试';
         else if(status>=500)reason='服务处理失败，请检查该服务的日志或稍后重试';
     }
+    if(generation&&[500,502,503].includes(status))reason+='；生成结果不确定，不会自动重试，请先检查结果';
     const error=Error(`${label}：${reason}（HTTP ${status}）${detail?'\n服务返回：'+detail:''}`);
-    // Only explicit image endpoint refusals can be resubmitted. A gateway timeout
-    // may have left a billable generation running, so its result stays uncertain.
-    const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&['busy','rate-limit','server','unavailable'].includes(code)&&![408,504].includes(status);
+    // Unknown server/proxy failures may already have started a billable job.
+    // Only explicit concurrency/rate-limit refusals may be submitted again.
+    const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&[409,423,429].includes(status)&&['busy','rate-limit'].includes(code);
     return Object.assign(error,{source,status,code,detail,retryAfterMs,retryableGeneration});
 }
 export function stageError(source,error){

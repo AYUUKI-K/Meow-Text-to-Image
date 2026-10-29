@@ -9,8 +9,10 @@ const runtime=await import(process.env.MIAO_MINIFLARE?pathToFileURL(process.env.
 const entry=process.env.MIAO_QUEUE_RUNTIME_ENTRY;
 const options={name:'queue-runtime-check',modulesRoot:entry?dirname(resolve(entry)):root,modules:entry?[{type:'ESModule',path:resolve(entry)}]:[
     {type:'ESModule',path:fileURLToPath(new URL('../cloudflare/worker.js',import.meta.url))},
-    {type:'ESModule',path:fileURLToPath(new URL('../queue-service/queue.mjs',import.meta.url))}
-],compatibilityDate:'2026-10-23',compatibilityFlags:['nodejs_compat'],durableObjects:{MIAO_KEY_QUEUE:{className:'MiaoKeyQueue',useSQLite:true}}};
+    {type:'ESModule',path:fileURLToPath(new URL('../queue-service/queue.mjs',import.meta.url))},
+    {type:'ESModule',path:fileURLToPath(new URL('../queue-protocol.js',import.meta.url))},
+    {type:'ESModule',path:fileURLToPath(new URL('../queue-service/lease-policy.mjs',import.meta.url))}
+],compatibilityDate:process.env.MIAO_RUNTIME_DATE||'2026-10-23',compatibilityFlags:['nodejs_compat'],durableObjects:{MIAO_KEY_QUEUE:{className:'MiaoKeyQueue',useSQLite:true}}};
 const mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);
 const who=(key,user)=>({key_hash:createHash('sha256').update(key).digest('hex'),user_id:'runtime-user-'+user,task_id:'runtime-task-'+user});
 const call=async(path,body)=>{
@@ -44,5 +46,14 @@ try{
     assert.ok(deadlineAck.generation_remaining_ms>0&&deadlineAck.generation_remaining_ms<=30000);
     const repeat=await call('/my-turn',{...a,lock_token:deadline.lock_token,generation_timeout_ms:180000});assert.ok(repeat.generation_remaining_ms<=30000);
     await call('/complete',{...a,lock_token:deadline.lock_token});
+    const phase={...who('new','A'),protocol:2},waiter={...who('new','B'),protocol:2};
+    const permit=await call('/join-queue',phase);assert.equal(permit.phase,'preparing');
+    await call('/join-queue',waiter);
+    const begun=await relay('begin-generation',{...phase,release_proof:createHash('sha256').update(permit.lock_token+'\0release').digest('hex'),generation_timeout_ms:30000});
+    assert.equal(begun.phase,'possibly-sent');assert.ok(begun.send_window_ms<=5000&&begun.hard_remaining_ms<=50000);
+    await call('/finish',{...phase,lock_token:permit.lock_token,outcome:'uncertain'});assert.equal((await call('/my-turn',waiter)).your_turn,false);
+    await relay('finish',{...phase,release_proof:createHash('sha256').update(permit.lock_token+'\0release').digest('hex'),outcome:'success'});
+    const grantedV2=await call('/my-turn',waiter);assert.equal(grantedV2.phase,'preparing');
+    await call('/complete',{...waiter,lock_token:grantedV2.lock_token});
     console.log('workerd + SQLite: isolation, polling, transactional handoff, idle cleanup and rejoin passed. No NAI requests.');
 }finally{await mf.dispose();}

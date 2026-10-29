@@ -161,3 +161,63 @@ test('160 concurrent users across 20 keys have one holder per key and independen
  }
  for(const object of objects.values())assert.deepEqual(object.queue.stats(),{active:0,waiting:0});
 });
+
+test('new preparing and uncertain deadlines persist through eviction; alarms progress without a client',async()=>{
+ let now=0;const a={...identity('phases','A'),protocol:2},b={...identity('phases','B'),protocol:2},ctx=context();let object=new MiaoKeyQueue(ctx);object.queue.now=()=>now;
+ const first=await call(object,'/join-queue',a);assert.equal(ctx.alarmAt,20000);
+ now=1000;const begun=await call(object,'/begin-generation',{...a,lock_token:first.lock_token,generation_timeout_ms:30000});assert.equal(begun.phase,'possibly-sent');
+ await call(object,'/join-queue',b);await call(object,'/finish',{...a,lock_token:first.lock_token,outcome:'uncertain'});
+ object=new MiaoKeyQueue(context(ctx.data));object.queue.now=()=>now;
+ now=31000;await object.alarm();assert.equal((await call(object,'/my-turn',b)).your_turn,false);
+ now=51000;await object.alarm();const next=await call(object,'/my-turn',b);assert.equal(next.phase,'preparing');
+ assert.equal((await call(object,'/finish',{...a,lock_token:first.lock_token,outcome:'success'})).finished,false);
+ now=71000;await object.alarm();assert.equal(object.queue.stats().active,0);
+});
+test('failed durable begin transaction returns no authorization and reloads the previous phase',async()=>{
+ const ctx=context(),object=new MiaoKeyQueue(ctx),a={...identity('begin-fail','A'),protocol:2};object.queue.now=()=>0;
+ const first=await call(object,'/join-queue',a),put=ctx.storage.put;ctx.storage.put=async()=>{throw Error('failed commit');};
+ assert.equal((await call(object,'/begin-generation',{...a,lock_token:first.lock_token,generation_timeout_ms:30000})).status,503);
+ ctx.storage.put=put;assert.equal((await call(object,'/my-turn',a)).phase,'preparing');
+ assert.equal((await call(object,'/begin-generation',{...a,lock_token:first.lock_token,generation_timeout_ms:30000})).phase,'possibly-sent');
+});
+test('mixed persisted old holder and new waiters preserve token, legacy deadline and FIFO',async()=>{
+ let now=1000;const a=identity('mixed','A'),b={...identity('mixed','B'),protocol:2},c=identity('mixed','C');
+ const data=new Map([['lanes',[[a.key_hash,{active:{user:a.user_id,task:a.task_id,token:'persisted-old-token',seen:0,started:0,expires:240000},waiting:[{user:b.user_id,task:b.task_id,seen:0,protocol:2,phase:'preparing'},{user:c.user_id,task:c.task_id,seen:0}]}]]]]);
+ const object=new MiaoKeyQueue(context(data));object.queue.now=()=>now;
+ assert.equal((await call(object,'/my-turn',a)).lock_token,'persisted-old-token');assert.equal(object.queue.lanes.get(a.key_hash).active.expires,240000);
+ assert.equal((await call(object,'/my-turn',b)).position,1);assert.equal((await call(object,'/my-turn',c)).position,2);
+ await call(object,'/complete',{...a,lock_token:'persisted-old-token'});
+ assert.equal((await call(object,'/my-turn',b)).phase,'preparing');assert.equal((await call(object,'/my-turn',c)).position,1);
+});
+
+test('durable cooldown is atomic with finish, survives eviction and alarm resumes FIFO including old clients',async()=>{
+ let now=0;const ctx=context(),a={...identity('cooldown','A'),protocol:2},b=identity('cooldown','legacy-B');let object=new MiaoKeyQueue(ctx);object.queue.now=()=>now;
+ const first=await call(object,'/join-queue',a);await call(object,'/begin-generation',{...a,lock_token:first.lock_token,generation_timeout_ms:30000});await call(object,'/join-queue',b);
+ const report={...a,lock_token:first.lock_token,outcome:'rate-limited',retry_after_ms:100000};
+ assert.equal((await call(object,'/finish',report)).cooldown_remaining_ms,100000);assert.equal(ctx.data.get('lanes')[0][1].active,null);assert.equal(ctx.data.get('lanes')[0][1].cooldownUntil,100000);
+ object=new MiaoKeyQueue(context(ctx.data));object.queue.now=()=>now;
+ now=20000;assert.equal((await call(object,'/my-turn',b)).your_turn,false);now=99999;assert.equal((await call(object,'/my-turn',b)).cooldown_remaining_ms,1);
+ now=100000;await object.alarm();const next=await call(object,'/my-turn',b);assert.equal(next.status,200);assert.equal(next.your_turn,true);assert.equal(object.queue.lanes.get(b.key_hash).active.expires,340000);
+ assert.equal((await call(object,'/finish',report)).finished,false);assert.equal((await call(object,'/my-turn',b)).lock_token,next.lock_token);
+ await call(object,'/complete',{...b,lock_token:next.lock_token});now=300001;await object.alarm();assert.equal(ctx.data.size,0);
+});
+
+test('Phase 6 atomic rejection and retry authorization survive eviction/storage failure; maintenance drains retry-wait',async()=>{
+ let now=0;const ctx=context(),a={...identity('retry-durable','A'),protocol:2,retry_protocol:1},b=identity('retry-durable','B');let object=new MiaoKeyQueue(ctx);object.queue.now=()=>now;
+ const lease=await call(object,'/join-queue',a);await call(object,'/join-queue',b);
+ const beginBody={...a,lock_token:lease.lock_token,attempt_no:0,generation_timeout_ms:30000};const permit=await call(object,'/begin-generation',beginBody);
+ const rejection={...a,lock_token:lease.lock_token,attempt_no:0,attempt_id:permit.attempt_id,rejection_status:429};
+ const put=ctx.storage.put;ctx.storage.put=async()=>{throw Error('commit failed');};
+ assert.equal((await call(object,'/retry-generation',rejection)).status,503);ctx.storage.put=put;
+ assert.equal((await call(object,'/my-turn',a)).phase,'possibly-sent');assert.equal((await call(object,'/retry-generation',rejection)).phase,'retry-wait');
+ assert.equal(ctx.data.get('lanes')[0][1].active.expires,20000);
+ object=new MiaoKeyQueue(ctx,{QUEUE_MAINTENANCE:'true'});object.queue.now=()=>now;
+ now=10000;assert.equal((await call(object,'/join-queue',a)).status,503);assert.equal((await call(object,'/my-turn',b)).your_turn,false);
+ ctx.storage.put=async()=>{throw Error('commit failed');};assert.equal((await call(object,'/begin-generation',{...beginBody,attempt_no:1})).status,503);ctx.storage.put=put;
+ assert.equal((await call(object,'/my-turn',a)).phase,'retry-wait');const next=await call(object,'/begin-generation',{...beginBody,attempt_no:1});assert.equal(next.phase,'possibly-sent');assert.notEqual(next.attempt_id,permit.attempt_id);
+ assert.equal((await call(object,'/finish',{...rejection,outcome:'success'})).status,400);
+ await call(object,'/retry-generation',{...rejection,attempt_no:1,attempt_id:next.attempt_id});
+ object=new MiaoKeyQueue(ctx,{QUEUE_MAINTENANCE:'true'});object.queue.now=()=>now;
+ now=30000;await object.alarm();const successor=await call(object,'/my-turn',b);assert.equal(successor.your_turn,true);
+ assert.equal((await call(object,'/finish',{...rejection,outcome:'rejected'})).finished,false);assert.equal((await call(object,'/my-turn',b)).lock_token,successor.lock_token);
+});

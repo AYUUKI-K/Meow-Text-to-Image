@@ -1,4 +1,5 @@
-import {withGenerationTimeout,generationTimeoutSeconds} from './generation-timeout.js';
+import {generationTimeoutSeconds} from './generation-timeout.js';
+import {prepareGeneration,sendPrepared} from './generation-lifecycle.js';
 import {importVibeData,resolveVibes,vibeSummary,vibeModelKeys,stripImage} from './vibe.js';
 import {randomId} from './browser-crypto.js';
 import {hostFetch} from './host-fetch.js';
@@ -29,11 +30,30 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
         const summary=vibeSummary(item),index=settings.vibeLibrary.findIndex(v=>v.id===item.id);
         if(index<0)settings.vibeLibrary.push(summary);else settings.vibeLibrary[index]=summary;save();return summary;
     };
-    const nai=async(endpoint,body,{expectedKeyHash,timeoutMs,beforeSend}={},consume=response=>response)=>{
+    const prepareNAI=async(endpoint,body,{expectedKeyHash}={})=>{
         const key=await getKey(expectedKeyHash);if(!key)throw Error('请先在「生成」页重新填写并保存 NAI Key，用于当前浏览器直连');
-        const remaining=await beforeSend?.();
-        const send=async signal=>consume(await checkedFetch(endpoint==='encode-vibe'?'nai-encode':'nai-generation','https://image.novelai.net/ai/'+endpoint,{method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal},{fetchImpl,secrets:[key]}));
-        return endpoint==='generate-image'?withGenerationTimeout(send,{timeoutMs:remaining??timeoutMs??generationTimeoutSeconds(settings.generationTimeoutSeconds)*1000}):send(AbortSignal.timeout(180000));
+        const source=endpoint==='encode-vibe'?'nai-encode':'nai-generation',serialized=JSON.stringify(body);
+        const options={method:'POST',credentials:'omit',referrerPolicy:'no-referrer',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:serialized};
+        return {source,send:signal=>checkedFetch(source,'https://image.novelai.net/ai/'+endpoint,{...options,signal},{fetchImpl,secrets:[key]}).then(response=>response.arrayBuffer())};
+    };
+    const prepareGenerate=async(request,scope={})=>{
+        request=structuredClone(request);
+        if(!Array.isArray(request.vibes)||request.vibes.length>4)throw Error('Vibe 列表格式错误，本插件最多启用 4 个');
+        const library=[];for(const binding of request.vibes){const item=await read(binding.id);library.push({id:item.id,name:item.name,encodings:item.encodings});}
+        const prepared=await prepareNAI('generate-image',naiPayload(request,resolveVibes(request.model,request.vibes,library)),scope);
+        return {...prepared,postprocess:bytes=>unzipPNG(new Uint8Array(bytes))};
+    };
+    const prepareEncode=async({id,model,information},scope={})=>{
+        information=Number(information);const modelKey=vibeModelKeys[model];
+        if(!modelKey||!Number.isFinite(information)||information<0||information>1)throw Error('请选择 V4/V4.5 模型，信息提取量为 0～1');
+        const item=await read(id),key='miao-'+information;
+        if(item.encodings?.[modelKey]?.[key])return {cached:true,value:vibeSummary(item)};
+        if(!item.image)throw Error('这个 Vibe 没有原图，无法重新编码');
+        const prepared=await prepareNAI('encode-vibe',{image:item.image,model,information_extracted:information},scope);
+        return {...prepared,postprocess:async bytes=>{
+            const encoding=base64Bytes(new Uint8Array(bytes));if(!encoding)throw Error('NAI 未返回 Vibe 编码');
+            const latest=await read(id);(latest.encodings[modelKey]??={})[key]={encoding,params:{information_extracted:information}};return write(latest);
+        }};
     };
     return {
         async list(){return structuredClone(settings.vibeLibrary);},
@@ -54,21 +74,15 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
         },
         async rename({id,name}){const item=await read(id);item.name=String(name||'Vibe').slice(0,100);return write(item);},
         async delete(id){await st('delete',{path:filePath(id)});settings.vibeLibrary=settings.vibeLibrary.filter(item=>item.id!==id);save();},
-        async encode({id,model,information},scope={}){
-            information=Number(information);const modelKey=vibeModelKeys[model];
-            if(!modelKey||!Number.isFinite(information)||information<0||information>1)throw Error('请选择 V4/V4.5 模型，信息提取量为 0～1');
-            let item=await read(id);const key='miao-'+information;
-            if(item.encodings?.[modelKey]?.[key])return vibeSummary(item);
-            if(!item.image)throw Error('这个 Vibe 没有原图，无法重新编码');
-            const response=await nai('encode-vibe',{image:item.image,model,information_extracted:information},scope);
-            const encoding=base64Bytes(new Uint8Array(await response.arrayBuffer()));if(!encoding)throw Error('NAI 未返回 Vibe 编码');
-            item=await read(id);(item.encodings[modelKey]??={})[key]={encoding,params:{information_extracted:information}};return write(item);
+        prepareGenerate,prepareEncode,
+        async encode(body,scope={}){
+            const prepared=await prepareGeneration(()=>prepareEncode(body,scope),scope);
+            if(prepared.cached)return prepared.value;
+            return sendPrepared(prepared,{...scope,timeoutMs:180000});
         },
         async generate(request,scope={}){
-            if(!Array.isArray(request.vibes)||request.vibes.length>4)throw Error('Vibe 列表格式错误，本插件最多启用 4 个');
-            const library=[];for(const binding of request.vibes||[]){const item=await read(binding.id);library.push({id:item.id,name:item.name,encodings:item.encodings});}
-            const references=resolveVibes(request.model,request.vibes,library);
-            return nai('generate-image',naiPayload(request,references),scope,async response=>unzipPNG(new Uint8Array(await response.arrayBuffer())));
+            const prepared=await prepareGeneration(()=>prepareGenerate(request,scope),scope);
+            return sendPrepared(prepared,{...scope,timeoutMs:scope.timeoutMs??generationTimeoutSeconds(settings.generationTimeoutSeconds)*1000});
         },
     };
 }

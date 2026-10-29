@@ -5,7 +5,7 @@ import {retryGeneration} from '../generation-retry.js';
 test('opaque tavern 500 never guesses key occupancy and tells users where details exist',()=>{
     for(const body of ['', 'Internal Server Error','<html><body>gateway secret</body></html>']){
         const error=httpRequestError({source:'tavern-generation',status:500,body});
-        assert.match(error.message,/酒馆生图接口.*终端日志.*HTTP 500/);assert.doesNotMatch(error.message,/占线|并发|gateway secret/);assert.equal(error.retryableGeneration,true);
+        assert.match(error.message,/酒馆生图接口.*终端日志.*HTTP 500/);assert.doesNotMatch(error.message,/占线|并发|gateway secret/);assert.equal(error.retryableGeneration,false);
     }
     assert.match(httpRequestError({source:'nai-generation',status:500}).message,/NovelAI.*内部错误/);
 });

@@ -28,9 +28,9 @@ export function createQueueTransport({getHeaders=()=>({'Content-Type':'applicati
     const throughServer=async(root,op,body,timeout)=>{
         if(op==='ping'){const result=await visit(root+'/ping',timeout);if(result.ready!==true||result.relay!==1)throw invalidResponse('电脑转接不可用，请联系管理员更新队列服务');return result;}
         const input={key_hash:body.key_hash,user_id:body.user_id,task_id:body.task_id};
-        for(const field of ['cancel_hash','cancel_proof','generation_timeout_ms'])if(body[field])input[field]=body[field];
+        for(const field of ['cancel_hash','cancel_proof','generation_timeout_ms','protocol','outcome','retry_after_ms','retry_protocol','attempt_no','attempt_id','rejection_status'])if(body[field]!==undefined)input[field]=body[field];
         // The raw lock token never enters a URL or the host's visited-URL log.
-        if(body.lock_token&&(['complete','leave-queue'].includes(op)||op==='my-turn'&&body.generation_timeout_ms!==undefined))input.release_proof=await sha256(body.lock_token+'\0release');
+        if(body.lock_token&&(['complete','leave-queue','begin-generation','retry-generation','finish'].includes(op)||op==='my-turn'&&body.generation_timeout_ms!==undefined))input.release_proof=await sha256(body.lock_token+'\0release');
         const relay=new URL(root+'/relay');relay.searchParams.set('op',op);relay.searchParams.set('data',JSON.stringify(input));
         const result=await visit(relay.href,timeout);
         if(!Number.isInteger(result.relay_status)||result.relay_status<200||result.relay_status>599||!result.body||typeof result.body!=='object'||Array.isArray(result.body))throw stageError('queue',Error('电脑转接返回无效队列内容，请联系管理员更新队列服务'));
@@ -40,7 +40,7 @@ export function createQueueTransport({getHeaders=()=>({'Content-Type':'applicati
     return async(url,options={},requestOptions={})=>{
         const budget=Math.min(timeoutMs,requestOptions.timeoutMs??timeoutMs),deadline=now()+budget,remaining=()=>Math.max(1,deadline-now());
         const target=new URL(url),op=target.pathname.split('/').at(-1),root=url.slice(0,url.lastIndexOf('/'));
-        if(!['ping','join-queue','my-turn','complete','leave-queue'].includes(op)||target.username||target.password||target.search||target.hash||target.protocol!=='https:'&&!(target.protocol==='http:'&&['localhost','127.0.0.1'].includes(target.hostname)))throw stageError('queue',Error('队列地址无效'));
+        if(!['ping','join-queue','my-turn','complete','leave-queue','begin-generation','retry-generation','finish'].includes(op)||target.username||target.password||target.search||target.hash||target.protocol!=='https:'&&!(target.protocol==='http:'&&['localhost','127.0.0.1'].includes(target.hostname)))throw stageError('queue',Error('队列地址无效'));
         const route=routes.get(root);
         if(allowRelay()&&route?.relay){
             try{return await throughServer(root,op,options.body,Math.max(1,budget*2/3));}
