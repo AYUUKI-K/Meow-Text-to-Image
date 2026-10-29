@@ -58,7 +58,7 @@ test('R08: second attempt ambiguous/transport failure stops POST and retains onl
  for(const error of [refusal(500),refusal(502),refusal(503),refusal(408),refusal(504),Object.assign(Error('offline'),{name:'TypeError',source:'nai-generation'}),Object.assign(Error('timeout'),{name:'TimeoutError',source:'nai-generation'})]){
   let now=0,posts=0;const q=new LeaseQueue({now:()=>now});
   await assert.rejects(runWithQueue({url:'https://queue.test',keyHash:hash,autoRetry:true,requestJSON:dispatch(q),now:()=>now,sleep:async ms=>{now+=ms;},generate:controls=>sendPrepared({source:'nai-generation',send:async()=>{if(++posts===1)throw refusal();throw error;}},{...controls})}));
-  assert.equal(posts,2);assert.equal(q.lanes.get(hash).active.phase,'uncertain');assert.equal(q.lanes.get(hash).active.expires,60000);now=60000;q.cleanup();assert.equal(q.stats().active,0);
+  assert.equal(posts,2);assert.equal(q.lanes.get(hash).active.phase,'uncertain');assert.equal(q.lanes.get(hash).active.expires,90000);now=90000;q.cleanup();assert.equal(q.stats().active,0);
  }
 });
 
@@ -111,7 +111,7 @@ test('R07: all lost retry/begin/finish replies do not restart a task or repeat a
    return value;
   },generate:controls=>sendPrepared({source:'nai-generation',send:async()=>{if(++posts===1)throw refusal();return 'image';}},controls)});
   if(lost==='finish'){assert.equal(await job,'image');assert.equal(posts,2);}else{await assert.rejects(job);assert.equal(posts,1);}
-  assert.equal(joins,1);assert.ok(q.lanes.get(hash)?.active?.expires<=60000||q.stats().active===0);now=60000;q.cleanup();assert.equal(q.stats().active,0);
+  assert.equal(joins,1);assert.ok(q.lanes.get(hash)?.active?.expires<=90000||q.stats().active===0);now=90000;q.cleanup();assert.equal(q.stats().active,0);
  }
 });
 
@@ -126,5 +126,5 @@ test('R17: retry authorization still has a 5s window; full response releases bef
 test('R18: explicit refusal is returned immediately even when finish acknowledgement hangs',async()=>{
  let now=0,posts=0,finishStarted=false;const q=new LeaseQueue({now:()=>now}),rpc=dispatch(q),error=refusal();
  await assert.rejects(runWithQueue({url:'https://queue.test',keyHash:hash,autoRetry:false,now:()=>now,requestJSON:async(url,opts)=>{if(url.endsWith('/finish')){finishStarted=true;return new Promise(()=>{});}return rpc(url,opts);},sleep:async()=>assert.fail('no hidden retry wait'),generate:controls=>sendPrepared({source:'nai-generation',send:async()=>{posts++;throw error;}},controls)}),actual=>actual===error);
- assert.equal(posts,1);assert.equal(finishStarted,true);assert.equal(q.lanes.get(hash).active.expires,50000);now=50000;q.cleanup();assert.equal(q.stats().active,0);
+ assert.equal(posts,1);assert.equal(finishStarted,true);assert.equal(q.lanes.get(hash).active.expires,80000);now=80000;q.cleanup();assert.equal(q.stats().active,0);
 });

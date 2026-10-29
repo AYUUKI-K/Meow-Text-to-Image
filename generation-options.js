@@ -4,10 +4,15 @@ import {runWithQueue} from './cloud-queue.js';
 
 export function migrateGenerationOptions(settings){
     settings.cloudQueue??=false;
-    const migrated=settings.autoRetryEnabled===undefined;
-    if(migrated)settings.autoRetryEnabled=false;
+    const retryMigrated=settings.autoRetryEnabled===undefined;
+    const timeoutMigrated=settings.generationTimeoutDefaultVersion!==1;
+    if(retryMigrated)settings.autoRetryEnabled=false;
+    if(timeoutMigrated){
+        if(Number(settings.generationTimeoutSeconds)===30)settings.generationTimeoutSeconds=60;
+        settings.generationTimeoutDefaultVersion=1;
+    }
     settings.generationTimeoutSeconds=generationTimeoutSeconds(settings.generationTimeoutSeconds);
-    return migrated;
+    return retryMigrated||timeoutMigrated;
 }
 export function generationOptions(settings){
     return {keyHash:settings.keyHash,cloudQueue:settings.cloudQueue===true,autoRetryEnabled:settings.autoRetryEnabled===true,queueUrl:settings.queueUrl,generationTimeoutSeconds:generationTimeoutSeconds(settings.generationTimeoutSeconds)};

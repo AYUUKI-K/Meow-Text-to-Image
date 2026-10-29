@@ -12,14 +12,14 @@ const hash=value=>createHash('sha256').update(value).digest('hex'),keyHash=hash(
 const who=name=>({key_hash:keyHash,user_id:'fixture-user-'+name,task_id:'fixture-task-'+name});
 const dispatcher=queue=>async(url,{body})=>url.endsWith('/join-queue')?queue.join(body):url.endsWith('/my-turn')?queue.turn(body):queue.release(body);
 
-test('single-image timeout defaults to 30s and bounds malformed saved values',()=>{
- for(const value of [undefined,null,'',0,-1,Infinity,181,'bad'])assert.equal(generationTimeoutSeconds(value),30);
+test('single-image timeout defaults to 60s and bounds malformed saved values',()=>{
+ for(const value of [undefined,null,'',0,-1,Infinity,181,'bad'])assert.equal(generationTimeoutSeconds(value),60);
  assert.equal(generationTimeoutSeconds(45),45);assert.equal(generationTimeoutSeconds('60'),60);
 });
-test('the default deadline expires at 30 seconds, not while waiting in a queue',async t=>{
+test('the default deadline expires at 60 seconds, not while waiting in a queue',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});let aborted=false;
  const pending=withGenerationTimeout(signal=>{signal.addEventListener('abort',()=>aborted=true);return new Promise(()=>{});});
- await new Promise(resolve=>setImmediate(resolve));t.mock.timers.tick(29999);assert.equal(aborted,false);
+ await new Promise(resolve=>setImmediate(resolve));t.mock.timers.tick(59999);assert.equal(aborted,false);
  t.mock.timers.tick(1);await assert.rejects(pending,error=>error.name==='TimeoutError');assert.equal(aborted,true);
 });
 test('timeout aborts an ignored-signal bridge without waiting for its body or accepting late results',async()=>{

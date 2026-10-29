@@ -1,4 +1,4 @@
-import {withGenerationTimeout} from './generation-timeout.js';
+import {withGenerationTimeout,DEFAULT_GENERATION_TIMEOUT_MS} from './generation-timeout.js';
 
 // A wall clock can move backwards; some browser monotonic clocks stop during
 // OS sleep. Use both elapsed clocks, never a remote device's absolute time.
@@ -27,7 +27,7 @@ export async function prepareGeneration(run,{timeoutMs=20000,canContinue=()=>tru
 
 // send() must invoke fetch synchronously before its first await. All key reads,
 // serialization and host headers belong to prepare, not to this boundary.
-export async function sendPrepared(prepared,{beforeSend,assertSend,onResponse,canContinue=()=>true,timeoutMs=30000}={}){
+export async function sendPrepared(prepared,{beforeSend,assertSend,onResponse,canContinue=()=>true,timeoutMs=DEFAULT_GENERATION_TIMEOUT_MS}={}){
     const remaining=await beforeSend?.();
     const result=await withGenerationTimeout(signal=>{
         if(!canContinue())throw Error('原消息已变化，已退出待生成队列');

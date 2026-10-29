@@ -1,5 +1,4 @@
 import {createResourceMacrosView} from './resource-macros-view.js';
-import {generationTimeoutSeconds} from './generation-timeout.js';
 import {validateQueueURL} from './cloud-queue.js';
 import {bindButtonPress} from './button-press.js';
 import {readPromptFiles} from './prompt-files.js';
@@ -156,9 +155,6 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const main=section(preferences,'生成方式');
             const toggle=node('label',undefined,'miao-switch-row');const checkbox=node('input');checkbox.type='checkbox';checkbox.checked=settings.enabled;checkbox.onchange=()=>{settings.enabled=checkbox.checked;save();onChange();};toggle.append(node('span','启用自动生图'),checkbox);main.append(toggle);
             field(main,'生成模式',settings.mode,v=>{settings.mode=v;save();onChange(true);render();},{options:[['manual','手动'],['auto','回复后生成'],['stream','流式生成']]});
-            const advanced=node('details'),advancedBody=node('div');advanced.append(node('summary','高级：请求等待预算'),advancedBody);main.append(advanced);
-            const timeoutField=field(advancedBody,'单张生图超时（秒）',generationTimeoutSeconds(settings.generationTimeoutSeconds),v=>{settings.generationTimeoutSeconds=generationTimeoutSeconds(v);save();},{type:'number'});timeoutField.min='5';timeoutField.max='180';timeoutField.step='1';
-            advancedBody.append(node('p','默认 30 秒，仅等待 NAI 请求和响应，不含排队、准备或解图保存。准备另限 20 秒，Vibe 编码仍为 180 秒。超时停止本地等待；云端保留至生图期限加 20 秒保护，不自动重试。NAI 可能仍在处理。','miao-muted'));
             const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.autoRetryEnabled;retryCheck.onchange=()=>{settings.autoRetryEnabled=retryCheck.checked;save();};retry.append(node('span','遇到占线自动重试'),retryCheck);main.append(retry);
             main.append(node('p','仅在 NAI 明确拒绝本次请求时，等待 10 秒后最多重试 3 次；关闭则立即报错。启用云端排队时仍由本地发起重试，云端只协调发送许可。服务端要求更久时以服务端为准；超过 120 秒则停止。超时、断网和未知 5xx 不重发。','miao-muted'));
             const connection=section(account,'连接 NovelAI');

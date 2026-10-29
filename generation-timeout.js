@@ -1,7 +1,8 @@
 import {stageError} from './request-errors.js';
-export function generationTimeoutSeconds(value){const number=Number(value);return Number.isFinite(number)&&number>=5&&number<=180?Math.round(number):30;}
+export const DEFAULT_GENERATION_TIMEOUT_MS=60000;
+export function generationTimeoutSeconds(value){const number=Number(value);return Number.isFinite(number)&&number>=5&&number<=180?Math.round(number):DEFAULT_GENERATION_TIMEOUT_MS/1000;}
 // Includes response-body consumption even when a host bridge ignores AbortSignal.
-export async function withGenerationTimeout(run,{timeoutMs=30000,source='nai-generation'}={}){
+export async function withGenerationTimeout(run,{timeoutMs=DEFAULT_GENERATION_TIMEOUT_MS,source='nai-generation'}={}){
     const controller=new AbortController();let timer;
     try{return await Promise.race([Promise.resolve().then(()=>run(controller.signal)),new Promise((_,reject)=>{timer=setTimeout(()=>{
         const error=stageError(source,Object.assign(Error('timeout'),{name:'TimeoutError'}));

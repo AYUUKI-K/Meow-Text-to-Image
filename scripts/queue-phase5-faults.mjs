@@ -34,7 +34,7 @@ export async function faultScenario(name){
  try{
   for(const row of rows){
    let firstSleep=true;
-   runWithQueue({url:'https://fixture.invalid',keyHash:hash,now:()=>clock.now,pollMs:name==='alarm-late-4s'?7000:5000,requestJSON:request(row),sleep:ms=>{
+   runWithQueue({generationTimeoutMs:30000,url:'https://fixture.invalid',keyHash:hash,now:()=>clock.now,pollMs:name==='alarm-late-4s'?7000:5000,requestJSON:request(row),sleep:ms=>{
     if(name==='waiting-pause-120s'&&row.id==='B'&&firstSleep){firstSleep=false;return clock.sleep(120000);}return clock.sleep(ms);
    },generate:async controls=>{
     if(row.id==='A'&&name==='pre-begin-pause-30s')await clock.sleep(30000);

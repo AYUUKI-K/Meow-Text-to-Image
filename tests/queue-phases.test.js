@@ -62,14 +62,14 @@ test('lost begin/finish replies retry control operations without repeating the i
 test('all lost begin replies submit zero images and retain only bounded protection',async()=>{
  let now=0,sent=0;const q=new LeaseQueue({now:()=>now}),request=dispatch(q);
  await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash:hash,now:()=>now,sleep:async()=>{},requestJSON:async(url,opts)=>{const result=await request(url,opts);if(url.endsWith('begin-generation'))throw new TypeError('lost');return result;},generate:controls=>sendPrepared({source:'nai-generation',send:async()=>{sent++;}},controls)}));
- assert.equal(sent,0);assert.equal(q.stats().active,1);now=50000;assert.equal(q.stats().active,0);
+ assert.equal(sent,0);assert.equal(q.stats().active,1);now=80000;assert.equal(q.stats().active,0);
 });
 test('local timeout leaves bounded protection while mock upstream continues, and no automatic POST occurs',async()=>{
  let now=0,sent=0;const q=new LeaseQueue({now:()=>now});
  await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash:hash,now:()=>now,requestJSON:dispatch(q),generate:async controls=>{
   await controls.beforeSend();controls.assertSend();sent++;return withGenerationTimeout(()=>new Promise(()=>{}),{timeoutMs:5});
  }}),e=>e.localGenerationTimeout===true);
- assert.equal(sent,1);now=30000;assert.equal(q.join(who('B')).your_turn,false);now=49999;assert.equal(q.turn(who('B')).your_turn,false);now=50000;assert.equal(q.turn(who('B')).your_turn,true);
+ assert.equal(sent,1);now=30000;assert.equal(q.join(who('B')).your_turn,false);now=79999;assert.equal(q.turn(who('B')).your_turn,false);now=80000;assert.equal(q.turn(who('B')).your_turn,true);
 });
 test('success releases immediately and two send attempts from one grant are refused',async()=>{
  let sent=0;const q=new LeaseQueue();

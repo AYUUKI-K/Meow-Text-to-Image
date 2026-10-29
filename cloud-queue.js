@@ -1,3 +1,4 @@
+import {DEFAULT_GENERATION_TIMEOUT_MS} from './generation-timeout.js';
 import {queueCapabilities,queueProtocol} from './queue-protocol.js';
 import {elapsedClock} from './generation-lifecycle.js';
 import {randomId,sha256} from './browser-crypto.js';
@@ -76,13 +77,13 @@ export async function runWithQueue({url,keyHash,greeting='',generationTimeoutMs,
             if(!canContinue())throw Error('原消息已变化，已退出待生成队列');
             if(twoPhase){
                 if(now()>=retryDeadline)throw stageError('queue',Error('重试许可已过期，未发送新的生图请求'));
-                const checkedAt=now(),current=await call('/begin-generation',{lock_token:lockToken,attempt_no:attemptNo,generation_timeout_ms:generationTimeoutMs??30000});
+                const checkedAt=now(),current=await call('/begin-generation',{lock_token:lockToken,attempt_no:attemptNo,generation_timeout_ms:generationTimeoutMs??DEFAULT_GENERATION_TIMEOUT_MS});
                 beginConfirmed=true;verifiedAt=checkedAt;
                 if(current.your_turn!==true||current.lock_token!==lockToken||current.phase!=='possibly-sent'||current.retry_protocol!==1||current.attempt_no!==attemptNo||typeof current.attempt_id!=='string'||!current.attempt_id||!Number.isFinite(current.send_window_ms)||!Number.isFinite(current.generation_remaining_ms))throw stageError('queue',Error('发送许可无效，未发送新的生图请求'));
                 attemptId=current.attempt_id;
                 sendBudget=Math.min(current.send_window_ms,current.generation_remaining_ms);
                 if(now()-verifiedAt<0||now()-verifiedAt>=sendBudget)throw stageError('queue',Error('发送窗口已过期，未发送新的生图请求，请重新生成'));
-                return Math.min(generationTimeoutMs??30000,current.generation_remaining_ms-(now()-verifiedAt));
+                return Math.min(generationTimeoutMs??DEFAULT_GENERATION_TIMEOUT_MS,current.generation_remaining_ms-(now()-verifiedAt));
             }
             if(generationTimeoutMs!==undefined||now()-verifiedAt>15000){
                 const checkedAt=now(),current=await call('/my-turn',{lock_token:lockToken,...(generationTimeoutMs!==undefined?{generation_timeout_ms:generationTimeoutMs}:{})});
