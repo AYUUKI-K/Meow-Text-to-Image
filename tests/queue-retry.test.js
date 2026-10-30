@@ -144,6 +144,10 @@ test('local/cloud modes retry only temporary image 429; all other refusals and q
   {status:429,body:'Too Many Requests',source:'nai-encode'},
   {status:429,body:'Too Many Requests',source:'image-save'},
   {status:429,body:'Too Many Requests',source:'nai-generation',retry:true},
+  {status:429,body:'Concurrent generation is locked',source:'nai-generation',retry:true},
+  {status:429,body:'Concurrent generation is locked',source:'tavern-generation',retry:true},
+  {status:429,body:'Concurrent generation is locked; Forbidden'},
+  {status:429,body:'Concurrent generation is locked; Unknown result'},
   {status:429,body:'Too Many Requests',source:'tavern-generation',retry:true},
  ];
  for(const cloudQueue of [false,true])for(const item of cases){
@@ -156,5 +160,37 @@ test('local/cloud modes retry only temporary image 429; all other refusals and q
   assert.equal(posts,item.retry?4:1,JSON.stringify({cloudQueue,...item}));
   assert.equal(paths.filter(path=>path==='/retry-generation').length,cloudQueue&&item.retry?3:0);
   if(!cloudQueue)assert.deepEqual(paths,[]);
+ }
+});
+
+test('429 lock retries honor opt-in, exclusive holder, delays, cancellation and expiry in local/cloud mode',async()=>{
+ const {runGenerationTask}=await import('../src/generation/generation-options.js');
+ const {waitForGeneration}=await import('../src/generation/generation-delay.js');
+ for(const cloudQueue of [false,true])for(const mode of ['disabled','success','exhausted','cancelled','expired']){
+  let now=0,posts=0,valid=true,joined=false;const q=new LeaseQueue({now:()=>now}),rpc=dispatch(q),paths=[],waits=[],sendTimes=[];
+  const b=who('waiting-B');
+  const sleep=async ms=>{
+   now+=ms;
+   if(mode==='cancelled')valid=false;
+   if(mode==='expired')now+=41000;
+   if(cloudQueue&&mode!=='expired')assert.equal(q.turn(b).your_turn,false,'same-key waiter must not send during retry-wait');
+  };
+  const error=httpRequestError({source:'nai-generation',status:429,body:'Concurrent generation is locked',retryAfterMs:20000});
+  const job=runGenerationTask({scope:{cloudQueue,autoRetryEnabled:mode!=='disabled',queueUrl:'https://queue.test',keyHash:hash},canContinue:()=>valid,
+   retryOptions:{now:()=>now,sleep},queueOptions:{now:()=>now,sleep,requestJSON:async(url,options)=>{const path=new URL(url).pathname;paths.push(path);const result=await rpc(url,options);if(path==='/join-queue'&&!joined){joined=true;q.join(b);}return result;}},
+   generate:async controls=>{
+    await waitForGeneration({canContinue:()=>valid,random:()=>0,sleep:async ms=>{waits.push(ms);now+=ms;}});
+    return sendPrepared({source:'nai-generation',send:async()=>{posts++;sendTimes.push(now);if(cloudQueue)assert.equal(q.turn(b).your_turn,false);if(mode==='success'&&posts===2)return 'image';throw error;}},{...controls,canContinue:()=>valid});
+   }});
+  if(mode==='success')assert.equal(await job,'image');else await assert.rejects(job);
+  assert.equal(posts,mode==='success'?2:mode==='exhausted'?4:1,`${cloudQueue} ${mode}`);
+  assert.deepEqual(waits,Array(posts).fill(2000));
+  for(let i=1;i<sendTimes.length;i++)assert.ok(sendTimes[i]-sendTimes[i-1]>=22000,'Retry-After plus fresh send delay');
+  if(cloudQueue){
+   assert.equal(paths.filter(path=>path==='/join-queue').length,1);
+   assert.equal(q.lanes.get(hash)?.cooldownUntil,undefined);
+   assert.equal(q.turn(b).your_turn,true,'success/refusal/cancellation/expiry must hand off to waiter');
+   const lease=q.turn(b);q.finish({...b,lock_token:lease.lock_token,attempt_no:0,outcome:'not-sent'});assert.equal(q.stats().active,0);
+  }else assert.deepEqual(paths,[]);
  }
 });

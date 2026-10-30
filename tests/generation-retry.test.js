@@ -71,8 +71,8 @@ test('generation mode replaces legacy disabled switch without unexpectedly enabl
 });
 
 
-test('retry guard rejects 409/423 and non-rate-limit 429 even if a caller supplies a retry flag',()=>{
+test('retry guard rejects 409/423 and unrecoverable 429 even if a caller supplies a retry flag',()=>{
  for(const status of [409,423])assert.equal(isRetryableGeneration({source:'nai-generation',status,code:'busy',retryableGeneration:true}),false);
- for(const code of ['busy','quota','auth','parameters',undefined])assert.equal(isRetryableGeneration({source:'nai-generation',status:429,code,retryableGeneration:true}),false);
- assert.equal(isRetryableGeneration({source:'nai-generation',status:429,code:'rate-limit',retryableGeneration:true}),true);
+ for(const code of ['quota','auth','parameters',undefined])assert.equal(isRetryableGeneration({source:'nai-generation',status:429,code,retryableGeneration:true}),false);
+ for(const code of ['rate-limit','busy'])assert.equal(isRetryableGeneration({source:'nai-generation',status:429,code,retryableGeneration:true}),true);
 });
