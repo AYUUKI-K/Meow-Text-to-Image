@@ -206,6 +206,9 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     check.onchange=()=>{settings.randomProfileIds=check.checked?[...settings.randomProfileIds,profile.id]:settings.randomProfileIds.filter(id=>id!==profile.id);selectingRandom=true;settings.profileSelectionMode=settings.randomProfileIds.length>=2?'random':'single';save();render();};label.append(node('span',profile.name),check);strategy.append(label);
                 }
             }
+            const eggToggle=node('label',undefined,'miao-switch-row'),eggCheck=node('input');eggCheck.type='checkbox';eggCheck.checked=settings.eggProfileEnabled;
+            eggCheck.onchange=()=>{settings.eggProfileEnabled=eggCheck.checked;if(eggCheck.checked&&!settings.eggProfileId)settings.eggProfileId=p.id;save();render();};eggToggle.append(node('span','为最后一张图（彩蛋）单独指定配置'),eggCheck);strategy.append(eggToggle);
+            if(settings.eggProfileEnabled)field(strategy,'彩蛋使用配置',settings.eggProfileId,value=>{settings.eggProfileId=value;save();},{options:settings.profiles.map(profile=>[profile.id,profile.name])});
             profiles.append(node('p','当前配置用于编辑和例图；随机池独立控制普通图片的配置选择。','miao-muted'));
             field(profiles,'当前配置',String(settings.active),v=>{settings.active=Number(v);save();render();},{options:settings.profiles.map((p,i)=>[String(i),p.name])});
             const actions=node('div',undefined,'miao-actions miao-profile-actions');profiles.append(actions);

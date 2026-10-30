@@ -98,5 +98,5 @@ export function generationInfo(metadata,savedRecord){
     const characters=Array.from({length:Math.max(positiveCharacters.length,negativeCharacters.length)},(_,index)=>({positive:positiveCharacters[index]?.char_caption??'',negative:negativeCharacters[index]?.char_caption??'',centers:positiveCharacters[index]?.centers??negativeCharacters[index]?.centers}));
     const width=embedded.width??metadata.width??saved.width,height=embedded.height??metadata.height??saved.height;
     if(modelId)parameters.model=modelId;if(width!==undefined)parameters.width=width;if(height!==undefined)parameters.height=height;
-    return {model,modelId,source,prompt,negative,characters,width,height,parameters,metadata:Object.fromEntries(Object.entries(text).filter(([key])=>!['Comment','Description','Source'].includes(key)))};
+    return {profileId:savedRecord?.profileId,profileName:savedRecord?.profileName,model,modelId,source,prompt,negative,characters,width,height,parameters,metadata:Object.fromEntries(Object.entries(text).filter(([key])=>!['Comment','Description','Source'].includes(key)))};
 }
