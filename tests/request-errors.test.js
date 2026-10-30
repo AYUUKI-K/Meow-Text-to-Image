@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {httpRequestError,checkedFetch,inStage,errorTitle} from '../src/platform/request-errors.js';
 import {retryGeneration} from '../src/generation/generation-retry.js';
+test('network diagnostics redact known secrets and credential URLs; body failures retain the actual response status',async()=>{
+    await assert.rejects(checkedFetch('queue','https://queue.example',{}, {secrets:['fixture-private-value'],fetchImpl:async()=>{throw new TypeError('fixture-private-value https://user:password@example.invalid/?token=hidden');}}),error=>{
+        assert.match(error.message,/未取得 HTTP 响应/);assert.doesNotMatch(error.message,/fixture-private-value|user:password|token=hidden/);return true;
+    });
+    await assert.rejects(checkedFetch('queue','https://queue.example',{}, {fetchImpl:async()=>({ok:false,status:503,text:async()=>{throw new TypeError('body failed');}})}),error=>error.status===503&&error.message.includes('HTTP 503')&&!error.message.includes('未取得 HTTP 响应'));
+});
 test('opaque tavern 500 never guesses key occupancy and tells users where details exist',()=>{
     for(const body of ['', 'Internal Server Error','<html><body>gateway secret</body></html>']){
         const error=httpRequestError({source:'tavern-generation',status:500,body});

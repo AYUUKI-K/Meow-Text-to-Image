@@ -36,9 +36,9 @@ export function showPanelPage(content,{parent,kind='image',closeLabel='返回',o
             if(previous?.isConnected&&!previous.closest('[inert]'))previous.focus({preventScroll:true});
             if(error)reject(error);else resolve(1);
         }
-        const closed=()=>finish(),cancel=event=>{if(!top()||parent.querySelector('.miao-confirmation-layer'))return;event.preventDefault();event.stopImmediatePropagation();finish();};
+        const closed=()=>finish(),cancel=event=>{if(!top()||parent.querySelector('.miao-confirmation-layer')||event.target?.closest?.('dialog')&&event.target.closest('dialog')!==parent)return;event.preventDefault();event.stopImmediatePropagation();finish();};
         const key=event=>{
-            if(!top()||parent.querySelector('.miao-confirmation-layer'))return;
+            if(!top()||parent.querySelector('.miao-confirmation-layer')||event.target?.closest?.('dialog')&&event.target.closest('dialog')!==parent)return;
             if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish();}
             else if(event.key==='Tab'){
                 const items=[...mount.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter(el=>el.getClientRects().length&&!el.closest('[hidden]'));

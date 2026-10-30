@@ -40,7 +40,8 @@ test('images without PNG metadata do not invent generation parameters',async()=>
 test('generation info recognizes NovelAI model source and favors embedded data over saved settings',()=>{
  const comment={prompt:'full scene',uc:'',seed:0,steps:28,scale:7,sm:false,v4_prompt:{caption:{base_caption:'base scene',char_captions:[{char_caption:'character',centers:[{x:.2,y:.8}]}]}},v4_negative_prompt:{caption:{base_caption:'negative scene',char_captions:[{char_caption:'negative character'}]}},unknown:{keep:true}};
  const metadata={width:1024,height:1024,text:[{keyword:'Source',text:'NovelAI Diffusion V4.5 4BDE2A90'},{keyword:'Comment',parameters:comment},{keyword:'Software',text:'NovelAI'}]};
- const info=generationInfo(metadata,{request:{model:'nai-diffusion-5-full',width:512,height:512,prompt:'outdated',seed:999}});
+ const info=generationInfo(metadata,{profileId:'selected-profile',profileName:'实际生成配置',request:{model:'nai-diffusion-5-full',width:512,height:512,prompt:'outdated',seed:999}});
+ assert.equal(info.profileId,'selected-profile');assert.equal(info.profileName,'实际生成配置');
  assert.equal(info.modelId,'nai-diffusion-4-5-full');assert.equal(info.model,'V4.5 Full');assert.equal(info.prompt,'base scene');assert.equal(info.negative,'negative scene');assert.equal(info.parameters.seed,0);assert.equal(info.parameters.sm,false);
  assert.equal(info.width,1024);assert.equal(info.parameters.width,1024);assert.equal(info.characters[0].negative,'negative character');assert.deepEqual(info.parameters.unknown,{keep:true});assert.equal(info.metadata.Software,'NovelAI');
  assert.equal(generationInfo({text:[]}).model,'未记录');assert.equal(generationInfo({text:[]},{request:{prompt:'saved',negative_prompt:'saved negative'}}).negative,'saved negative');
