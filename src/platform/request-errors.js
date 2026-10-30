@@ -35,7 +35,7 @@ export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=
         else if(/invalid (?:access )?token|invalid api.?key|expired token/i.test(detail)||status===401&&source!=='tavern-generation'){reason='Key 验证失败，请重新填写并保存 Key';code='auth';}
         else if(status===401||/\bunauthorized\b|authentication failed/i.test(detail)){reason=source==='tavern-generation'?'身份验证失败，请检查酒馆登录状态和 NAI Key':'Key 验证失败，请重新填写并保存 Key';code='auth';}
         else if(/invalid (?:width|height|dimensions?|steps|seed|sampler|noise schedule|model|parameters?)|unsupported model|尺寸无效|参数无效|不支持.{0,8}模型/i.test(detail)||custom&&/(?:reference|vibe|参考).{0,50}(?:最多|超限|上限|至多|at most|maximum|limit|exceed)|too many (?:reference|vibe)/i.test(detail)){reason='生成参数被拒绝，请检查模型、尺寸或 Vibe';code='parameters';}
-        else if(/access denied|permission denied|account.{0,15}(?:disabled|banned|suspended)/i.test(detail)){reason='访问被拒绝，请检查账号权限';code='permission';}
+        else if(/access denied|permission denied|forbidden|insufficient permissions?|权限不足|无权访问|account.{0,15}(?:disabled|banned|suspended)/i.test(detail)){reason='访问被拒绝，请检查账号权限';code='permission';}
         else if(/concurren(?:t|cy)|already generating|generation.{0,20}in progress|并发|正在生成|占线|任务进行中/i.test(detail)){reason='服务提示有并发任务，请等待已有任务结束';code='busy';}
         else if(status===403){reason='访问被拒绝，请检查账号权限及网络';code='permission';}
         else if(status===402){reason='生成被拒绝，请检查账号额度';code='balance';}
@@ -59,8 +59,8 @@ export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=
         if([408,500,502,503,504].includes(status))error.message+='\n生成结果不确定，不会自动重试，请先检查结果。';
     }
     // Unknown server/proxy failures may already have started a billable job.
-    // Only recoverable HTTP 429 rate-limit refusals may be submitted again.
-    const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&status===429&&code==='rate-limit'&&!/quota|balance|credit|billing|auth|token|permission|forbidden|model|parameter|invalid|unsupported/i.test(upstreamCode)&&!/<(?:!doctype|html|head|body)\b/i.test(body)&&!/unknown|ambiguous|结果不确定|未知/i.test(detail);
+    // Only recoverable HTTP 429 rate-limit/concurrency refusals may be submitted again.
+    const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&status===429&&['rate-limit','busy'].includes(code)&&!/quota|balance|credit|billing|auth|token|permission|forbidden|model|parameter|invalid|unsupported/i.test(upstreamCode)&&!/<(?:!doctype|html|head|body)\b/i.test(body)&&!/unknown|ambiguous|结果不确定|未知/i.test(detail);
     return Object.assign(error,{source,status,code,detail,retryAfterMs,retryableGeneration});
 }
 export function stageError(source,error){

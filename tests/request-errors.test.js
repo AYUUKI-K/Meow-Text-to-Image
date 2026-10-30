@@ -55,3 +55,13 @@ test('409/423 status alone does not invent concurrency; explicit descriptions ar
   assert.equal(error.code,'busy');assert.equal(error.detail,'Concurrent generation request');assert.equal(error.retryableGeneration,false);
  }
 });
+
+test('429 concurrent generation lock is recoverable only for image sources and never overrides permanent errors',()=>{
+ for(const source of ['nai-generation','tavern-generation','nai-encode'])for(const status of [400,401,402,403,408,409,422,423,429,500,502,503,504]){
+  const error=httpRequestError({source,status,body:JSON.stringify({error:{message:'Concurrent generation is locked'}})});
+  assert.equal(error.retryableGeneration,status===429&&source!=='nai-encode',`${source} ${status}`);
+ }
+ for(const body of ['Concurrent generation is locked; Not enough credits','Concurrent generation is locked; Daily quota exceeded','Concurrent generation is locked; Invalid access token','Concurrent generation is locked; Permission denied','Concurrent generation is locked; Invalid parameters','Concurrent generation is locked; Unknown result']){
+  assert.equal(httpRequestError({source:'nai-generation',status:429,body}).retryableGeneration,false,body);
+ }
+});
