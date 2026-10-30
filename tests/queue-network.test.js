@@ -64,14 +64,45 @@ test('an explicit queue HTTP failure does not trigger a server relay or an image
     await assert.rejects(request('https://queue.example/join-queue',{method:'POST',body:{}}),error=>error.status===429);
     assert.deepEqual(calls,['https://queue.example/join-queue']);
 });
+test('diagnostics preserve cached-route failure types used by idempotent control retries',async()=>{
+    let established=false;
+    const request=createQueueTransport({fetchImpl:async url=>{
+        if(url.startsWith('https:'))throw new TypeError('offline');
+        if(!established)return Response.json({ready:true,relay:1});
+        throw new TypeError('relay offline');
+    }});
+    await request('https://queue.example/ping');established=true;
+    await assert.rejects(request('https://queue.example/my-turn',{method:'POST',body:{}}),error=>error.name==='TypeError'&&error.code==='stage'&&error.message.includes('阶段：my-turn'));
+});
 
 test('connection checks reject JSON that does not identify a ready queue',async()=>{
     const request=createQueueTransport({allowRelay:()=>false,fetchImpl:async()=>Response.json({unexpected:true})});
     await assert.rejects(request('https://queue.example/ping'),/未返回就绪/);
 });
+test('direct and ST failures retain distinct safe causes, operation and real HTTP status without sending an image',async()=>{
+    for(const kind of ['404','invalid-json','timeout','cors']){
+        let posts=0;
+        const requestJSON=createQueueTransport({timeoutMs:30,fetchImpl:async url=>{
+            if(url.startsWith('https:'))throw new TypeError('offline Authorization=fixture-secret https://user:pass@example.invalid/?key=hidden');
+            if(kind==='404')return Response.json({message:'visit not found',code:'missing'},{status:404});
+            if(kind==='invalid-json')return new Response('<html>invalid proxy</html>');
+            if(kind==='cors')throw new TypeError('Failed to fetch');
+            return new Promise(()=>{});
+        }});
+        await assert.rejects(runWithQueue({url:'https://queue.example',keyHash:'a'.repeat(64),requestJSON,generate:async()=>{posts++;}}),error=>{
+            assert.match(error.message,/浏览器直连/);assert.match(error.message,/SillyTavern 服务端转接/);assert.match(error.message,/阶段：/);assert.match(error.message,/未取得 HTTP 响应/);
+            assert.equal(/手机|电脑|fixture-secret|user:pass|key=hidden/.test(error.message),false);
+            if(kind==='404')assert.match(error.message,/HTTP 404/);
+            else if(kind==='invalid-json')assert.match(error.message,/HTTP 200/);
+            else assert.doesNotMatch(error.message,/HTTP \d{3}/);
+            return true;
+        });assert.equal(posts,0);
+    }
+});
 test('queue timeouts include a hung bridge or body and retain the queue error source',async()=>{
     for(const fetchImpl of [()=>new Promise(()=>{}),async()=>({ok:true,json:()=>new Promise(()=>{})})])await assert.rejects(queueJSON('https://queue.example/ping',{}, {fetchImpl,timeoutMs:5}),e=>e.name==='TimeoutError'&&e.source==='queue'&&!e.message.includes('结果尚不确定'));
     await assert.rejects(queueJSON('https://queue.example/ping',{}, {fetchImpl:async()=>new Response('<html>proxy page</html>')}),/队列返回内容无效/);
+    await assert.rejects(queueJSON('https://queue.example/ping',{}, {fetchImpl:async()=>({ok:true,status:200,json:()=>new Promise(()=>{})}),timeoutMs:5}),e=>e.status===200&&e.message.includes('HTTP 200')&&!e.message.includes('未取得 HTTP 响应'));
 });
 test('broken queue connections never fall back to uncoordinated generation or claim NAI returned an error',async()=>{
     let calls=0,sent=0;

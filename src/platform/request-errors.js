@@ -5,7 +5,7 @@ const labels={
 };
 export function redactErrorText(value,secrets=[]){
     let text=String(value||'');for(const secret of secrets)if(secret)text=text.split(secret).join('[已隐藏]');
-    return text.replace(/\bBearer\s+[^\s"'<>]+/gi,'Bearer [已隐藏]').replace(/((?:api[_ -]?key|access[_ -]?token|authorization|secret)\s*["']?\s*[:=]\s*["']?)[^\s"',;<>}]+/gi,'$1[已隐藏]');
+    return text.replace(/https?:\/\/[^\s"'<>]+/gi,'[地址已隐藏]').replace(/\b(?:sk-|nai-)[A-Za-z0-9_-]{16,}/g,'[已隐藏]').replace(/\bBearer\s+[^\s"'<>]+/gi,'Bearer [已隐藏]').replace(/((?:api[_ -]?key|access[_ -]?token|authorization|secret|password|cookie|token)\s*["']?\s*[:=]\s*["']?)[^\s"',;<>}]+/gi,'$1[已隐藏]');
 }
 export function responseDetail(body,secrets=[]){
     let value=String(body||'').trim();
@@ -61,9 +61,11 @@ export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=
     // Unknown server/proxy failures may already have started a billable job.
     // Only recoverable HTTP 429 rate-limit/concurrency refusals may be submitted again.
     const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&status===429&&['rate-limit','busy'].includes(code)&&!/quota|balance|credit|billing|auth|token|permission|forbidden|model|parameter|invalid|unsupported/i.test(upstreamCode)&&!/<(?:!doctype|html|head|body)\b/i.test(body)&&!/unknown|ambiguous|结果不确定|未知/i.test(detail);
-    return Object.assign(error,{source,status,code,detail,retryAfterMs,retryableGeneration});
+    const serviceCode=redactErrorText(upstreamCode,secrets).slice(0,150);
+    if(serviceCode)error.message+='\n服务代码：'+serviceCode;
+    return Object.assign(error,{source,status,code,detail,serviceCode,retryAfterMs,retryableGeneration});
 }
-export function stageError(source,error){
+export function stageError(source,error,secrets=[]){
     if(error?.source)return error;
     const name=error?.name||'Error',label=labels[source]||source;
     let reason;
@@ -72,15 +74,16 @@ export function stageError(source,error){
     else if(source==='queue'&&['TimeoutError','AbortError','TypeError'].includes(name))reason=name==='TypeError'?'连接队列服务失败，请检查当前浏览器的网络或代理':'队列连接超时或被中断，请稍后重试';
     else if(['TimeoutError','AbortError'].includes(name))reason='请求超时或被中断；结果尚不确定，请先检查再重试';
     else if(name==='TypeError')reason='连接失败，请检查网络或代理；结果尚不确定，不会自动重试';
-    else reason=String(error?.message||error||'操作失败');
-    const detail=['image-save','chat-save'].includes(source)?responseDetail(error?.message):'';
-    const wrapped=Error(`${label}：${reason}${detail?'\n服务返回：'+detail:''}`);wrapped.name=name;wrapped.source=source;wrapped.code='stage';
+    else reason=responseDetail(error?.message||error,secrets)||'操作失败';
+    const detail=['image-save','chat-save'].includes(source)?responseDetail(error?.message,secrets):'';
+    const wrapped=Error(`${label}：${reason}${['TypeError','TimeoutError','AbortError'].includes(name)?'（未取得 HTTP 响应）':''}${detail?'\n服务返回：'+detail:''}`);wrapped.name=name;wrapped.source=source;wrapped.code='stage';wrapped.detail=responseDetail(error?.message,secrets);
+    if(wrapped.detail&&!['image-save','chat-save'].includes(source)&&wrapped.detail!==reason)wrapped.message+='\n原因：'+wrapped.detail;
     return wrapped;
 }
 export async function inStage(source,run){try{return await run();}catch(error){throw stageError(source,error);}}
 export async function checkedFetch(source,url,options={}, {fetchImpl=fetch,secrets=[],custom=false,summary=''}={}){
-    let response;try{response=await fetchImpl(url,options);}catch(error){const wrapped=stageError(source,error);if(custom&&wrapped.name==='TypeError')wrapped.message+='；自定义接口可能受浏览器跨域（CORS）或 HTTPS 页面访问 HTTP 的混合内容限制，请检查站点配置及浏览器控制台';throw wrapped;}
-    if(!response.ok){let body;try{body=await response.text();}catch(error){const wrapped=stageError(source,error);if(custom){wrapped.responseStatus=response.status;wrapped.responseBodyFailure=true;}throw wrapped;}throw httpRequestError({source,status:response.status,body,secrets,custom,summary,retryAfterMs:parseRetryAfter(response.headers.get('Retry-After'))});}
+    let response;try{response=await fetchImpl(url,options);}catch(error){const wrapped=stageError(source,error,secrets);if(custom&&wrapped.name==='TypeError')wrapped.message+='；自定义接口可能受浏览器跨域（CORS）或 HTTPS 页面访问 HTTP 的混合内容限制，请检查站点配置及浏览器控制台';throw wrapped;}
+    if(!response.ok){let body;try{body=await response.text();}catch(error){const wrapped=stageError(source,error,secrets);wrapped.status=response.status;wrapped.message=wrapped.message.replace('（未取得 HTTP 响应）',`（HTTP ${response.status}，响应正文读取失败）`);if(custom){wrapped.responseStatus=response.status;wrapped.responseBodyFailure=true;}throw wrapped;}throw httpRequestError({source,status:response.status,body,secrets,custom,summary,retryAfterMs:parseRetryAfter(response.headers.get('Retry-After'))});}
     return response;
 }
 export function errorTitle(error,fallback='操作失败'){return error?.source?(labels[error.source]||fallback)+'失败':fallback;}
