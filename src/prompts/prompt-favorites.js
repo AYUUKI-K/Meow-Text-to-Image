@@ -1,5 +1,5 @@
-import {randomId} from './browser-crypto.js';
-import {localImagePath} from './image-thumbnails.js';
+import {randomId} from '../platform/browser-crypto.js';
+import {localImagePath} from '../images/image-thumbnails.js';
 
 export const FAVORITE_FOLDER='miao-nai-favorites';
 export const FAVORITE_IMAGE_LIMIT=8;

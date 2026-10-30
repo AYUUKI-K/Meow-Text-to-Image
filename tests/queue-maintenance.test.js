@@ -47,7 +47,7 @@ test('maintenance also expires preparing and unclaimed tasks without altering th
 });
 
 test('new clients report maintenance explicitly and never join or POST',async()=>{
- const {runWithQueue}=await import('../cloud-queue.js');let posts=0,joins=0;
+ const {runWithQueue}=await import('../src/queue/cloud-queue.js');let posts=0,joins=0;
  await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash:hash,requestJSON:async url=>{if(!url.endsWith('/ping'))joins++;return {ready:true,maintenance:true,capabilities:[]};},generate:async()=>{posts++;}}),/队列维护中/);
  assert.equal(posts,0);assert.equal(joins,0);
 });

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareGeneration,sendPrepared} from '../generation-lifecycle.js';
-import {createDirectClient} from '../direct-client.js';
-import {runWithQueue} from '../cloud-queue.js';
+import {prepareGeneration,sendPrepared} from '../src/generation/generation-lifecycle.js';
+import {createDirectClient} from '../src/novelai/direct-client.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
 import {LeaseQueue} from '../queue-service/queue.mjs';
 const keyHash='b'.repeat(64);
 const dispatch=q=>async(url,{body})=>url.endsWith('/join-queue')?q.join(body):url.endsWith('/my-turn')?q.turn(body):q.release(body);
@@ -50,6 +50,6 @@ test('Vibe encode cache bypasses key lookup and send; uncached encoding releases
 });
 
 test('elapsed budget tolerates wall-clock rollback and monotonic clocks stopping during background sleep',async()=>{
- const {elapsedClock}=await import('../generation-lifecycle.js');let wall=1000,mono=100;const now=elapsedClock({wall:()=>wall,monotonic:()=>mono});
+ const {elapsedClock}=await import('../src/generation/generation-lifecycle.js');let wall=1000,mono=100;const now=elapsedClock({wall:()=>wall,monotonic:()=>mono});
  wall=900;mono=6100;assert.equal(now(),6000);wall=17000;assert.equal(now(),16000);wall=1;mono=1;assert.equal(now(),16000);
 });

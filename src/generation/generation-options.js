@@ -1,7 +1,7 @@
 import {generationTimeoutSeconds} from './generation-timeout.js';
 import {retryGeneration} from './generation-retry.js';
-import {runWithQueue} from './cloud-queue.js';
-import {connectionSnapshot} from './nai-connection.js';
+import {runWithQueue} from '../queue/cloud-queue.js';
+import {connectionSnapshot} from '../novelai/nai-connection.js';
 
 export function migrateGenerationMode(settings){
     const mode=settings.enabled===false?'manual':settings.mode??(settings.stream?'stream':'manual');

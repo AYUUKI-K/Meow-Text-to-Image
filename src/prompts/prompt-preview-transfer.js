@@ -1,7 +1,7 @@
-import {decodeImage} from './image-export.js';
+import {decodeImage} from '../images/image-export.js';
 import {readPreviewData,PREVIEW_DATA_LIMIT} from './prompt-files.js';
-import {imageArchiveLocation,archiveImageURL} from './image-archives.js';
-import {hostFetch} from './host-fetch.js';
+import {imageArchiveLocation,archiveImageURL} from '../images/image-archives.js';
+import {hostFetch} from '../platform/host-fetch.js';
 
 async function thumbnail(blob,type){
     const image=await decodeImage(blob),canvas=document.createElement('canvas');

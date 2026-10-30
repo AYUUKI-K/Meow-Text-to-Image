@@ -1,4 +1,4 @@
-import {responseDetail,redactErrorText} from './request-errors.js';
+import {responseDetail,redactErrorText} from '../platform/request-errors.js';
 
 const pngSignature=[137,80,78,71,13,10,26,10];
 const startsWith=(bytes,signature)=>signature.every((value,index)=>bytes[index]===value);

@@ -1,5 +1,5 @@
 import {preserveWorldMacros} from './world-macros.js';
-import {randomId} from './browser-crypto.js';
+import {randomId} from '../platform/browser-crypto.js';
 export const BUNDLED_RESOURCES={"schema":1,"version":"2.2.2-1026","revision":2026102601,"worldName":"[喵喵]文生图 2.2.2","worldSHA256":"1a87a4f9d54b2a45217d2ef644d4dac30a1b48a7f5e51216a6487c45d40a1d35","regexSHA256":"d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"};
 export const RESOURCE_VERSION=BUNDLED_RESOURCES.version;
 export const WORLD_NAME=BUNDLED_RESOURCES.worldName;

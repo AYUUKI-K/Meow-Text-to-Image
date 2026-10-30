@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {archiveContext,rememberImage,archiveItems,browseArchive,archiveImageURL,imageArchiveLocation,validateArchivePath} from '../image-archives.js';
+import {archiveContext,rememberImage,archiveItems,browseArchive,archiveImageURL,imageArchiveLocation,validateArchivePath} from '../src/images/image-archives.js';
 const origin='https://tavern/';
 const image=(number,extra={})=>({folder:'miao-nai',name:'miao-179273784770'+number+'.png',...extra});
 

@@ -1,17 +1,17 @@
 import {createResourceMacrosView} from './resource-macros-view.js';
-import {validateQueueURL} from './cloud-queue.js';
+import {validateQueueURL} from '../queue/cloud-queue.js';
 import {bindButtonPress} from './button-press.js';
-import {readPromptFiles} from './prompt-files.js';
-import {ensureProfileIds,moveProfile,planProfileRemoval} from './profile-previews.js';
-import {browseArchive} from './image-archives.js';
+import {readPromptFiles} from '../prompts/prompt-files.js';
+import {ensureProfileIds,moveProfile,planProfileRemoval} from '../profiles/profile-previews.js';
+import {browseArchive} from '../images/image-archives.js';
 import {showArchivePicker} from './archive-picker.js';
-import {sizePresets,pageItems,defaults,compareImagesNewest,supportsVarietyBoost} from './core.js';
-import {vibeModelKeys} from './vibe.js';
+import {sizePresets,pageItems,defaults,compareImagesNewest,supportsVarietyBoost} from '../core/core.js';
+import {vibeModelKeys} from '../vibe/vibe.js';
 import {createFavoritesView} from './favorites-view.js';
-import {FAVORITE_FOLDER,favoritesEnabled} from './prompt-favorites.js';
-import {novelAIPresets,resolvePresetId} from './novelai-presets.js';
+import {FAVORITE_FOLDER,favoritesEnabled} from '../prompts/prompt-favorites.js';
+import {novelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {fontAwesomeElement} from './fontawesome-icons.js';
-import {onlineEncodingAvailable,connectionSnapshot} from './nai-connection.js';
+import {onlineEncodingAvailable,connectionSnapshot} from '../novelai/nai-connection.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
@@ -40,7 +40,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
     async function checkLatest(force=false){updateBusy=true;paintUpdate();try{updateData=await checkUpdate(force);}catch(error){updateError=error.message;}finally{updateBusy=false;paintUpdate();}}
     async function readVersion(){
         try{
-            const response=await fetch(new URL('./manifest.json',import.meta.url),{cache:'no-store'});
+            const response=await fetch(new URL('../../manifest.json',import.meta.url),{cache:'no-store'});
             if(!response.ok)throw Error('版本读取失败');
             const {version}=await response.json();
             versionLabel.textContent=typeof version==='string'&&version.trim()?`v${version.trim()}`:'版本未知';
@@ -155,8 +155,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             field(interaction,'重新生图',String(settings.rerollClicks===3?3:2),v=>{settings.rerollClicks=Number(v);save();onChange();},{options:[['2','双击'],['3','三击']]});
             const main=section(preferences,'生成方式');
             field(main,'生成模式',settings.mode,v=>{settings.mode=v;settings.enabled=true;save();onChange(true);render();},{options:[['manual','手动'],['auto','回复后生成'],['stream','流式生成']]});
-            const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.autoRetryEnabled;retryCheck.onchange=()=>{settings.autoRetryEnabled=retryCheck.checked;save();};retry.append(node('span','遇到占线自动重试'),retryCheck);main.append(retry);
-            main.append(node('p','最多重试 3 次，超时、断网和未知 5xx 报错不重试。','miao-muted'));
+            const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.autoRetryEnabled;retryCheck.onchange=()=>{settings.autoRetryEnabled=retryCheck.checked;save();};retry.append(node('span','遇到限流自动重试'),retryCheck);main.append(retry);
+            main.append(node('p','仅 HTTP 429 限流允许重试，最多 3 次；其他错误不自动重试。','miao-muted'));
             const connection=section(account,'连接 NovelAI');
 
             const custom=settings.naiConnection==='custom',epoch=renderEpoch;
@@ -189,7 +189,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const queueToggle=node('label',undefined,'miao-switch-row'),queueCheck=node('input');queueCheck.type='checkbox';queueCheck.checked=settings.cloudQueue;queueCheck.onchange=()=>{settings.cloudQueue=queueCheck.checked;save();};queueToggle.append(node('span','启用云端排队'),queueCheck);queue.append(queueToggle);
             queue.append(node('p','仅协调使用同一队列服务地址的 Mewo 请求。官网、其他插件或不同队列的请求不受保护，仍可能发生占线。','miao-muted'));
             field(queue,'队列服务地址',settings.queueUrl,v=>{settings.queueUrl=v.trim();save();}).placeholder='https://miao-image-queue.savlu329.workers.dev';
-            const queueDocs=node('a','自行部署 Mewo 队列服务');queueDocs.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/test/docs/QUEUE.md#cloudflare-workers-部署';queueDocs.target='_blank';queueDocs.rel='noopener noreferrer';queue.append(queueDocs);
+            const queueDocs=node('a','自行部署 Mewo 队列服务');queueDocs.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/main/docs/QUEUE.md#cloudflare-workers-部署';queueDocs.target='_blank';queueDocs.rel='noopener noreferrer';queue.append(queueDocs);
             const status=node('p',connectionSnapshot(settings).keyHash?'Key 已就绪':'未设置 Key','miao-muted');queue.append(status);
             action(queue,'测试连接',async()=>{validateQueueURL(settings.queueUrl);await queueStatus();status.textContent='连接正常';});
         } else if(activeTab==='config') {
@@ -288,7 +288,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const view=createFavoritesView({favorites,profiles:settings.profiles,activeProfileId:p.id,initialDraft:initialFavorite,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,openImage,bindImage,onError});initialFavorite=undefined;body.append(view.element);commitPage=view.commit;
         } else if(activeTab==='vibes') {
             const manage=section(body,'Vibe');
-            const guide=node('a','Vibe 文档');guide.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/test/docs/VIBE.md';guide.target='_blank';guide.rel='noopener';manage.append(guide);
+            const guide=node('a','Vibe 文档');guide.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/main/docs/VIBE.md';guide.target='_blank';guide.rel='noopener';manage.append(guide);
             const upload=node('input');upload.type='file';upload.accept='.zip,.naiv4vibe,.naiv4vibeBundle,.json,image/png,image/jpeg,image/webp';upload.multiple=true;upload.hidden=true;upload.dataset.miaoVibeImport='true';manage.append(upload);
             const actions=node('div',undefined,'miao-actions');manage.append(actions);
             manage.append(node('p','支持多选文件或导入 ZIP；可勾选多个 Vibe 打包导出。','miao-muted'));

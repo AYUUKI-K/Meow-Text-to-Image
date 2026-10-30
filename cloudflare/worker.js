@@ -1,4 +1,4 @@
-import {queueCapabilities,queueMaintenance} from '../queue-protocol.js';
+import {queueCapabilities,queueMaintenance} from '../shared/queue-protocol.js';
 import {LeaseQueue} from '../queue-service/queue.mjs';
 const headers={'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type','Cache-Control':'no-store'};
 const reply=(data,status=200)=>new Response(JSON.stringify(data),{status,headers});

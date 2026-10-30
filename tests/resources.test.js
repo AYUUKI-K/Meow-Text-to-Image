@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings,WORLD_NAME} from '../resources.js';
+import {mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings,WORLD_NAME} from '../src/resources/resources.js';
 
 test('world updates replace matching titles, keep entry IDs, and retain unrelated user entries',()=>{
     const old={name:'user metadata',entries:{7:{uid:7,comment:'主体',content:'old',disable:true},3:{uid:3,comment:'用户追加',content:'keep'},9:{uid:9,comment:'主体',content:'duplicate'}}};

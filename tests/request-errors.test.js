@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {httpRequestError,checkedFetch,inStage,errorTitle} from '../request-errors.js';
-import {retryGeneration} from '../generation-retry.js';
+import {httpRequestError,checkedFetch,inStage,errorTitle} from '../src/platform/request-errors.js';
+import {retryGeneration} from '../src/generation/generation-retry.js';
 test('opaque tavern 500 never guesses key occupancy and tells users where details exist',()=>{
     for(const body of ['', 'Internal Server Error','<html><body>gateway secret</body></html>']){
         const error=httpRequestError({source:'tavern-generation',status:500,body});
@@ -43,4 +43,15 @@ test('HTTP 408 and 504 report an uncertain result instead of suggesting an ordin
     for(const source of ['tavern-generation','nai-generation','nai-encode'])for(const status of [408,504]){
         const error=httpRequestError({source,status});assert.equal(error.code,'timeout');assert.equal(error.retryableGeneration,false);assert.match(error.message,/结果尚不确定/);assert.match(error.message,new RegExp('HTTP '+status));
     }
+});
+
+test('409/423 status alone does not invent concurrency; explicit descriptions are preserved without retry',()=>{
+ for(const status of [409,423]){
+  for(const body of ['',status===409?'Conflict':'Locked']){
+   const error=httpRequestError({source:'nai-generation',status,body});
+   assert.equal(error.code,'http');assert.equal(error.retryableGeneration,false);assert.doesNotMatch(error.message,/并发|占线/);
+  }
+  const error=httpRequestError({source:'nai-generation',status,body:JSON.stringify({error:{message:'Concurrent generation request'}})});
+  assert.equal(error.code,'busy');assert.equal(error.detail,'Concurrent generation request');assert.equal(error.retryableGeneration,false);
+ }
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bindButtonPress} from '../button-press.js';
+import {bindButtonPress} from '../src/ui/button-press.js';
 function fixture(pointerEvents=true){
     const button=new EventTarget();let time=1000,calls=0;
     button.getBoundingClientRect=()=>({left:0,top:0,right:100,bottom:60});

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createFavorites,validateFavorite,favoritesEnabled} from '../prompt-favorites.js';
-import {thumbnailURL,localImagePath} from '../image-thumbnails.js';
+import {createFavorites,validateFavorite,favoritesEnabled} from '../src/prompts/prompt-favorites.js';
+import {thumbnailURL,localImagePath} from '../src/images/image-thumbnails.js';
 
 const base='http://localhost:8000/';
 const draft={name:'雨天场景',positive:'girl in a rainy garden',images:['user/images/miao-nai/scene.png']};

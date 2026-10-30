@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bindImageGesture} from '../interactions.js';
-import {createFloatingEntry} from '../interactions.js';
-import {bindImageZoom,clampImageView} from '../interactions.js';
+import {bindImageGesture} from '../src/ui/interactions.js';
+import {createFloatingEntry} from '../src/ui/interactions.js';
+import {bindImageZoom,clampImageView} from '../src/ui/interactions.js';
 
 test('mobile edge entry expands on first tap, then supports reroll; desktop never collapses',async()=>{
  for(const mobile of [true,false]){

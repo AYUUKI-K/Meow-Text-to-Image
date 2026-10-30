@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {maskReasoning,parseBlocks,parseBodyBlocks,pageItems} from '../core.js';
-import {importVibeData,resolveVibes,vibeSummary} from '../vibe.js';
+import {maskReasoning,parseBlocks,parseBodyBlocks,pageItems} from '../src/core/core.js';
+import {importVibeData,resolveVibes,vibeSummary} from '../src/vibe/vibe.js';
 test('custom reasoning markers exclude complete and streamed CoT, preserving body offsets',()=>{
  const format={prefix:'<star_cot>',suffix:'</star_cot>'};
  const text='<star_cot>计划 image###wrong###</star_cot>正文 image###right###';

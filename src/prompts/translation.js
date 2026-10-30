@@ -1,5 +1,5 @@
 // TT forwards text in a query string; bound encoded size, not JS string length.
-import {checkedFetch} from './request-errors.js';
+import {checkedFetch} from '../platform/request-errors.js';
 export function splitTranslationText(text,limit=1800){
     const chunks=[];let chunk='',size=0,boundary=0;
     for(const char of String(text)){

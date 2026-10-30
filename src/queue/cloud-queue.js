@@ -1,10 +1,10 @@
-import {DEFAULT_GENERATION_TIMEOUT_MS} from './generation-timeout.js';
-import {queueCapabilities,queueProtocol} from './queue-protocol.js';
-import {elapsedClock} from './generation-lifecycle.js';
-import {randomId,sha256} from './browser-crypto.js';
+import {DEFAULT_GENERATION_TIMEOUT_MS} from '../generation/generation-timeout.js';
+import {queueCapabilities,queueProtocol} from '../../shared/queue-protocol.js';
+import {elapsedClock} from '../generation/generation-lifecycle.js';
+import {randomId,sha256} from '../platform/browser-crypto.js';
 import {queueJSON} from './queue-network.js';
-import {stageError} from './request-errors.js';
-import {retryGeneration,isRetryableGeneration} from './generation-retry.js';
+import {stageError} from '../platform/request-errors.js';
+import {retryGeneration,isRetryableGeneration} from '../generation/generation-retry.js';
 export function validateQueueURL(value) {
     const url=new URL(value);
     if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['127.0.0.1','localhost'].includes(url.hostname)))throw new Error('队列地址需要 HTTPS 喵');

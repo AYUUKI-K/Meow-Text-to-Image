@@ -1,6 +1,6 @@
 import http from 'node:http';
 import {pathToFileURL} from 'node:url';
-import {queueCapabilities,queueMaintenance} from '../queue-protocol.js';
+import {queueCapabilities,queueMaintenance} from '../shared/queue-protocol.js';
 import {LeaseQueue} from './queue.mjs';
 export function createQueueServer({queue=new LeaseQueue(),maintenance=false}={}){
     maintenance=queueMaintenance(maintenance);

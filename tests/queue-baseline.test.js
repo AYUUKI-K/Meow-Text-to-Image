@@ -3,9 +3,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {LeaseQueue} from '../queue-service/queue.mjs';
-import {runWithQueue} from '../cloud-queue.js';
-import {createDirectClient} from '../direct-client.js';
-import {httpRequestError} from '../request-errors.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
+import {createDirectClient} from '../src/novelai/direct-client.js';
+import {httpRequestError} from '../src/platform/request-errors.js';
 const hash='a'.repeat(64),who=id=>({key_hash:hash,user_id:'fixture-user-'+id,task_id:'fixture-task-'+id});
 const dispatch=q=>async(url,{body})=>url.endsWith('/join-queue')?q.join(body):url.endsWith('/my-turn')?q.turn(body):q.release(body);
 

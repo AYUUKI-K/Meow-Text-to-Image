@@ -10,7 +10,7 @@ const entry=process.env.MIAO_QUEUE_RUNTIME_ENTRY;
 const options={name:'queue-runtime-check',modulesRoot:entry?dirname(resolve(entry)):root,modules:entry?[{type:'ESModule',path:resolve(entry)}]:[
     {type:'ESModule',path:fileURLToPath(new URL('../cloudflare/worker.js',import.meta.url))},
     {type:'ESModule',path:fileURLToPath(new URL('../queue-service/queue.mjs',import.meta.url))},
-    {type:'ESModule',path:fileURLToPath(new URL('../queue-protocol.js',import.meta.url))},
+    {type:'ESModule',path:fileURLToPath(new URL('../shared/queue-protocol.js',import.meta.url))},
     {type:'ESModule',path:fileURLToPath(new URL('../queue-service/lease-policy.mjs',import.meta.url))}
 ],compatibilityDate:process.env.MIAO_RUNTIME_DATE||'2026-10-23',compatibilityFlags:['nodejs_compat'],durableObjects:{MIAO_KEY_QUEUE:{className:'MiaoKeyQueue',useSQLite:true}}};
 const mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);

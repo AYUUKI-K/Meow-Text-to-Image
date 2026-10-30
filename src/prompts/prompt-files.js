@@ -1,4 +1,4 @@
-import {defaults,buildRequest} from './core.js';
+import {defaults,buildRequest} from '../core/core.js';
 export const PROMPT_FILE_LIMIT=1024*1024;
 export const PROMPT_BUNDLE_LIMIT=20*1024*1024;
 export const PROMPT_BUNDLE_COUNT=100;

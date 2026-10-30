@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {LeaseQueue} from '../queue-service/queue.mjs';
 import {createQueueServer} from '../queue-service/service.mjs';
-import {runWithQueue,fingerprintKey,queuePollMs} from '../cloud-queue.js';
-import {httpRequestError} from '../request-errors.js';
+import {runWithQueue,fingerprintKey,queuePollMs} from '../src/queue/cloud-queue.js';
+import {httpRequestError} from '../src/platform/request-errors.js';
 const hash=key=>createHash('sha256').update(key).digest('hex');
 const identity=(key,user)=>({key_hash:hash(key),user_id:'user-id-'+user,task_id:'task-id-'+user});
 test('A/B share key one; C with key two is granted independently',()=>{

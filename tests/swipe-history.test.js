@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {readSwipeImage,writeSwipeImage,migrateSwipeImages,swipeImageRecords,removeSwipeImages} from '../swipe-history.js';
-import {appendImageVersion,selectImageVersion} from '../image-history.js';
+import {readSwipeImage,writeSwipeImage,migrateSwipeImages,swipeImageRecords,removeSwipeImages} from '../src/chat/swipe-history.js';
+import {appendImageVersion,selectImageVersion} from '../src/images/image-history.js';
 const slot='0:cat',first={url:'first.png',request:{prompt:'first'},created:1};
 const switchPage=(message,page)=>{message.swipe_id=page;message.mes=message.swipes[page];message.extra=structuredClone(message.swipe_info[page]?.extra||{});};
 test('same-floor swipes retain their own images despite extra replacement and JSON reload',()=>{

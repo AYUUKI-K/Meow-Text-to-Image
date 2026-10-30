@@ -1,5 +1,5 @@
-import {favoriteDraft,FAVORITE_IMAGE_LIMIT} from './prompt-favorites.js';
-import {pageItems} from './core.js';
+import {favoriteDraft,FAVORITE_IMAGE_LIMIT} from '../prompts/prompt-favorites.js';
+import {pageItems} from '../core/core.js';
 import {bindButtonPress} from './button-press.js';
 
 const node=(tag,text,cls)=>{const value=document.createElement(tag);if(text!==undefined)value.textContent=text;if(cls)value.className=cls;return value;};

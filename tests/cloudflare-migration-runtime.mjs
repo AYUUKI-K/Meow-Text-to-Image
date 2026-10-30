@@ -1,8 +1,8 @@
 // Actual workerd/SQLite upgrade test. The clock/alarm endpoints exist ONLY in
 // this in-memory test wrapper, never in the deployed Worker or its router.
 import assert from 'node:assert/strict';
-import {runWithQueue} from '../cloud-queue.js';
-import {sendPrepared} from '../generation-lifecycle.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
+import {sendPrepared} from '../src/generation/generation-lifecycle.js';
 import {assessQueueDrain} from '../queue-service/drain-status.mjs';
 import {execFileSync} from 'node:child_process';
 import {readFileSync,mkdtempSync} from 'node:fs';
@@ -33,7 +33,7 @@ const current=path=>readFileSync(resolve(root,path),'utf8');
 const old=path=>execFileSync('git',['show',revision+':'+path],{cwd:root,encoding:'utf8'});
 const options=(legacy,maintenance=false)=>({bindings:{QUEUE_MAINTENANCE:maintenance?'true':'false'},name:'queue-migration-check',modulesRoot:root,compatibilityDate:process.env.MIAO_RUNTIME_DATE||'2026-10-23',compatibilityFlags:['nodejs_compat'],durableObjects:{MIAO_KEY_QUEUE:{className:'MiaoKeyQueue',useSQLite:true}},durableObjectsPersist:store,modules:[
  module('tests/__clock-wrapper.mjs',wrapper),module('cloudflare/worker.js',(legacy?old:current)('cloudflare/worker.js')),module('queue-service/queue.mjs',(legacy?old:current)('queue-service/queue.mjs')),
- ...(!legacy?[module('queue-protocol.js',current('queue-protocol.js')),module('queue-service/lease-policy.mjs',current('queue-service/lease-policy.mjs'))]:[])
+ ...(!legacy?[module('shared/queue-protocol.js',current('shared/queue-protocol.js')),module('queue-service/lease-policy.mjs',current('queue-service/lease-policy.mjs'))]:[])
 ]});
 const store=mkdtempSync(resolve(tmpdir(),'mewo-queue-sqlite-'));
 const mf=new runtime.Miniflare(options(true));

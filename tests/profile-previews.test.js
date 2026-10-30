@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {defaults} from '../core.js';
-import {ensureProfileIds,moveProfile,planProfileRemoval,sampleRequest,sampleSignature,createProfilePreviews} from '../profile-previews.js';
+import {defaults} from '../src/core/core.js';
+import {ensureProfileIds,moveProfile,planProfileRemoval,sampleRequest,sampleSignature,createProfilePreviews} from '../src/profiles/profile-previews.js';
 test('samples share editable prompt, square size and seed, without mutating the real profile',()=>{
  const p={...defaults,width:1216,height:832,seed:-1,positive:'front',positiveSuffix:'tail',vibeMode:'random',vibes:[{id:'a',key:'one',strength:.4},{id:'b',key:'two',strength:.5}]},before=JSON.stringify(p);
  const a=sampleRequest(p,[],'adult cat, flowers'),b=sampleRequest(p,[],'adult cat, flowers');

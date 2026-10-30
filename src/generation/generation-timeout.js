@@ -1,4 +1,4 @@
-import {stageError} from './request-errors.js';
+import {stageError} from '../platform/request-errors.js';
 export const DEFAULT_GENERATION_TIMEOUT_MS=60000;
 export function generationTimeoutSeconds(value){const number=Number(value);return Number.isFinite(number)&&number>=5&&number<=180?Math.round(number):DEFAULT_GENERATION_TIMEOUT_MS/1000;}
 // Includes response-body consumption even when a host bridge ignores AbortSignal.

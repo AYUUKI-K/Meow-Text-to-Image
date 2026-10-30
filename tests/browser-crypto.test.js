@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,webcrypto} from 'node:crypto';
-import {randomId,sha256} from '../browser-crypto.js';
+import {randomId,sha256} from '../src/platform/browser-crypto.js';
 test('LAN HTTP UUID fallback uses secure random bytes and remains a version 4 UUID',()=>{
     const insecure={getRandomValues:array=>webcrypto.getRandomValues(array)};
     const ids=Array.from({length:1000},()=>randomId(insecure));

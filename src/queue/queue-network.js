@@ -1,5 +1,5 @@
-import {checkedFetch,stageError,httpRequestError} from './request-errors.js';
-import {sha256} from './browser-crypto.js';
+import {checkedFetch,stageError,httpRequestError} from '../platform/request-errors.js';
+import {sha256} from '../platform/browser-crypto.js';
 const invalidResponse=message=>Object.assign(stageError('queue',Error(message)),{code:'invalid-queue-response'});
 
 async function readJSON(url,options,{fetchImpl=fetch,timeoutMs=15000}={}){

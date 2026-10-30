@@ -1,6 +1,6 @@
 import {BUNDLED_RESOURCES} from './resources.js';
-import {sha256} from './browser-crypto.js';
-import {hostFetch} from './host-fetch.js';
+import {sha256} from '../platform/browser-crypto.js';
+import {hostFetch} from '../platform/host-fetch.js';
 
 export const RESOURCE_REMOTE_BASE='https://raw.githubusercontent.com/AYUUKI-K/Mewo-Text-to-Image/main/';
 export function validateResourceManifest(data){

@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createExtensionUpdater} from '../updates.js';
-import {downloadImageSelection} from '../downloads.js';
+import {createExtensionUpdater} from '../src/platform/updates.js';
+import {downloadImageSelection} from '../src/images/downloads.js';
 test('update checks cache and only update this installed extension in its own scope',async()=>{
     const calls=[];
     const updater=createExtensionUpdater({moduleURL:'https://tavern/scripts/extensions/third-party/Mewo-Text-to-Image/index.js',getGlobal:name=>name==='third-party/Mewo-Text-to-Image',getHeaders:()=>({'X-CSRF-Token':'test'}),fetchImpl:async(url,options)=>{calls.push({url,...JSON.parse(options.body)});return Response.json({isUpToDate:false});}});

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaults,buildRequest,normalizeProfile} from '../core.js';
-import {novelAIPresets,applyNovelAIPresets} from '../novelai-presets.js';
-import {naiPayload} from '../direct-client.js';
-import {promptFileData,importPromptData} from '../prompt-files.js';
-import {sampleSignature} from '../profile-previews.js';
+import {defaults,buildRequest,normalizeProfile} from '../src/core/core.js';
+import {novelAIPresets,applyNovelAIPresets} from '../src/novelai/novelai-presets.js';
+import {naiPayload} from '../src/novelai/direct-client.js';
+import {promptFileData,importPromptData} from '../src/prompts/prompt-files.js';
+import {sampleSignature} from '../src/profiles/profile-previews.js';
 
 const profile={...defaults,qualityPreset:'none',ucPreset:'none',positive:'front',positiveSuffix:'back',negative:'custom negative',seed:42};
 test('website quality suffixes follow the selected model and come after all user positive parts',()=>{

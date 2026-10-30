@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {waitForGeneration} from '../generation-delay.js';
-import {retryGeneration} from '../generation-retry.js';
-import {runWithQueue} from '../cloud-queue.js';
+import {waitForGeneration} from '../src/generation/generation-delay.js';
+import {retryGeneration} from '../src/generation/generation-retry.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
 
 test('every generation attempt waits a fresh 2000–4000 ms, including explicit-error retries',async()=>{
     const waits=[],events=[],randoms=[0,.5,.999999999999];let attempts=0;
     const result=await retryGeneration({enabled:true,delays:[0,0],run:()=>runWithQueue({twoPhase:false,url:'https://queue.example',keyHash:'a'.repeat(64),fetchImpl:async url=>{events.push(new URL(url).pathname);return Response.json({your_turn:true,lock_token:'lease'});},generate:async()=>{
         await waitForGeneration({random:()=>randoms[attempts],sleep:async ms=>{waits.push(ms);events.push('delay');}});
-        events.push('image');if(++attempts<3)throw Object.assign(Error('busy'),{source:'nai-generation',status:429,retryableGeneration:true});return 'image';
+        events.push('image');if(++attempts<3)throw Object.assign(Error('busy'),{source:'nai-generation',status:429,code:'rate-limit',retryableGeneration:true});return 'image';
     }})});
     assert.equal(result,'image');assert.deepEqual(waits,[2000,3000,4000]);
     assert.deepEqual(events,['/join-queue','delay','image','/complete','/join-queue','delay','image','/complete','/join-queue','delay','image','/complete']);
@@ -22,10 +22,10 @@ test('changes before or during the mandatory delay prevent a billable image requ
 });
 
 test('local serial queue waits 2–4 seconds before each image and retry, with cloud queue on or off',async()=>{
-    const {runGenerationTask}=await import('../generation-options.js');
-    const {sendPrepared}=await import('../generation-lifecycle.js');
+    const {runGenerationTask}=await import('../src/generation/generation-options.js');
+    const {sendPrepared}=await import('../src/generation/generation-lifecycle.js');
     const {LeaseQueue}=await import('../queue-service/queue.mjs');
-    const {queueCapabilities}=await import('../queue-protocol.js');
+    const {queueCapabilities}=await import('../shared/queue-protocol.js');
     for(const cloudQueue of [false,true]){
         let now=0,tail=Promise.resolve(),attempt=0,active=0,maxActive=0;
         const events=[],waits=[],retryWaits=[],queue=new LeaseQueue({now:()=>now});
@@ -47,7 +47,7 @@ test('local serial queue waits 2–4 seconds before each image and retry, with c
             try{return await runGenerationTask({scope:{cloudQueue,autoRetryEnabled:true,keyHash:'a'.repeat(64),queueUrl:'https://queue.example'},queueOptions:{requestJSON,now:()=>now,sleep},retryOptions:{now:()=>now,sleep},generate:async controls=>{
                 const index=attempt++;
                 await waitForGeneration({random:()=>[0,.5,.999999999999][index],sleep:async ms=>{waits.push(ms);events.push(`wait:${id}`);now+=ms;}});
-                return sendPrepared({source:'nai-generation',send:async()=>{events.push(`send:${id}`);if(index===0)throw Object.assign(Error('busy'),{source:'nai-generation',status:429,retryableGeneration:true});return id;}},controls);
+                return sendPrepared({source:'nai-generation',send:async()=>{events.push(`send:${id}`);if(index===0)throw Object.assign(Error('busy'),{source:'nai-generation',status:429,code:'rate-limit',retryableGeneration:true});return id;}},controls);
             }});}finally{active--;}
         });
         assert.deepEqual(await Promise.all([run('A'),run('B')]),['A','B']);

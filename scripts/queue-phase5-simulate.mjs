@@ -1,7 +1,7 @@
 // Offline only: no fetch/network. Historical sources are read from local git,
 // copied to a fresh OS temp directory, never checked out over the worktree.
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {pathToFileURL,fileURLToPath} from 'node:url';
@@ -10,6 +10,7 @@ import {simulateQueue} from '../tests/support/queue-performance-model.mjs';
 import {LeaseQueue} from '../queue-service/queue.mjs';
 import {simulateExtreme} from '../tests/support/queue-extremes.mjs';
 import {distribution} from '../tests/support/queue-virtual-clock.mjs';
+mkdirSync(new URL('../docs/local/',import.meta.url),{recursive:true});
 const root=fileURLToPath(new URL('../',import.meta.url));
 const revisions={'v2.4.0':'0c60c57','v2.4.3':'80fa8ed0f3be9c6daea612e3d6f67d64aa708bd7'};
 async function historical(version){
@@ -59,6 +60,6 @@ export async function runPerformanceSuite(){
  return {schema:1,extremes,budgetSensitivity,seed:20261029,policy:{preparingMs:20000,localMs:30000,graceMs:20000,sendWindowMs:5000,waitingMs:120000,renewalMs:30000},matrix,multi,theory,legacyMix,versions,exceptions,capacity:{accepted:65,rejectedTask:66,status:capacityStatus}};
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
- const output=resolve(root,process.argv[2]||'docs/queue-phase5-results.json');const result=await runPerformanceSuite();writeFileSync(output,JSON.stringify(result,null,2)+'\n');
+ const output=resolve(root,process.argv[2]||'docs/local/queue-phase5-results.json');const result=await runPerformanceSuite();writeFileSync(output,JSON.stringify(result,null,2)+'\n');
  console.log(JSON.stringify({matrix:result.matrix.length,multi:result.multi.length,theory:result.theory.length,versions:result.versions.length,capacity:result.capacity,output}));
 }

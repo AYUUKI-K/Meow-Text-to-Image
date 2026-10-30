@@ -1,4 +1,4 @@
-import {sha256} from './browser-crypto.js';
+import {sha256} from '../platform/browser-crypto.js';
 import {prepareImageExport} from './image-export.js';
 
 export const JPEG_FOLDER='miao-nai-jpg';

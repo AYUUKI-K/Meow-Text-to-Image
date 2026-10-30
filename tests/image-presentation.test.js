@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createImagePresentation,JPEG_FOLDER} from '../image-presentation.js';
+import {createImagePresentation,JPEG_FOLDER} from '../src/images/image-presentation.js';
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const png=new Blob(['original PNG + prompt metadata'],{type:'image/png'}),jpg=new Blob([new Uint8Array([255,216,255,217])],{type:'image/jpeg'});
 const image=()=>({dataset:{},alt:'original',removeAttribute(name){delete this[name];}});

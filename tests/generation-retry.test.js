@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {retryGeneration} from '../generation-retry.js';
-import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from '../generation-options.js';
-import {httpRequestError,parseRetryAfter} from '../request-errors.js';
+import {retryGeneration,isRetryableGeneration} from '../src/generation/generation-retry.js';
+import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from '../src/generation/generation-options.js';
+import {httpRequestError,parseRetryAfter} from '../src/platform/request-errors.js';
 const refused=(status=429,retryAfterMs=0)=>httpRequestError({source:'nai-generation',status,retryAfterMs});
 test('R01–R03: local mode never uses cloud, opt-in fixed 10s and at most four POSTs',async()=>{
  for(const enabled of [false,true])for(const success of [false,true]){
@@ -68,4 +68,11 @@ test('generation mode replaces legacy disabled switch without unexpectedly enabl
   const settings={mode,enabled:true};migrateGenerationMode(settings);assert.equal(settings.mode,mode);
  }
  const legacy={stream:true};migrateGenerationMode(legacy);assert.equal(legacy.mode,'stream');
+});
+
+
+test('retry guard rejects 409/423 and non-rate-limit 429 even if a caller supplies a retry flag',()=>{
+ for(const status of [409,423])assert.equal(isRetryableGeneration({source:'nai-generation',status,code:'busy',retryableGeneration:true}),false);
+ for(const code of ['busy','quota','auth','parameters',undefined])assert.equal(isRetryableGeneration({source:'nai-generation',status:429,code,retryableGeneration:true}),false);
+ assert.equal(isRetryableGeneration({source:'nai-generation',status:429,code:'rate-limit',retryableGeneration:true}),true);
 });

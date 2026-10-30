@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {runWithQueue as currentRun} from '../../cloud-queue.js';
-import {sendPrepared,prepareGeneration} from '../../generation-lifecycle.js';
-import {withGenerationTimeout} from '../../generation-timeout.js';
-import {waitForGeneration} from '../../generation-delay.js';
+import {runWithQueue as currentRun} from '../../src/queue/cloud-queue.js';
+import {sendPrepared,prepareGeneration} from '../../src/generation/generation-lifecycle.js';
+import {withGenerationTimeout} from '../../src/generation/generation-timeout.js';
+import {waitForGeneration} from '../../src/generation/generation-delay.js';
 import {LeaseQueue} from '../../queue-service/queue.mjs';
-import {queueCapabilities} from '../../queue-protocol.js';
-import {httpRequestError} from '../../request-errors.js';
+import {queueCapabilities} from '../../shared/queue-protocol.js';
+import {httpRequestError} from '../../src/platform/request-errors.js';
 import {VirtualClock,seededRandom,distribution} from './queue-virtual-clock.mjs';
 
 // Full runWithQueue, real beforeSend/assertSend/onResponse and timeout code;

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDirectClient,naiPayload} from '../direct-client.js';
-import {buildRequest,defaults as pluginDefaults,varietyBoostSigma} from '../core.js';
-import {createKeyVault} from '../direct-key.js';
+import {createDirectClient,naiPayload} from '../src/novelai/direct-client.js';
+import {buildRequest,defaults as pluginDefaults,varietyBoostSigma} from '../src/core/core.js';
+import {createKeyVault} from '../src/novelai/direct-key.js';
 
 const defaults={...pluginDefaults,qualityPreset:'none',ucPreset:'none'};
 

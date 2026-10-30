@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDirectClient,naiPayload} from '../direct-client.js';
-import {migrateConnection,connectionSnapshot,assertConnection,usesDirectGeneration,validateEndpoint,saveCustomConnection,onlineEncodingAvailable} from '../nai-connection.js';
-import {parseNAIImage,unzipNAIPNG} from '../nai-response.js';
-import {generationOptions,runGenerationTask} from '../generation-options.js';
-import {prepareGeneration,sendPrepared} from '../generation-lifecycle.js';
-import {waitForGeneration} from '../generation-delay.js';
-import {fingerprintKey} from '../cloud-queue.js';
+import {createDirectClient,naiPayload} from '../src/novelai/direct-client.js';
+import {migrateConnection,connectionSnapshot,assertConnection,usesDirectGeneration,validateEndpoint,saveCustomConnection,onlineEncodingAvailable} from '../src/novelai/nai-connection.js';
+import {parseNAIImage,unzipNAIPNG} from '../src/novelai/nai-response.js';
+import {generationOptions,runGenerationTask} from '../src/generation/generation-options.js';
+import {prepareGeneration,sendPrepared} from '../src/generation/generation-lifecycle.js';
+import {waitForGeneration} from '../src/generation/generation-delay.js';
+import {fingerprintKey} from '../src/queue/cloud-queue.js';
 import {LeaseQueue} from '../queue-service/queue.mjs';
-import {queueCapabilities} from '../queue-protocol.js';
-import {defaults,buildRequest} from '../core.js';
-import {promptFileData} from '../prompt-files.js';
+import {queueCapabilities} from '../shared/queue-protocol.js';
+import {defaults,buildRequest} from '../src/core/core.js';
+import {promptFileData} from '../src/prompts/prompt-files.js';
 
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=','base64');
 const zip=Buffer.from([80,75,3,4,0,0]);

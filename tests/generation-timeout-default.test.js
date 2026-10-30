@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generationTimeoutSeconds,withGenerationTimeout} from '../generation-timeout.js';
-import {sendPrepared} from '../generation-lifecycle.js';
-import {migrateGenerationOptions,generationOptions} from '../generation-options.js';
-import {runWithQueue} from '../cloud-queue.js';
+import {generationTimeoutSeconds,withGenerationTimeout} from '../src/generation/generation-timeout.js';
+import {sendPrepared} from '../src/generation/generation-lifecycle.js';
+import {migrateGenerationOptions,generationOptions} from '../src/generation/generation-options.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
 import {LeaseQueue} from '../queue-service/queue.mjs';
-import {queueCapabilities} from '../queue-protocol.js';
+import {queueCapabilities} from '../shared/queue-protocol.js';
 
 test('60s migration is persisted once; custom budgets and independent switches survive',()=>{
  for(const value of [undefined,null,'invalid',0,181,30,'30',5,29,60,77,180])for(const enabled of [true,false]){
@@ -52,7 +52,7 @@ test('cloud default sends 60000ms, retains uncertainty until 80s; maxHold still 
 });
 
 for(const budget of [undefined,30,77,180])test(`direct client keeps default/custom budget ${budget??60}s without queue access`,async t=>{
- const {createDirectClient}=await import('../direct-client.js');
+ const {createDirectClient}=await import('../src/novelai/direct-client.js');
  t.mock.timers.enable({apis:['setTimeout']});let start,signal;
  const started=new Promise(r=>start=r),client=createDirectClient({settings:{generationTimeoutSeconds:budget},save(){},getHeaders:()=>({}),getKey:async()=> 'fixture-only-key',unzipPNG:async()=>assert.fail('no completed body'),fetchImpl:async(url,opts)=>{
   assert.equal(url,'https://image.novelai.net/ai/generate-image');signal=opts.signal;start();return {ok:true,arrayBuffer:()=>new Promise(()=>{})};

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {queueJSON,createQueueTransport} from '../queue-network.js';
-import {runWithQueue} from '../cloud-queue.js';
+import {queueJSON,createQueueTransport} from '../src/queue/queue-network.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
 import {LeaseQueue} from '../queue-service/queue.mjs';
 
 function relayFixture({legacy=false,lostJoin=false}={}){
@@ -91,7 +91,7 @@ test('new protocol ST relay forwards begin/finish with derived proofs and no raw
   const target=JSON.parse(opts.body).url;visited.push(target);return worker.fetch(new Request(target),env);
  }});
  let sent=0;
- const {sendPrepared}=await import('../generation-lifecycle.js');
+ const {sendPrepared}=await import('../src/generation/generation-lifecycle.js');
  assert.equal(await runWithQueue({url:'https://queue.example',keyHash:'d'.repeat(64),requestJSON,generate:controls=>sendPrepared({source:'nai-generation',send:async()=>{sent++;return 'image';}},controls)}),'image');
  assert.equal(sent,1);
  for(const op of ['begin-generation','finish']){
@@ -103,7 +103,7 @@ test('new protocol ST relay forwards begin/finish with derived proofs and no raw
 
 test('R16: ST derived-proof relay and TT direct support all retry attempts with zero raw token URLs',async()=>{
  const {default:worker,MiaoKeyQueue}=await import('../cloudflare/worker.js');
- const {sendPrepared}=await import('../generation-lifecycle.js'),{httpRequestError}=await import('../request-errors.js');
+ const {sendPrepared}=await import('../src/generation/generation-lifecycle.js'),{httpRequestError}=await import('../src/platform/request-errors.js');
  for(const relay of [true,false]){
   let now=0,pending=Promise.resolve(),alarm=null;const data=new Map(),visited=[],direct=[];
   const ctx={storage:{get:async k=>structuredClone(data.get(k)),put:async(k,v)=>data.set(k,structuredClone(v)),delete:async k=>data.delete(k),getAlarm:async()=>alarm,setAlarm:async v=>{alarm=v;},deleteAlarm:async()=>{alarm=null;},transaction:async f=>f()},blockConcurrencyWhile(f){const p=pending.then(f);pending=p.catch(()=>{});return p;}};

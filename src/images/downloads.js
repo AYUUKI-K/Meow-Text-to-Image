@@ -1,5 +1,5 @@
 // Use the same browser Blob download as an image in the chat floor.
-import {checkedFetch} from './request-errors.js';
+import {checkedFetch} from '../platform/request-errors.js';
 export async function downloadImageSelection(images,{saveBlob,fetchImpl=fetch}){
     if(!images.length)throw Error('请先勾选图片');
     for(const image of images){

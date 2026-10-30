@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createKeyVault,saveCurrentKey} from '../direct-key.js';
-import {saveCustomConnection} from '../nai-connection.js';
+import {createKeyVault,saveCurrentKey} from '../src/novelai/direct-key.js';
+import {saveCustomConnection} from '../src/novelai/nai-connection.js';
 function memoryIndexedDB(){
     const keys=new Map();let exists=false;
     const db={createObjectStore(){},close(){},transaction(){const tx={objectStore:()=>Object.fromEntries(['get','put','delete'].map(method=>[method,(value,id)=>{const request={};queueMicrotask(()=>{if(method==='get')request.result=keys.get(value);if(method==='put')keys.set(id,value);if(method==='delete')keys.delete(value);request.onsuccess?.();queueMicrotask(()=>tx.oncomplete?.());});return request;}] ))};return tx;}};

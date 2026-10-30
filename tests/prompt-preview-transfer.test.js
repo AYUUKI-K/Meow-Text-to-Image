@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {exportPreview} from '../prompt-preview-transfer.js';
+import {exportPreview} from '../src/prompts/prompt-preview-transfer.js';
 
 test('export reads only a managed local example and never follows imported remote image links',async()=>{
     let calls=0;const options={origin:'http://localhost:8000',fetchImpl:async()=>{calls++;throw Error('must not fetch');}};

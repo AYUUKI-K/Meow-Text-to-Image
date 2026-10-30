@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {parseHeaderMacros,worldMacros,patchWorldMacros} from '../world-macros.js';
-import {mergeWorldEntries} from '../resources.js';
+import {parseHeaderMacros,worldMacros,patchWorldMacros} from '../src/resources/world-macros.js';
+import {mergeWorldEntries} from '../src/resources/resources.js';
 const book=content=>({entries:{8:{uid:8,comment:'tag头',content,order:499,disable:false},9:{uid:9,comment:'其他',content:'不要改动'}}});
 const bundled=JSON.parse(await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8'));
 test('bundled header exposes real local/global variables without evaluating them',()=>{

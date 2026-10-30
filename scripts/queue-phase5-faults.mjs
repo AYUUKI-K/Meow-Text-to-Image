@@ -1,15 +1,16 @@
 // Full async client fault simulations; no HTTP/NAI. Full browser freezes are
 // explicitly modelled by delaying that page's promise/timer delivery together.
 import assert from 'node:assert/strict';
-import {writeFileSync} from 'node:fs';
+import {writeFileSync,mkdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {LeaseQueue} from '../queue-service/queue.mjs';
-import {runWithQueue} from '../cloud-queue.js';
-import {sendPrepared} from '../generation-lifecycle.js';
-import {queueCapabilities} from '../queue-protocol.js';
-import {httpRequestError} from '../request-errors.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
+import {sendPrepared} from '../src/generation/generation-lifecycle.js';
+import {queueCapabilities} from '../shared/queue-protocol.js';
+import {httpRequestError} from '../src/platform/request-errors.js';
 import {VirtualClock} from '../tests/support/queue-virtual-clock.mjs';
+mkdirSync(new URL('../docs/local/',import.meta.url),{recursive:true});
 export async function faultScenario(name){
  const clock=new VirtualClock(),restore=clock.install(),crypto=globalThis.crypto,descriptor=Object.getOwnPropertyDescriptor(globalThis,'crypto');
  Object.defineProperty(globalThis,'crypto',{configurable:true,value:{randomUUID:()=>crypto.randomUUID(),getRandomValues:a=>crypto.getRandomValues(a)}});
@@ -62,4 +63,4 @@ export async function faultScenario(name){
  return {name,totalMs:clock.now,beginCalls,finishCalls,rows:rows.map(({identity,...row})=>row)};
 }
 export async function runFaultSuite(){const result=[];for(const name of ['waiting-pause-120s','pre-begin-pause-30s','begin-lost-once','begin-lost-all','post-begin-pause-10s','post-send-browser-pause','zip-hang','finish-offline','queue-503','alarm-late-4s'])result.push(await faultScenario(name));return result;}
-if(process.argv[1]===fileURLToPath(import.meta.url)){const result=await runFaultSuite();writeFileSync(new URL('../docs/queue-phase5-fault-results.json',import.meta.url),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));}
+if(process.argv[1]===fileURLToPath(import.meta.url)){const result=await runFaultSuite();writeFileSync(new URL('../docs/local/queue-phase5-fault-results.json',import.meta.url),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));}

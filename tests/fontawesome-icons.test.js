@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseIconCSS,filterIcons,validFontAwesomeIcon,loadHostIcons} from '../fontawesome-icons.js';
+import {parseIconCSS,filterIcons,validFontAwesomeIcon,loadHostIcons} from '../src/ui/fontawesome-icons.js';
 
 const css=String.raw`.fa-paw:before{content:"\f1b0"}.fa-star:before,.fa-favorite::before{content:'\f005'}.fa-0:before{content:"\30"}.fa-cat{--fa:"\f6be"}.fa-star-alias:before{content:"\f005"}`;
 test('host icon catalog deduplicates aliases and parses legacy content and current glyph variables',()=>{

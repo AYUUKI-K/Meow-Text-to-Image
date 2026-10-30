@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {splitTranslationText,createPromptTranslator} from '../translation.js';
+import {splitTranslationText,createPromptTranslator} from '../src/prompts/translation.js';
 
 test('translation chunks preserve all text and bound URL size for Chinese and emoji',()=>{
     for(const text of ['风格，猫咪 😀, '.repeat(400),'a '+'猫'.repeat(1000)+'😀','x'.repeat(6000)]){

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {editedTag} from '../tag-edit.js';
-import {parseBodyBlocks,delimiterPattern} from '../core.js';
-import {writeSwipeImage,readSwipeImage,moveSwipeImage} from '../swipe-history.js';
+import {editedTag} from '../src/prompts/tag-edit.js';
+import {parseBodyBlocks,delimiterPattern} from '../src/core/core.js';
+import {writeSwipeImage,readSwipeImage,moveSwipeImage} from '../src/chat/swipe-history.js';
 const pattern=delimiterPattern('image###','###');
 test('editing a duplicate tag changes only its capture and preserves surrounding text and reasoning',()=>{
  const text='<think>image###draft###</think>before image###cat### middle image###cat### after';

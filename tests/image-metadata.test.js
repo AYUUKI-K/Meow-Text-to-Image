@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deflateSync,gzipSync} from 'node:zlib';
-import {readImageMetadata,readStealthMetadata,generationInfo} from '../image-metadata.js';
+import {readImageMetadata,readStealthMetadata,generationInfo} from '../src/images/image-metadata.js';
 
 const chunk=(type,bytes)=>{const data=Buffer.from(bytes),length=Buffer.alloc(4);length.writeUInt32BE(data.length);return Buffer.concat([length,Buffer.from(type),data,Buffer.alloc(4)]);};
 const png=(...chunks)=>{

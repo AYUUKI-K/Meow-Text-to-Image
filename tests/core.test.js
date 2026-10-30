@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseBlocks,buildRequest,defaults as pluginDefaults,latestImageMessage,canAutoGenerate,validateFolder,imageDay,normalizeProfile,imageURL} from '../core.js';
+import {parseBlocks,buildRequest,defaults as pluginDefaults,latestImageMessage,canAutoGenerate,validateFolder,imageDay,normalizeProfile,imageURL} from '../src/core/core.js';
 const defaults={...pluginDefaults,qualityPreset:'none',ucPreset:'none'};
 
 test('only #5 is eligible when #3 and #5 both contain tags',()=>{

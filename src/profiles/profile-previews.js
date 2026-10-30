@@ -1,6 +1,6 @@
-import {buildRequest} from './core.js';
-import {randomId} from './browser-crypto.js';
-import {selectVibes} from './vibe.js';
+import {buildRequest} from '../core/core.js';
+import {randomId} from '../platform/browser-crypto.js';
+import {selectVibes} from '../vibe/vibe.js';
 
 export const SAMPLE_PROMPT=`a  girl, (16-year-old:1.1),(flat breasts:0.7)
 

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {BUNDLED_RESOURCES} from '../resources.js';
-import {sha256} from '../browser-crypto.js';
-import {createResourceUpdater,validateResourceManifest,RESOURCE_REMOTE_BASE} from '../resource-updates.js';
+import {BUNDLED_RESOURCES} from '../src/resources/resources.js';
+import {sha256} from '../src/platform/browser-crypto.js';
+import {createResourceUpdater,validateResourceManifest,RESOURCE_REMOTE_BASE} from '../src/resources/resource-updates.js';
 
 test('resource notifications cover bundled and remote upgrades, deduplicate and never downgrade',async()=>{
     const settings={installed:true,resourceVersion:'2.1-1024'},notices=[],calls=[];let revision=BUNDLED_RESOURCES.revision+1,time=0;

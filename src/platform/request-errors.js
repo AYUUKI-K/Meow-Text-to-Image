@@ -26,14 +26,17 @@ export function parseRetryAfter(value,now=Date.now()){
 export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=0,custom=false,summary=''}){
     const label=labels[source]||source||'请求',detail=custom&&/^\s*(?:403\s*)?forbidden\s*$/i.test(responseDetail(body,secrets))?'':responseDetail(body,secrets),generation=['tavern-generation','nai-generation','nai-encode'].includes(source);
     let reason='请求失败，请稍后重试',code='http';
+    let upstreamCode='';try{const data=JSON.parse(body);upstreamCode=[data?.code,data?.type,data?.error?.code,data?.error?.type].filter(value=>typeof value==='string').join(' ');}catch{}
+    const quotaExhausted=/insufficient[_ -]?quota|quota[_ -]?exceeded|quota.{0,30}(?:exhaust|exceed)|(?:额度|配额).{0,8}(?:耗尽|用尽|超限|不足)|permanent.{0,15}(?:limit|quota)|(?:daily|monthly|billing|hard).{0,25}(?:limit|quota)|(?:日|月|总|账号|账户).{0,10}(?:额度|配额).{0,10}(?:耗尽|用尽|超限|不足)/i.test(detail+' '+upstreamCode);
     if(generation){
         if([408,504].includes(status)){reason='请求超时，生成结果尚不确定，请先检查再重试';code='timeout';}
+        else if(status===429&&quotaExhausted){reason='账号配额已用尽或达到额度限制，请检查站点额度要求；不会自动重试';code='quota';}
         else if(/(?:insufficient|not enough).{0,35}(?:anlas|credits|balance)|(?:anlas|credits|balance).{0,35}(?:insufficient|not enough)|余额不足|额度不足/i.test(detail)){reason='账号额度不足，请检查 Anlas 余额';code='balance';}
         else if(/invalid (?:access )?token|invalid api.?key|expired token/i.test(detail)||status===401&&source!=='tavern-generation'){reason='Key 验证失败，请重新填写并保存 Key';code='auth';}
         else if(status===401||/\bunauthorized\b|authentication failed/i.test(detail)){reason=source==='tavern-generation'?'身份验证失败，请检查酒馆登录状态和 NAI Key':'Key 验证失败，请重新填写并保存 Key';code='auth';}
         else if(/invalid (?:width|height|dimensions?|steps|seed|sampler|noise schedule|model|parameters?)|unsupported model|尺寸无效|参数无效|不支持.{0,8}模型/i.test(detail)||custom&&/(?:reference|vibe|参考).{0,50}(?:最多|超限|上限|至多|at most|maximum|limit|exceed)|too many (?:reference|vibe)/i.test(detail)){reason='生成参数被拒绝，请检查模型、尺寸或 Vibe';code='parameters';}
         else if(/access denied|permission denied|account.{0,15}(?:disabled|banned|suspended)/i.test(detail)){reason='访问被拒绝，请检查账号权限';code='permission';}
-        else if(/concurren(?:t|cy)|already generating|generation.{0,20}in progress|并发|正在生成|占线|任务进行中/i.test(detail)||[409,423].includes(status)){reason='服务提示有并发任务，请等待已有任务结束';code='busy';}
+        else if(/concurren(?:t|cy)|already generating|generation.{0,20}in progress|并发|正在生成|占线|任务进行中/i.test(detail)){reason='服务提示有并发任务，请等待已有任务结束';code='busy';}
         else if(status===403){reason='访问被拒绝，请检查账号权限及网络';code='permission';}
         else if(status===402){reason='生成被拒绝，请检查账号额度';code='balance';}
         else if(status===429||/too many requests|rate.?limit|限流|请求.{0,10}频繁/i.test(detail)){reason='请求过于频繁或并发受限，请稍后重试';code='rate-limit';}
@@ -56,8 +59,8 @@ export function httpRequestError({source,status,body='',secrets=[],retryAfterMs=
         if([408,500,502,503,504].includes(status))error.message+='\n生成结果不确定，不会自动重试，请先检查结果。';
     }
     // Unknown server/proxy failures may already have started a billable job.
-    // Only explicit concurrency/rate-limit refusals may be submitted again.
-    const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&[409,423,429].includes(status)&&['busy','rate-limit'].includes(code);
+    // Only recoverable HTTP 429 rate-limit refusals may be submitted again.
+    const retryableGeneration=['tavern-generation','nai-generation'].includes(source)&&status===429&&code==='rate-limit'&&!/quota|balance|credit|billing|auth|token|permission|forbidden|model|parameter|invalid|unsupported/i.test(upstreamCode)&&!/<(?:!doctype|html|head|body)\b/i.test(body)&&!/unknown|ambiguous|结果不确定|未知/i.test(detail);
     return Object.assign(error,{source,status,code,detail,retryAfterMs,retryableGeneration});
 }
 export function stageError(source,error){

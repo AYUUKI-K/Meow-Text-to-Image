@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {LeaseQueue} from '../queue-service/queue.mjs';
-import {queueCapabilities} from '../queue-protocol.js';
-import {runWithQueue} from '../cloud-queue.js';
-import {sendPrepared} from '../generation-lifecycle.js';
-import {withGenerationTimeout} from '../generation-timeout.js';
+import {queueCapabilities} from '../shared/queue-protocol.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
+import {sendPrepared} from '../src/generation/generation-lifecycle.js';
+import {withGenerationTimeout} from '../src/generation/generation-timeout.js';
 const hash='c'.repeat(64),who=id=>({key_hash:hash,user_id:'phase-user-'+id,task_id:'phase-task-'+id,protocol:2});
 const dispatch=q=>async(url,{body}={})=>{
  switch(new URL(url).pathname){case '/ping':return {ready:true,capabilities:queueCapabilities};case '/join-queue':return q.join(body);case '/my-turn':return q.turn(body);case '/begin-generation':return q.begin(body);case '/finish':return q.finish(body);default:return q.release(body);}
@@ -104,7 +104,7 @@ test('only current authorized holder can cool down; invalid reports and late fin
  assert.equal(q.finish({...a,lock_token:lease.lock_token,outcome:'rate-limited'}).finished,false);assert.equal(q.turn(b).lock_token,next.lock_token);assert.equal(q.lanes.get(hash).cooldownUntil,undefined);
 });
 test('new client 429 releases without legacy cooldown; queue errors and ambiguous 5xx retain uncertainty',async()=>{
- const {httpRequestError}=await import('../request-errors.js');
+ const {httpRequestError}=await import('../src/platform/request-errors.js');
  for(const [source,status,outcome] of [['nai-generation',429,'released'],['tavern-generation',429,'released'],['nai-encode',429,'released'],['queue',429,'uncertain'],['nai-generation',500,'uncertain'],['tavern-generation',502,'uncertain'],['nai-generation',503,'uncertain']]){
   const q=new LeaseQueue();let sent=0;
   await assert.rejects(runWithQueue({url:'https://fixture.invalid',keyHash:hash,requestJSON:dispatch(q),generate:controls=>sendPrepared({source,send:async()=>{sent++;throw httpRequestError({source,status,retryAfterMs:20000});}},controls)}));
@@ -180,7 +180,7 @@ test('browser resuming after its preparing deadline cannot POST after the next h
  assert.equal(posts,0);assert.equal(q.turn(b).lock_token,next.lock_token);
 });
 test('new direct-image response releases before an indefinitely blocked ZIP and cannot turn local decode failure into uncertain generation',async()=>{
- const {createDirectClient}=await import('../direct-client.js');
+ const {createDirectClient}=await import('../src/novelai/direct-client.js');
  let resume,entered;const ready=new Promise(r=>entered=r),q=new LeaseQueue();
  const direct=createDirectClient({settings:{},save(){},getHeaders:()=>({}),getKey:async()=>'fixture-only',fetchImpl:async()=>new Response(new Uint8Array([80,75,3,4])),unzipPNG:()=>{entered();return new Promise((_,reject)=>resume=reject);}});
  const prepared=await direct.prepareGenerate({vibes:[]});
@@ -191,7 +191,7 @@ test('new direct-image response releases before an indefinitely blocked ZIP and 
 
 test('Vibe encoding keeps its 180s local budget and bounded protection when the host ignores abort',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
- const {createDirectClient}=await import('../direct-client.js');
+ const {createDirectClient}=await import('../src/novelai/direct-client.js');
  const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:'YQ==',encodings:{}};let entered,signal;
  const attempted=new Promise(r=>entered=r),q=new LeaseQueue({now:()=>0});
  const direct=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:async()=>'fixture',unzipPNG:async()=>'',fetchImpl:async(url,opts)=>{
@@ -204,7 +204,7 @@ test('Vibe encoding keeps its 180s local budget and bounded protection when the 
  assert.equal(signal.aborted,true);assert.equal(q.lanes.get(hash).active.phase,'uncertain');assert.equal(q.lanes.get(hash).active.expires,200000);
 });
 test('Vibe encoding local upload failure happens after finish and cannot retain the cloud slot',async()=>{
- const {createDirectClient}=await import('../direct-client.js');
+ const {createDirectClient}=await import('../src/novelai/direct-client.js');
  const id='12345678-1234-1234-1234-123456789abc',item={id,name:'fixture',image:'YQ==',encodings:{}};
  let entered,fail;const writing=new Promise(r=>entered=r),q=new LeaseQueue();
  const direct=createDirectClient({settings:{vibeLibrary:[{id}]},save(){},getHeaders:()=>({}),getKey:async()=>'fixture',unzipPNG:async()=>'',fetchImpl:async url=>{

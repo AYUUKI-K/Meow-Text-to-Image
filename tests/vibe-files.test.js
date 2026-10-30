@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {File} from 'node:buffer';
-import {createVibePackage,readVibeFiles,VIBE_FILE_LIMIT,VIBE_PACKAGE_LIMIT} from '../vibe-files.js';
-import {createDirectClient} from '../direct-client.js';
+import {createVibePackage,readVibeFiles,VIBE_FILE_LIMIT,VIBE_PACKAGE_LIMIT} from '../src/vibe/vibe-files.js';
+import {createDirectClient} from '../src/novelai/direct-client.js';
 
 const source={id:'00000000-0000-4000-8000-000000000001',name:'猫咪 / 氛围',image:'aW1hZ2U=',thumbnail:'data:image/png;base64,aW1hZ2U=',encodings:{'v4-5full':{full:{encoding:'YWJj',params:{information_extracted:0.7}}},v4full:{other:{encoding:'ZGVm',params:{information_extracted:0.4}}}},key:'private-key',url:'/user/private.json'};
 function zipEntry(name,bytes){

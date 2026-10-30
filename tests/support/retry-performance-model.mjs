@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {LeaseQueue} from '../../queue-service/queue.mjs';
-import {runWithQueue} from '../../cloud-queue.js';
-import {sendPrepared} from '../../generation-lifecycle.js';
-import {httpRequestError} from '../../request-errors.js';
-import {queueCapabilities} from '../../queue-protocol.js';
+import {runWithQueue} from '../../src/queue/cloud-queue.js';
+import {sendPrepared} from '../../src/generation/generation-lifecycle.js';
+import {httpRequestError} from '../../src/platform/request-errors.js';
+import {queueCapabilities} from '../../shared/queue-protocol.js';
 import {VirtualClock,distribution} from './queue-virtual-clock.mjs';
 
 export async function simulateRetries({count=6,keys=1,scenario='all429',mixed=false}={}){

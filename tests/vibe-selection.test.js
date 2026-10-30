@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {selectVibes,resolveVibes} from '../vibe.js';
-import {normalizeProfile} from '../core.js';
+import {selectVibes,resolveVibes} from '../src/vibe/vibe.js';
+import {normalizeProfile} from '../src/core/core.js';
 
 const vibes=Array.from({length:12},(_,i)=>({id:`v${i}`,key:'hash',strength:0.6}));
 const library=vibes.map(v=>({...v,name:`氛围 ${v.id}`,encodings:{'v4-5full':{hash:{encoding:'YQ=='}}}}));

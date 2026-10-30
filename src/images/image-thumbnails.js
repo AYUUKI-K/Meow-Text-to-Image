@@ -1,4 +1,4 @@
-import {sha256} from './browser-crypto.js';
+import {sha256} from '../platform/browser-crypto.js';
 import {decodeImage} from './image-export.js';
 
 export const THUMBNAIL_FOLDER='miao-nai-thumbnails';

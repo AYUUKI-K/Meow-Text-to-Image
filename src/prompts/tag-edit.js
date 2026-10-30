@@ -1,4 +1,4 @@
-import {parseBodyBlocks} from './core.js';
+import {parseBodyBlocks} from '../core/core.js';
 
 // Change only the first capture of this exact occurrence. Reject delimiters
 // that would split one tag into several tags or consume a neighbouring tag.

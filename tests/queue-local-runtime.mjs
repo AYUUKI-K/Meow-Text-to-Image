@@ -1,13 +1,14 @@
 // Actual Node loopback HTTP + event-loop test, with mocked image work only.
 import assert from 'node:assert/strict';
 import {performance} from 'node:perf_hooks';
-import {writeFileSync} from 'node:fs';
+import {writeFileSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {createQueueServer} from '../queue-service/service.mjs';
 import {LeaseQueue} from '../queue-service/queue.mjs';
-import {runWithQueue} from '../cloud-queue.js';
-import {sendPrepared} from '../generation-lifecycle.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
+import {sendPrepared} from '../src/generation/generation-lifecycle.js';
 import {distribution} from './support/queue-virtual-clock.mjs';
+mkdirSync(new URL('../docs/local/',import.meta.url),{recursive:true});
 const queue=new LeaseQueue(),server=createQueueServer({queue}),samples=[],faults={join503:0,beginLost:0,finishLost:0},joinOrder=new Map(),taskIndex=new Map(),seen=new Set();
 const originalJoin=queue.join.bind(queue);queue.join=body=>{if(!seen.has(body.task_id)){seen.add(body.task_id);joinOrder.set(body.task_id,seen.size);}return originalJoin(body);};
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const url='http://127.0.0.1:'+server.address().port;
@@ -35,5 +36,5 @@ try{
   const group=permits.filter(p=>p.i%4===k);assert.ok(group.every((p,i)=>i===0||joinOrder.get(p.taskId)>joinOrder.get(group[i-1].taskId)));
  }
  const result={kind:'real-loopback-event-loop',count:20,keys:4,mockImageMs:20,testPollMs:15,testRetryMs:[5,10],productionTimeoutsUnchanged:true,elapsedMs:performance.now()-start,controlLatency:distribution(latencies),waiting:distribution(permits.map(p=>p.at)),end:distribution(samples.map(p=>p.endMs)),posts:posts.length,duplicatePosts:0,peak, faults};
- writeFileSync(new URL('../docs/queue-phase5-local-runtime.json',import.meta.url),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+ writeFileSync(new URL('../docs/local/queue-phase5-local-runtime.json',import.meta.url),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
 }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}

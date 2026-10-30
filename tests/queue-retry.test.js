@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {LeaseQueue} from '../queue-service/queue.mjs';
-import {runWithQueue} from '../cloud-queue.js';
-import {queueCapabilities} from '../queue-protocol.js';
-import {sendPrepared} from '../generation-lifecycle.js';
-import {httpRequestError} from '../request-errors.js';
+import {runWithQueue} from '../src/queue/cloud-queue.js';
+import {queueCapabilities} from '../shared/queue-protocol.js';
+import {sendPrepared} from '../src/generation/generation-lifecycle.js';
+import {httpRequestError} from '../src/platform/request-errors.js';
 const hash='6'.repeat(64),who=id=>({key_hash:hash,user_id:'retry-user-'+id,task_id:'retry-task-'+id,protocol:2,retry_protocol:1});
 const dispatch=q=>async(url,{body}={})=>{
  try{switch(new URL(url).pathname){case '/ping':return {ready:true,capabilities:queueCapabilities};case '/join-queue':return q.join(body);case '/my-turn':return q.turn(body);case '/begin-generation':return q.begin(body);case '/retry-generation':return q.retry(body);case '/finish':return q.finish(body);default:return q.release(body);}}
@@ -95,7 +95,7 @@ test('R16: Node HTTP supports four attempts on the original holder without share
 });
 
 test('R12: active cloud task retains its enabled snapshot while next local task uses changed settings',async()=>{
- const {runGenerationTask,generationOptions}=await import('../generation-options.js');let now=0,posts=0,joins=0;const q=new LeaseQueue({now:()=>now}),rpc=dispatch(q);
+ const {runGenerationTask,generationOptions}=await import('../src/generation/generation-options.js');let now=0,posts=0,joins=0;const q=new LeaseQueue({now:()=>now}),rpc=dispatch(q);
  const settings={cloudQueue:true,autoRetryEnabled:true,queueUrl:'https://queue.test',keyHash:hash},scope=generationOptions(settings);
  const result=await runGenerationTask({scope,queueOptions:{now:()=>now,sleep:async ms=>{now+=ms;settings.cloudQueue=false;settings.autoRetryEnabled=false;},requestJSON:async(url,opts)=>{if(url.endsWith('/join-queue'))joins++;return rpc(url,opts);}},generate:controls=>sendPrepared({source:'nai-generation',send:async()=>{if(++posts<4)throw refusal();return 'image';}},controls)});
  assert.equal(result,'image');assert.equal(posts,4);assert.equal(joins,1);assert.equal(q.stats().active,0);
@@ -127,4 +127,34 @@ test('R18: explicit refusal is returned immediately even when finish acknowledge
  let now=0,posts=0,finishStarted=false;const q=new LeaseQueue({now:()=>now}),rpc=dispatch(q),error=refusal();
  await assert.rejects(runWithQueue({url:'https://queue.test',keyHash:hash,autoRetry:false,now:()=>now,requestJSON:async(url,opts)=>{if(url.endsWith('/finish')){finishStarted=true;return new Promise(()=>{});}return rpc(url,opts);},sleep:async()=>assert.fail('no hidden retry wait'),generate:controls=>sendPrepared({source:'nai-generation',send:async()=>{posts++;throw error;}},controls)}),actual=>actual===error);
  assert.equal(posts,1);assert.equal(finishStarted,true);assert.equal(q.lanes.get(hash).active.expires,80000);now=80000;q.cleanup();assert.equal(q.stats().active,0);
+});
+
+test('local/cloud modes retry only temporary image 429; all other refusals and quota 429 send once',async()=>{
+ const {runGenerationTask}=await import('../src/generation/generation-options.js');
+ const cases=[
+  ...[400,401,402,403,408,409,422,423,500,502,503,504].map(status=>({status,body:'Concurrent generation request'})),
+  {status:409,body:''},{status:423,body:''},
+  {status:429,body:'Not enough credits'},
+  {status:429,body:'Daily limit exceeded'},
+  {status:429,body:'额度已耗尽'},
+  {status:429,body:JSON.stringify({error:{code:'insufficient_quota',message:'Too many requests'}})},
+  {status:429,body:'<html>Access blocked</html>'},
+  {status:429,body:'Unknown error'},
+  ...['invalid_api_key','unsupported_model','insufficient_quota'].map(code=>({status:429,body:JSON.stringify({error:{code,message:'Too many requests'}})})),
+  {status:429,body:'Too Many Requests',source:'nai-encode'},
+  {status:429,body:'Too Many Requests',source:'image-save'},
+  {status:429,body:'Too Many Requests',source:'nai-generation',retry:true},
+  {status:429,body:'Too Many Requests',source:'tavern-generation',retry:true},
+ ];
+ for(const cloudQueue of [false,true])for(const item of cases){
+  let posts=0,now=0;const q=new LeaseQueue({now:()=>now}),paths=[];
+  const error=httpRequestError({source:item.source||'nai-generation',status:item.status,body:item.body});
+  await assert.rejects(runGenerationTask({scope:{cloudQueue,autoRetryEnabled:true,queueUrl:'https://queue.test',keyHash:hash},
+   queueOptions:{now:()=>now,sleep:async ms=>{now+=ms;},requestJSON:async(url,options)=>{paths.push(new URL(url).pathname);return dispatch(q)(url,options);}},
+   retryOptions:{now:()=>now,sleep:async ms=>{now+=ms;}},
+   generate:controls=>sendPrepared({source:error.source,send:async()=>{posts++;throw error;}},controls)}),e=>e===error);
+  assert.equal(posts,item.retry?4:1,JSON.stringify({cloudQueue,...item}));
+  assert.equal(paths.filter(path=>path==='/retry-generation').length,cloudQueue&&item.retry?3:0);
+  if(!cloudQueue)assert.deepEqual(paths,[]);
+ }
 });

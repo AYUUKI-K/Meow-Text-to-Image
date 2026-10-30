@@ -2,7 +2,7 @@ import {elapsedClock} from './generation-lifecycle.js';
 export const RETRY_INTERVAL_MS=10000;
 export const MAX_GENERATION_RETRIES=3;
 export const MAX_RETRY_AFTER_MS=120000;
-export const isRetryableGeneration=error=>error?.retryableGeneration===true&&['tavern-generation','nai-generation'].includes(error.source)&&[409,423,429].includes(error.status)&&!['AbortError','TimeoutError','TypeError'].includes(error.name);
+export const isRetryableGeneration=error=>error?.retryableGeneration===true&&['tavern-generation','nai-generation'].includes(error.source)&&error.status===429&&error.code==='rate-limit'&&!['AbortError','TimeoutError','TypeError'].includes(error.name);
 export function generationRetryDelay(error){
     const delay=Number(error.retryAfterMs)||0;
     // Never shorten a longer upstream requirement. Stop instead of capping it.

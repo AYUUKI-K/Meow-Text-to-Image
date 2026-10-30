@@ -1,4 +1,4 @@
-import {validateFolder,imageDay} from './core.js';
+import {validateFolder,imageDay} from '../core/core.js';
 
 export function archiveContext(context){
     const group=context.groupId!==undefined&&context.groupId!==null&&String(context.groupId)!=='';

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createDirectClient} from '../direct-client.js';
-import {prepareGeneration,sendPrepared} from '../generation-lifecycle.js';
-import {runGenerationTask} from '../generation-options.js';
-import {reportNAIFailure} from '../nai-diagnostics.js';
+import {createDirectClient} from '../src/novelai/direct-client.js';
+import {prepareGeneration,sendPrepared} from '../src/generation/generation-lifecycle.js';
+import {runGenerationTask} from '../src/generation/generation-options.js';
+import {reportNAIFailure} from '../src/novelai/nai-diagnostics.js';
 
 const runtime={tt:true,ios:true};
 const secret='private-key',prompt='private-prompt',url='http://relay.invalid/private/path?secret=query';

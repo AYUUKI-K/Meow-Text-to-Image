@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {sizePresets,delimiterPattern,parseBlocks,parseBodyBlocks,renderedBlockRange,compareImagesNewest,pageItems} from '../core.js';
+import {sizePresets,delimiterPattern,parseBlocks,parseBodyBlocks,renderedBlockRange,compareImagesNewest,pageItems} from '../src/core/core.js';
 test('three standard sizes',()=>{
  assert.deepEqual(sizePresets.map(p=>[p.width,p.height]),[[1024,1024],[832,1216],[1216,832]]);
 });
