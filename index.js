@@ -1,3 +1,4 @@
+import {selectGenerationProfile,reconcileProfileSelection} from './src/profiles/profile-selection.js';
 import {prepareGeneration,sendPrepared} from './src/generation/generation-lifecycle.js';
 import {worldMacros,patchWorldMacros} from './src/resources/world-macros.js';
 import {generationTimeoutSeconds} from './src/generation/generation-timeout.js';
@@ -109,6 +110,7 @@ async function saveGeneratedImage(data,folder,name){
 }
 const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-resources-changed')),onAvailable:({latest})=>notices.info(`${latest.worldName} 可更新，点此查看`,'喵喵文生图',{escapeHtml:true,timeOut:10000,onclick:()=>openSettings('resources')})});
 ensureProfileIds(settings.profiles);
+for(const warning of reconcileProfileSelection(settings))notices.warning(warning,'配置选择');
 const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
@@ -268,12 +270,12 @@ function startGeneration(message,block,{automatic=false}={}) {
     const key=identity(message,block), chat=currentChat(), taskId=`${chat}:${ctx().chat.indexOf(message)}:${key}`;
     const existing=running.get(taskId)||taskFor(message,block);if(existing)return existing.promise;
     message.miao_nai_image_id??=randomId();
-    const profile=settings.profiles[settings.active],profileName=profile.name;
+    const {profile,profileId,profileName,source:profileSource}=selectGenerationProfile(settings);
     const request=buildRequest(profile,block.prompt);
-    request.vibes=selectVibes(settings.profiles[settings.active],settings.vibeLibrary);
+    request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
     attempted.add(taskId);
-    const task={status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
+    const task={profileId,profileName,profileSource,profile,request,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
     const waiting=running.size>0||settings.cloudQueue;running.set(taskId,task);renderAll();
     if(waiting)notices.info('已加入生图队列','喵喵文生图');
     queue=queue.then(async()=>{
@@ -286,7 +288,7 @@ function startGeneration(message,block,{automatic=false}={}) {
         if(rememberImage(settings.imageArchive,url,storage.context,location.href))save();
         // Switching swipes does not invalidate an image already being generated.
         target=taskTarget(task,true);if(!target) { notices.info('图片已保存，但原消息已删除或修改：'+url); return; }
-        writeSwipeImage(target.message,task.swipe,blockSlot(target.block),appendImageVersion(task.previousRecord,{url,request,tagPrompt:block.prompt,profileName,archive:storage.context,created:Date.now()}));
+        writeSwipeImage(target.message,task.swipe,blockSlot(target.block),appendImageVersion(task.previousRecord,{url,request,tagPrompt:block.prompt,profileId,profileName,archive:storage.context,created:Date.now()}));
         // Show the result before waiting for ST's chat-save request.
         if(running.get(taskId)===task)running.delete(taskId);renderAll();
         if(task.previousRecord&&task.toolsEpoch===imageToolsEpoch&&(target.message.swipe_id??0)===task.swipe){
