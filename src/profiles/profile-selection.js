@@ -3,7 +3,7 @@ export function reconcileProfileSelection(settings){
     const ids=new Set(settings.profiles.map(p=>p.id)),warnings=[];
     settings.randomProfileIds=[...new Set(Array.isArray(settings.randomProfileIds)?settings.randomProfileIds:[])].filter(id=>ids.has(id));
     settings.profileSelectionMode=settings.profileSelectionMode==='random'?'random':'single';
-    if(settings.profileSelectionMode==='random'&&settings.randomProfileIds.length<2){settings.profileSelectionMode='single';warnings.push('随机池不足 2 项，已切换为单个配置');}
+    if(settings.profileSelectionMode==='random'&&settings.randomProfileIds.length<2)warnings.push('随机池不足 2 项，请至少选择 2 个配置；普通图片暂不能生成');
     settings.eggProfileEnabled=settings.eggProfileEnabled===true;
     settings.eggProfileId=ids.has(settings.eggProfileId)?settings.eggProfileId:null;
     if(settings.eggProfileEnabled&&!settings.eggProfileId){settings.eggProfileEnabled=false;warnings.push('彩蛋配置已不存在，已关闭尾图覆盖，请重新选择');}

@@ -21,6 +21,15 @@ test('each pool entry has an equal interval, independent of editor, order, copie
     moveProfile(settings,'a',1);settings.profiles.push({...defaults,id:'new',name:'new'});reconcileProfileSelection(settings);
     assert.deepEqual(settings.randomProfileIds,['c','a','b']);assert.equal(selectGenerationProfile(settings,{random:()=>0}).profileId,'c');
 });
+test('incomplete random pools survive save/reload and reject ordinary generation before consuming a draw',()=>{
+    for(const randomProfileIds of [[],['a'],['missing']]){
+        const settings={...fixture(),profileSelectionMode:'random',randomProfileIds};
+        reconcileProfileSelection(settings);const restored=JSON.parse(JSON.stringify(settings));reconcileProfileSelection(restored);
+        assert.equal(restored.profileSelectionMode,'random');let draws=0;
+        assert.throws(()=>selectGenerationProfile(restored,{random:()=>{draws++;return 0;}}),/至少/);assert.equal(draws,0);
+        Object.assign(restored,{eggProfileEnabled:true,eggProfileId:'c'});assert.equal(selectGenerationProfile(restored,{egg:true}).profileId,'c');
+    }
+});
 test('selected parameters and Vibe come from one detached snapshot; egg overrides either ordinary mode without a draw',()=>{
     for(const mode of ['single','random']){
         const settings={...fixture(),profileSelectionMode:mode,randomProfileIds:['a','b'],eggProfileEnabled:true,eggProfileId:'c'};
@@ -30,10 +39,10 @@ test('selected parameters and Vibe come from one detached snapshot; egg override
         assert.equal(selected.profileId,'c');assert.equal(selected.profileName,'c');assert.equal(request.prompt.startsWith('c,'),true);assert.equal(request.width,640);assert.equal(request.seed,2);assert.deepEqual(request.vibes,[]);assert.equal(selected.profile.vibes.length,1);
     }
 });
-test('deleting invalid IDs cleans pools and disables missing egg with explicit fallback warnings',()=>{
+test('deleting invalid IDs cleans pools and disables missing egg with explicit warnings and retain random mode',()=>{
     const settings={...fixture(),profileSelectionMode:'random',randomProfileIds:['a','b','a','missing'],eggProfileEnabled:true,eggProfileId:'a'};
     const removal=planProfileRemoval(settings,['a']);Object.assign(settings,{profiles:removal.profiles,active:removal.active});
-    assert.equal(reconcileProfileSelection(settings).length,2);assert.deepEqual(settings.randomProfileIds,['b']);assert.equal(settings.profileSelectionMode,'single');assert.equal(settings.eggProfileEnabled,false);assert.equal(settings.eggProfileId,null);
+    assert.equal(reconcileProfileSelection(settings).length,2);assert.deepEqual(settings.randomProfileIds,['b']);assert.equal(settings.profileSelectionMode,'random');assert.equal(settings.eggProfileEnabled,false);assert.equal(settings.eggProfileId,null);
     settings.profileSelectionMode='random';assert.throws(()=>selectGenerationProfile(settings),/至少/);
     settings.eggProfileEnabled=true;assert.throws(()=>selectGenerationProfile(settings,{egg:true}),/不存在/);
 });
