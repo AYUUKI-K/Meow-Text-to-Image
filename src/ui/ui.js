@@ -11,7 +11,7 @@ import {createFavoritesView} from './favorites-view.js';
 import {FAVORITE_FOLDER,favoritesEnabled} from '../prompts/prompt-favorites.js';
 import {novelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {fontAwesomeElement} from './fontawesome-icons.js';
-import {onlineEncodingAvailable,connectionSnapshot} from '../novelai/nai-connection.js';
+import {onlineEncodingAvailable} from '../novelai/nai-connection.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
@@ -174,11 +174,11 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const rememberSetting=custom?'rememberCustomKey':'rememberDirectKey';
             const remember=node('label',undefined,'miao-switch-row'),rememberCheck=node('input');rememberCheck.type='checkbox';rememberCheck.checked=!!settings[rememberSetting];rememberCheck.onchange=safe(async()=>{try{await setRememberDirectKey(rememberCheck.checked);}finally{rememberCheck.checked=!!settings[rememberSetting];await updateKeyState();}});remember.append(node('span','记住 Key'),rememberCheck);connection.append(remember);
 
-            const keyState=node('p','检查中…','miao-muted');connection.append(keyState);
-            const mask='••••••••••••';let directReady=false;
+            const keyState=node('p','检查中…','miao-muted');keyState.setAttribute('role','status');account.append(keyState);
+            const mask='••••••••••••';let directReady=false,keyRevision=0;
             key.addEventListener('focus',()=>{if(key.value===mask)key.value='';});
             key.addEventListener('blur',()=>{if(!key.value&&directReady)key.value=mask;});
-            const updateKeyState=async()=>{const status=await directKeyStatus();if(epoch!==renderEpoch)return;directReady=status.ready;keyState.textContent=directReady?(status.persistent?'已记住':'本次有效'):status.serverSaved?'请填写直连 Key':'未设置';if(document.activeElement!==key&&(!key.value||key.value===mask))key.value=directReady?mask:'';};safe(updateKeyState)();
+            const updateKeyState=async()=>{const revision=++keyRevision,status=await directKeyStatus();if(epoch!==renderEpoch||revision!==keyRevision)return;directReady=status.ready;keyState.textContent=directReady?'Key 已就绪':status.serverSaved?'需重新填写直连 Key':'未设置 Key';if(document.activeElement!==key&&(!key.value||key.value===mask))key.value=directReady?mask:'';};safe(updateKeyState)();root.onKeyChanged=safe(updateKeyState);
             const saveConnection=async(notify=true)=>{try{const input=key.value===mask?'':key.value.trim();if(custom)await saveCustomConnection({input,generationURL:generationURL.value,encodeURL:encodeURL.value},{notify});else await saveKey(input,{notify});key.value='';}finally{await updateKeyState();}};
             const actions=node('div',undefined,'miao-actions');connection.append(actions);action(actions,custom?'保存自定义连接':'保存密钥',saveConnection,true);action(actions,'实际测试生图（可能消耗额度）',async()=>{await commitPage();return testImage();});
             connection.append(node('p','测试生图会实际调用当前接口，可能消耗额度。','miao-muted'));
@@ -190,8 +190,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             queue.append(node('p','仅协调使用同一队列服务地址的 Mewo 请求。官网、其他插件或不同队列的请求不受保护，仍可能发生占线。','miao-muted'));
             field(queue,'队列服务地址',settings.queueUrl,v=>{settings.queueUrl=v.trim();save();}).placeholder='https://miao-image-queue.savlu329.workers.dev';
             const queueDocs=node('a','自行部署 Mewo 队列服务');queueDocs.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/main/docs/QUEUE.md#cloudflare-workers-部署';queueDocs.target='_blank';queueDocs.rel='noopener noreferrer';queue.append(queueDocs);
-            const status=node('p',connectionSnapshot(settings).keyHash?'Key 已就绪':'未设置 Key','miao-muted');queue.append(status);
-            action(queue,'测试连接',async()=>{validateQueueURL(settings.queueUrl);await queueStatus();status.textContent='连接正常';});
+            const status=node('p','尚未测试队列连接','miao-muted');queue.append(status);
+            action(queue,'测试连接',async()=>{try{validateQueueURL(settings.queueUrl);await queueStatus();status.textContent='队列连接正常';}catch(error){status.textContent='队列连接失败';throw error;}});
         } else if(activeTab==='config') {
             const profiles=section(body,'配置');profiles.classList.add('miao-profile-section');
             field(profiles,'当前配置',String(settings.active),v=>{settings.active=Number(v);save();render();},{options:settings.profiles.map((p,i)=>[String(i),p.name])});
@@ -456,6 +456,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         if(keep){const restore=()=>{if(epoch!==renderEpoch)return;for(const item of root.querySelectorAll('[data-scroll-key]')){const position=positions.get(item.dataset.scrollKey);if(position){item.scrollTop=position.top;item.scrollLeft=position.left;}}if(scroller&&outerTop!==undefined)scroller.scrollTop=outerTop;};restore();requestAnimationFrame(restore);}
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});
+    root.addEventListener('miao-key-changed',()=>root.onKeyChanged?.());
     root.addEventListener('miao-resources-changed',paintResourceEntries);
     root.addEventListener('miao-profile-previews',()=>paintPreviews());
     root.addEventListener('miao-open-section',event=>{const detail=typeof event.detail==='string'?{section:event.detail}:event.detail||{};if(detail.section==='resources'||detail.section==='favorites'&&favoritesEnabled(settings)){activeTab=detail.section;initialFavorite=detail.favorite;render();root.closest('.popup-content')?.scrollTo({top:0});}});

@@ -1061,7 +1061,7 @@ async function init() {
     c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;renderAll();if(same)autoLatest();});
     if(c.eventTypes.GENERATION_STOPPED)c.eventSource.on(c.eventTypes.GENERATION_STOPPED,()=>{streamActive=false;generationChat=null;scheduleRender(false);});
     c.eventSource.on(c.eventTypes.STREAM_TOKEN_RECEIVED,()=>{if(generationChat===currentChat())streamActive=true;setTimeout(()=>guard(()=>{scanStream();renderAll();})(),0);});
-    for(const event of ['SECRET_WRITTEN','SECRET_DELETED','SECRET_ROTATED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],key=>{if(key===SECRET_KEYS.NOVEL){settings.keyHash='';save();}});
+    for(const event of ['SECRET_WRITTEN','SECRET_DELETED','SECRET_ROTATED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],key=>{if(key===SECRET_KEYS.NOVEL){settings.keyHash='';save();settingsHost?.dispatchEvent(new Event('miao-key-changed'));}});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
     if(settings.enabled&&!settings.installed)await installDefaults();indexChatImages();renderAll();autoLatest();
     resourceUpdater.check().catch(()=>{});
