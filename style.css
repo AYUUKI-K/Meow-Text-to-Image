@@ -1451,7 +1451,12 @@
     background: var(--mi-blue);
 }
 
+.miao-profile-selection {flex: 0 0 auto; min-width: 0;}
+.miao-profile-editing {grid-column: 1/-1; margin: 0; font-weight: 600; overflow-wrap: anywhere;}
+.miao-profile-warning {margin: 0; color: var(--mi-ink); font-weight: 600;}
+
 .miao-profile-samples {
+    flex: 0 0 auto;
     grid-column: 1/-1;
     display: flex;
     flex-direction: column;
@@ -1460,17 +1465,39 @@
 }
 
 .miao-sample-gallery {
+    flex: 0 0 auto;
+    min-height: 0;
+    grid-auto-rows: max-content;
+    align-content: start;
+    align-items: start;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
     display: grid;
     grid-template-columns: repeat(auto-fill,minmax(120px,1fr));
     gap: 12px;
-    max-height: 288px;
-    overflow: auto;
+    max-height: min(360px,50dvh);
+    overflow-y: auto;
+    overflow-x: hidden;
     padding: 3px;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
 }
 
+.miao-sample-card {position: relative; min-width: 0; height: max-content; align-self: start;}
+.miao-sample-card[data-multiple=true] .miao-sample-name {padding-right: 52px;}
+.miao-sample-edit {position: absolute; right: 4px; bottom: 2px; width: 44px; min-height: 44px; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: var(--mi-muted); cursor: pointer;}
+.miao-sample-edit[aria-current=true] {color: var(--mi-ink); background: var(--mi-soft);}
+.miao-sample-editor {position: absolute; top: 6px; right: 6px; background: var(--mi-bg); color: var(--mi-muted); padding: 2px 5px; border-radius: 4px; font-size: 11px;}
+.miao-sample-edit:focus-visible {outline: 2px solid var(--mi-blue);}
+
 .miao-sample-tile {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    white-space: normal;
+    align-self: start;
     min-width: 0;
     padding: 0;
     border: 1px solid var(--mi-line);
@@ -1492,13 +1519,18 @@
 
 .miao-sample-visual {
     position: relative;
-    display: grid;
-    place-items: center;
-    aspect-ratio: 1;
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
     background: var(--mi-field);
 }
 
+.miao-sample-visual>.miao-muted {position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; overflow-wrap: anywhere;}
+
 .miao-sample-visual>img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -1521,6 +1553,9 @@
 
 .miao-sample-name {
     display: block;
+    height: auto;
+    max-height: none;
+    white-space: normal;
     min-height: 44px;
     padding: 10px 12px;
     overflow-wrap: anywhere;
@@ -1897,7 +1932,7 @@
 
     .miao-sample-gallery {
         grid-template-columns: repeat(2,minmax(0,1fr));
-        max-height: 300px;
+        max-height: min(360px,50dvh);
         gap: 10px;
     }
 
