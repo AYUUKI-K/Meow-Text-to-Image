@@ -727,10 +727,7 @@
     width: min(960px,calc(var(--miao-panel-width) - 24px)) !important;
     height: min(800px,calc(var(--miao-panel-height) - 24px)) !important;
     padding: 0 !important;
-    border: 1px solid var(--mi-line) !important;
-    border-radius: 10px !important;
-    background: var(--mi-bg) !important;
-    box-shadow: none !important;
+
 }
 
 .miao-settings-dialog:has([data-section=overview]) {
@@ -771,8 +768,7 @@
     gap: 10px;
     margin: 0 !important;
     padding: 10px 12px max(10px,env(safe-area-inset-bottom)) !important;
-    border-top: 1px solid var(--SmartThemeBorderColor,currentColor);
-    background: var(--mi-bg,var(--SmartThemeBlurTintColor,Canvas));
+
 }
 
 .miao-modal .popup-controls button,.miao-modal .popup-controls .menu_button {
@@ -845,8 +841,7 @@
 
 .miao-content-dialog {
     width: min(720px,calc(100vw - 24px)) !important;
-    background: var(--mi-bg) !important;
-    border-radius: 10px !important;
+
 }
 
 .miao-prompt-view {
@@ -2256,3 +2251,6 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-batch-export-list span {font-size: 12px; overflow-wrap: anywhere;}
 .miao-batch-export .miao-button {min-height: 44px;}
 .miao-image-viewer:has(>img[data-miao-export-state=loading])::before {content: '正在准备 JPG…'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--mi-muted); font-size: 14px; pointer-events: none;}
+
+.miao-error-view {text-align: start; overflow-wrap: anywhere;}
+.miao-error-view pre {white-space: pre-wrap; max-height: 45dvh; overflow: auto;}

@@ -15,7 +15,7 @@ import {createNotifications} from './src/ui/notifications.js';
 import {createQueueTransport} from './src/queue/queue-network.js';
 import {hostFetch} from './src/platform/host-fetch.js';
 import {bindButtonPress} from './src/ui/button-press.js';
-import {checkedFetch,inStage,errorTitle} from './src/platform/request-errors.js';
+import {checkedFetch,inStage,errorTitle,redactErrorText} from './src/platform/request-errors.js';
 import {prepareImageExport} from './src/images/image-export.js';
 import {createImagePresentation} from './src/images/image-presentation.js';
 import {showImageBatchExport} from './src/ui/image-batch-export.js';
@@ -128,7 +128,7 @@ async function showPopup(content,type,input='',options={}){
         const parent=settingsPopup?.dlg?.isConnected?settingsPopup.dlg:settingsHost?.closest('dialog');
         return parent?showPanelPage(content,{...options,parent}):openSettings(undefined,undefined,{content,options});
     }
-    if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings,.miao-prompt-view'))return showPagePopup(content,{...options,parent:content.matches('.miao-settings')?undefined:settingsHost?.closest('dialog')});
+    if(isTT()&&type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings,.miao-prompt-view,.miao-error-view'))return showPagePopup(content,{...options,parent:content.matches('.miao-settings')?undefined:settingsHost?.closest('dialog')});
     let dispose=()=>{};
     try{return await callGenericPopup(content,type,input,{...options,animation:'none',onOpen:popup=>{
         const dialog=popup.dlg;dialog.classList.add('miao-modal');
@@ -140,15 +140,27 @@ async function showPopup(content,type,input='',options={}){
     }});}finally{dispose();}
 }
 
-async function errorPopup(error) {
-    const title=errorTitle(error);
-    if(isTT()){notices.error(String(error.message||error),title,{escapeHtml:true});return;}
-    const box=el('div',undefined,'miao-prompt-view'); box.append(el('h3','喵喵文生图：'+title),el('pre',String(error.message||error)));
-    await showPopup(box,POPUP_TYPE.TEXT);
+const errorDialogs=new Map();
+async function errorPopup(error,{detail=false}={}) {
+    const title=errorTitle(error),summary=redactErrorText(error.message||error).slice(0,2200);
+    if(isTT()&&!detail){notices.error(summary,title,{escapeHtml:true,onclick:()=>{void errorPopup(error,{detail:true});}});return;}
+    if(errorDialogs.has(summary))return errorDialogs.get(summary);
+    const box=el('div',undefined,'miao-prompt-view miao-error-view');box.append(el('h3','喵喵文生图：'+title),el('p',summary.split('\n')[0]));
+    const details=el('details'),copy=el('button','复制诊断摘要','menu_button');details.append(el('summary','错误详情'),el('pre',summary));
+    copy.type='button';copy.onclick=()=>Promise.resolve().then(()=>navigator.clipboard.writeText(summary)).then(()=>{copy.textContent='已复制';}).catch(()=>{copy.textContent='复制失败，请手动选择详情';});box.append(details,copy);
+    const pending=showPopup(box,POPUP_TYPE.TEXT);errorDialogs.set(summary,pending);
+    try{return await pending;}finally{errorDialogs.delete(summary);}
 }
 const guard=fn=>(...args)=>Promise.resolve().then(()=>fn(...args)).catch(errorPopup);
 async function confirmSettings(question,title='确认删除',{parent}={}){
     if(pendingSettingsConfirm)return false;
+    if(!isTT()){
+        const content=el('div');content.append(el('h3',title));
+        if(typeof question==='string')content.append(el('p',question));else content.append(question);
+        const pending=showPopup(content,POPUP_TYPE.CONFIRM,'',{okButton:'删除',cancelButton:'取消'});
+        pendingSettingsConfirm=()=>{};
+        try{return (await pending)===1;}finally{pendingSettingsConfirm=null;}
+    }
     const settingsDialog=parent||settingsHost?.closest('dialog'),standalone=!settingsDialog;
     const dialog=settingsDialog||el('div',undefined,'miao-confirm-dialog');
     const body=standalone?el('div',undefined,'popup-body'):dialog.querySelector('.popup-body')||dialog;
@@ -191,7 +203,7 @@ async function confirmSettings(question,title='确认删除',{parent}={}){
         dialog.addEventListener('keydown',onKey,true);dialog.addEventListener('cancel',onCancel,true);dialog.addEventListener('close',onClose);cancel.focus({preventScroll:true});restoreScroll();
     });
 }
-const generationError=error=>notices.error(String(error.message||error),errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:12000});
+const generationError=error=>notices.error(redactErrorText(error.message||error),errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:12000,onclick:()=>{void errorPopup(error,{detail:true});}});
 function reasoningFormat(){const r=ctx().powerUserSettings?.reasoning||{};return {prefix:ctx().substituteParams?.(r.prefix||'')??r.prefix,suffix:ctx().substituteParams?.(r.suffix||'')??r.suffix};}
 function blocks(message) { return parseBodyBlocks(message.mes,settings.pattern,reasoningFormat()); }
 const blockSlot=block=>`body:${block.bodyIndex}:${block.prompt}`;
