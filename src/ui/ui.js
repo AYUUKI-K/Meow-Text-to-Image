@@ -235,7 +235,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const refreshSample=node('button','刷新例图','miao-button');refreshSample.type='button';sampleHeading.append(refreshSample);samples.append(sampleHeading);
             const enlargeSample=node('button','放大例图','miao-button');enlargeSample.type='button';enlargeSample.disabled=!p.preview?.url;sampleHeading.append(enlargeSample);
             enlargeSample.onclick=safe(async()=>{if(!p.preview?.url)return;enlargeSample.disabled=true;try{await openImage(p.preview.url);}finally{paintPreviews();}});
-            const gallery=node('div',undefined,'miao-sample-gallery'),views=[];gallery.dataset.scrollKey='profile-gallery';gallery.setAttribute('role','group');gallery.setAttribute('aria-label','配置例图选择');strategy.insertBefore(gallery,eggToggle);profiles.append(samples);
+            const gallery=node('div',undefined,'miao-sample-gallery'),views=[];gallery.dataset.scrollKey='profile-gallery';gallery.setAttribute('role','group');gallery.setAttribute('aria-label','配置例图选择');samples.append(gallery);strategy.insertBefore(samples,eggToggle);
             gallery.addEventListener('scroll',()=>{memory.galleryTop=gallery.scrollTop;},{passive:true});
             const paintNames=()=>{editing.textContent='当前编辑：'+p.name;for(const view of views){
                 const selected=multiple?settings.randomProfileIds.includes(view.profile.id):view.profile===p;
@@ -245,7 +245,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             }};
             for(const profile of settings.profiles){
                 const card=node('article',undefined,'miao-sample-card'),tile=node('button',undefined,'miao-sample-tile');tile.type='button';tile.dataset.profileFocus='select:'+profile.id;card.dataset.editing=String(profile===p);card.dataset.multiple=String(multiple);
-                const visual=node('div',undefined,'miao-sample-visual'),image=node('img'),empty=node('span','暂无例图','miao-muted'),status=node('small','','miao-sample-status'),editor=node('small','编辑中','miao-sample-editor');editor.hidden=!multiple||profile!==p;image.loading='lazy';visual.append(image,empty,status,editor);
+                const visual=node('div',undefined,'miao-sample-visual'),image=node('img'),empty=node('span','暂无例图','miao-muted'),status=node('small','','miao-sample-status');image.loading='lazy';visual.append(image,empty,status);
                 const name=node('span',undefined,'miao-sample-name');tile.append(visual,name);card.append(tile);gallery.append(card);
                 bindButtonPress(tile,()=>{tile.focus({preventScroll:true});if(multiple){settings.randomProfileIds=settings.randomProfileIds.includes(profile.id)?settings.randomProfileIds.filter(id=>id!==profile.id):[...settings.randomProfileIds,profile.id];}else settings.active=settings.profiles.indexOf(profile);save();render();});
                 let edit;if(multiple){edit=node('button',undefined,'miao-sample-edit');edit.type='button';edit.title=profile===p?'当前编辑':'编辑此配置';edit.dataset.profileFocus='edit:'+profile.id;if(profile===p)edit.setAttribute('aria-current','true');const icon=node('i',undefined,'fa-solid fa-pencil');icon.setAttribute('aria-hidden','true');edit.append(icon);card.append(edit);bindButtonPress(edit,()=>{edit.focus({preventScroll:true});settings.active=settings.profiles.indexOf(profile);save();render();});}
