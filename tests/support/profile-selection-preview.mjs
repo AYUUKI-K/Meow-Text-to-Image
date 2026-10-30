@@ -19,9 +19,10 @@ export async function runProfileSelectionPreview({p,wait,draw}){
         p.settings.profiles=['a','b','egg'].map((id,i)=>({...structuredClone(defaults),id,name:id,positive:id,qualityPreset:'none',ucPreset:'none',negative:id,seed:i,vibeEnabled:false,vibes:[]}));
         Object.assign(p.settings,{active:0,cloudQueue:false,profileSelectionMode:'single',randomProfileIds:[],eggProfileEnabled:false,eggProfileId:null});
         p.context.powerUserSettings={reasoning:{prefix:'<star_cot>',suffix:'</star_cot>'}};
-        await open('配置');set('配置使用方式','random');
-        check(p.settings.profileSelectionMode==='single'&&document.querySelector('.miao-panel-body').textContent.includes('至少勾选 2'),'不足两项明确保留单配置');
-        toggle('a').click();toggle('b').click();check(p.settings.profileSelectionMode==='random'&&p.settings.randomProfileIds.join(',')==='a,b','两项候选启用独立随机池');
+        await open('配置');set('选择方式','random');
+        check(p.settings.profileSelectionMode==='random'&&document.querySelector('.miao-profile-warning').textContent.includes('至少选择 2'),'不足两项保留多选界面并阻止普通图片生成');
+        await close();document.querySelector('[mesid="3"] .miao-image-card button').click();await wait();check(p.calls.length===0,'不足两项时真实生成入口没有 POST');await open('配置');
+        document.querySelector('[aria-label="选择生图配置 a"]').click();document.querySelector('[aria-label="选择生图配置 b"]').click();check(p.settings.profileSelectionMode==='random'&&p.settings.randomProfileIds.join(',')==='a,b','两项候选启用独立随机池');
         toggle('为最后一张图（彩蛋）单独指定配置').click();set('彩蛋使用配置','egg');
         const bindings=JSON.stringify(p.settings.profiles[0].vibes);toggle('启用 Vibe').click();await wait();check(document.querySelector('.miao-vibe-choices')!==null,'启用后显示完整 Vibe 区域');
         toggle('启用 Vibe').click();check(!document.querySelector('.miao-vibe-choices')&&JSON.stringify(p.settings.profiles[0].vibes)===bindings,'关闭后隐藏区域并保留候选');
@@ -67,7 +68,7 @@ export async function runProfileSelectionPreview({p,wait,draw}){
         await open('配置');
         if(!window.__TAURITAVERN__){
             p.confirmResult=0;action('删除配置').click();await wait();check(p.settings.profiles.length===3,'宿主取消返回值保留配置');
-            p.confirmResult=1;action('删除配置').click();await settle(()=>p.settings.profiles.length===2);check(p.settings.profileSelectionMode==='single'&&p.settings.randomProfileIds.join(',')==='b','删除后清理随机池并明确回退');
+            p.confirmResult=1;action('删除配置').click();await settle(()=>p.settings.profiles.length===2);check(p.settings.profileSelectionMode==='random'&&p.settings.randomProfileIds.join(',')==='b'&&!!document.querySelector('.miao-profile-warning'),'删除后清理随机池，保留多选界面并提示不足两项');
             document.querySelector('.miao-error-view')?.closest('dialog')?.close();await wait();
         }
         check(true,'入口集成验证完成（仅模拟接口）');

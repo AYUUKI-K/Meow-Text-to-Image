@@ -201,15 +201,15 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         } else if(activeTab==='config') {
             const profiles=section(body,'编辑配置');profiles.classList.add('miao-profile-section');
             const strategy=section(body,'配置选择');strategy.classList.add('miao-profile-selection');body.insertBefore(strategy,profiles);
-            field(strategy,'选择方式',settings.profileSelectionMode,value=>{settings.profileSelectionMode=value;save();render();},{options:[['single','单个配置'],['random','多个配置（每张图随机）']]});
+            const selectionMode=field(strategy,'选择方式',settings.profileSelectionMode,value=>{settings.profileSelectionMode=value;save();render();},{options:[['single','单个配置'],['random','多个配置（每张图随机）']]});selectionMode.dataset.profileFocus='selection-mode';
             const multiple=settings.profileSelectionMode==='random';
             if(multiple){
                 strategy.append(node('p','每张图片从已选配置中随机使用一个。','miao-muted'));
                 if(settings.randomProfileIds.length<2){const warning=node('p','请至少选择 2 个配置；选择完成前，普通图片暂不能生成。','miao-profile-warning');warning.setAttribute('role','status');strategy.append(warning);}
             }
-            const eggToggle=node('label',undefined,'miao-switch-row'),eggCheck=node('input');eggCheck.type='checkbox';eggCheck.checked=settings.eggProfileEnabled;
+            const eggToggle=node('label',undefined,'miao-switch-row'),eggCheck=node('input');eggCheck.type='checkbox';eggCheck.dataset.profileFocus='egg-toggle';eggCheck.checked=settings.eggProfileEnabled;
             eggCheck.onchange=()=>{settings.eggProfileEnabled=eggCheck.checked;if(eggCheck.checked&&!settings.eggProfileId)settings.eggProfileId=p.id;save();render();};eggToggle.append(node('span','为最后一张图（彩蛋）单独指定配置'),eggCheck);strategy.append(eggToggle);
-            if(settings.eggProfileEnabled)field(strategy,'彩蛋使用配置',settings.eggProfileId,value=>{settings.eggProfileId=value;save();},{options:settings.profiles.map(profile=>[profile.id,profile.name])});
+            if(settings.eggProfileEnabled)field(strategy,'彩蛋使用配置',settings.eggProfileId,value=>{settings.eggProfileId=value;save();},{options:settings.profiles.map(profile=>[profile.id,profile.name])}).dataset.profileFocus='egg-profile';
             const editing=node('p','当前编辑：'+p.name,'miao-profile-editing');profiles.append(editing);
             const actions=node('div',undefined,'miao-actions miao-profile-actions');profiles.append(actions);
             action(actions,'新增配置',()=>{let number=1;while(settings.profiles.some(profile=>profile.name===`新配置 ${number}`))number++;settings.profiles.push({...structuredClone(defaults),name:`新配置 ${number}`,vibes:[]});settings.active=settings.profiles.length-1;save();render();},true);
@@ -249,7 +249,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 const name=node('span',undefined,'miao-sample-name');tile.append(visual,name);card.append(tile);gallery.append(card);
                 bindButtonPress(tile,()=>{tile.focus({preventScroll:true});if(multiple){settings.randomProfileIds=settings.randomProfileIds.includes(profile.id)?settings.randomProfileIds.filter(id=>id!==profile.id):[...settings.randomProfileIds,profile.id];}else settings.active=settings.profiles.indexOf(profile);save();render();});
                 let edit;if(multiple){edit=node('button',undefined,'miao-sample-edit');edit.type='button';edit.title=profile===p?'当前编辑':'编辑此配置';edit.dataset.profileFocus='edit:'+profile.id;if(profile===p)edit.setAttribute('aria-current','true');const icon=node('i',undefined,'fa-solid fa-pencil');icon.setAttribute('aria-hidden','true');edit.append(icon);card.append(edit);bindButtonPress(edit,()=>{edit.focus({preventScroll:true});settings.active=settings.profiles.indexOf(profile);save();render();});}
-                image.onerror=()=>{image.hidden=true;empty.hidden=false;empty.textContent='图片不存在';};views.push({profile,tile,name,image,empty,status,edit});
+                const view={profile,tile,name,image,empty,status,edit};image.onerror=()=>{view.failedURL=profile.preview?.url;image.hidden=true;empty.hidden=false;empty.textContent='图片不存在';};views.push(view);
             }
             paintNames();
             const promptDetails=node('details',undefined,'miao-sample-prompt');promptDetails.append(node('summary','例图提示词'));samples.append(promptDetails);
@@ -257,7 +257,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             commitPage=async()=>{if(!samplePrompt.value.trim())throw Error('请填写例图提示词');settings.samplePrompt=samplePrompt.value.trim();samplePromptDraft=undefined;delete memory.samplePromptDraft;save();};
             afterSave=()=>{void refreshProfilePreview(p,{ifChanged:true});};
             refreshSample.onclick=safe(async()=>{if(getPreviewState(p).busy)return;await commitPage();await persistSettings();void refreshProfilePreview(p);});
-            paintPreviews=()=>{for(const view of views){const state=getPreviewState(view.profile);view.image.hidden=!state.url;view.empty.hidden=!!state.url;if(state.url)bindImage(view.image,state.url,{lazy:true});view.status.textContent=state.status;view.status.hidden=!state.status;}const state=getPreviewState(p);enlargeSample.disabled=!state.url;refreshSample.disabled=state.busy;refreshSample.textContent=state.busy?state.status:'刷新例图';};paintPreviews();
+            paintPreviews=()=>{for(const view of views){const state=getPreviewState(view.profile);const failed=!!state.url&&view.failedURL===state.url;view.image.hidden=!state.url||failed;view.empty.hidden=!!state.url&&!failed;view.empty.textContent=failed?'图片不存在':'暂无例图';if(state.url&&!failed)bindImage(view.image,state.url,{lazy:true});view.status.textContent=state.status;view.status.hidden=!state.status;}const state=getPreviewState(p);enlargeSample.disabled=!state.url;refreshSample.disabled=state.busy;refreshSample.textContent=state.busy?state.status:'刷新例图';};paintPreviews();
             field(profiles,'配置名称',p.name,v=>{p.name=v;paintNames();save();});
             const modelOptions=models.some(([id])=>id===p.model)?models:[[p.model,p.model],...models];
             field(profiles,'NAI 模型',p.model,v=>{p.model=v;p.qualityPreset=resolvePresetId(v,'quality',p.qualityPreset);p.ucPreset=resolvePresetId(v,'uc',p.ucPreset);save();render();},{options:modelOptions});
