@@ -233,10 +233,6 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             field(profiles,'配置名称',p.name,v=>{p.name=v;save();});
             const modelOptions=models.some(([id])=>id===p.model)?models:[[p.model,p.model],...models];
             field(profiles,'NAI 模型',p.model,v=>{p.model=v;p.qualityPreset=resolvePresetId(v,'quality',p.qualityPreset);p.ucPreset=resolvePresetId(v,'uc',p.ucPreset);save();render();},{options:modelOptions});
-            const vibeToggle=node('label',undefined,'miao-switch-row'),vibeCheck=node('input');vibeCheck.type='checkbox';
-            vibeCheck.disabled=!vibeModelKeys[p.model];vibeCheck.checked=!vibeCheck.disabled&&p.vibeEnabled!==false;
-            vibeCheck.onchange=()=>{p.vibeEnabled=vibeCheck.checked;save();};vibeToggle.append(node('span','启用 Vibe'),vibeCheck);profiles.append(vibeToggle);
-            if(vibeCheck.disabled)profiles.append(node('p','当前模型不支持 Vibe','miao-muted'));
             const workspace=node('div',undefined,'miao-config-workspace');body.append(workspace);
             const prompts=section(workspace,'提示词');
             const presetBox=node('div',undefined,'miao-prompt-presets');prompts.append(presetBox);
@@ -276,7 +272,11 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             for(const preset of sizePresets){const b=action(sizes,preset.name,()=>{p.width=preset.width;p.height=preset.height;save();render();});b.append(node('small',`${preset.width}×${preset.height}`));b.classList.add('miao-size-preset');b.dataset.selected=String(p.width===preset.width&&p.height===preset.height);b.setAttribute('aria-pressed',b.dataset.selected);}
             const grid=node('div',undefined,'miao-grid');params.append(grid);
             for(const [key,label,type] of [['width','宽度','number'],['height','高度','number'],['steps','步数','number'],['scale','Guidance','number'],['seed','种子','number'],['sampler','采样器','text'],['scheduler','噪声表','text']]){const choices=key==='sampler'?[['k_euler_ancestral','Euler Ancestral'],['k_euler','Euler'],['k_dpmpp_2m','DPM++ 2M'],['k_dpmpp_2s_ancestral','DPM++ 2S Ancestral'],['k_dpmpp_sde','DPM++ SDE']]:key==='scheduler'?[['karras','Karras'],['native','Native'],['exponential','Exponential'],['polyexponential','Polyexponential']]:null;const options=choices&&!choices.some(([id])=>id===p[key])?[[p[key],p[key]],...choices]:choices;field(grid,label,p[key],v=>{p[key]=v;save();},{type,options,wide:key==='seed'});}
-            if(!vibeCheck.disabled){
+            const vibeToggle=node('label',undefined,'miao-switch-row'),vibeCheck=node('input');vibeCheck.type='checkbox';
+            vibeCheck.disabled=!vibeModelKeys[p.model];vibeCheck.checked=!vibeCheck.disabled&&p.vibeEnabled!==false;
+            vibeCheck.onchange=()=>{p.vibeEnabled=vibeCheck.checked;save();render();};vibeToggle.append(node('span','启用 Vibe'),vibeCheck);body.append(vibeToggle);
+            if(vibeCheck.disabled)body.append(node('p','当前模型不支持 Vibe','miao-muted'));
+            if(!vibeCheck.disabled&&p.vibeEnabled!==false){
                 const vibes=section(body,'Vibe');
                 field(vibes,'使用方式',p.vibeMode??'multiple',value=>{
                     if(value==='multiple'&&(p.vibes||[]).length>4){render();throw Error('当前候选超过 4 个，请先减少勾选，再切换「多个」');}
