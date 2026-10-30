@@ -1487,7 +1487,6 @@
 .miao-sample-card[data-multiple=true] .miao-sample-name {padding-right: 52px;}
 .miao-sample-edit {position: absolute; right: 4px; bottom: 2px; width: 44px; min-height: 44px; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: var(--mi-muted); cursor: pointer;}
 .miao-sample-edit[aria-current=true] {color: var(--mi-ink); background: var(--mi-soft);}
-.miao-sample-editor {position: absolute; top: 6px; right: 6px; background: var(--mi-bg); color: var(--mi-muted); padding: 2px 5px; border-radius: 4px; font-size: 11px;}
 .miao-sample-edit:focus-visible {outline: 2px solid var(--mi-blue);}
 
 .miao-sample-tile {
