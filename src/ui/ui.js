@@ -167,39 +167,24 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
 
             const custom=settings.naiConnection==='custom',epoch=renderEpoch;
             field(connection,'连接方式',custom?'custom':'official',value=>{settings.naiConnection=value;settings.connectionRevision=(settings.connectionRevision||0)+1;save();render();},{options:[['official','官方 NovelAI'],['custom','自定义 NovelAI 兼容接口']]});
-            let generationURL,generationURLMode,encodeURL,encodeURLMode,generationPreview,encodePreview,encodePreviewHint;
-            let updateEndpointPreview=()=>{};
+            let generationURL,generationURLMode,encodeURL,encodeURLMode,updateEndpointPreview;
             if(custom){
                 connection.append(node('p','适用于 NovelAI 原生兼容接口。可填写基础地址或完整生图端点。模型、Vibe、额度及调用频率以站点说明为准。使用公益站时，建议关闭自动生图和自动重试，少量提交任务，并按站方要求控制节奏。','miao-muted'));
                 generationURL=field(connection,'自定义 API 地址',settings.customGenerationURL,()=>{});
                 generationURL.placeholder='https://example.com/v1 或完整端点';
-                generationURLMode=field(connection,'生图 URL 处理',settings.customGenerationURLMode||(settings.customGenerationURL?'exact':'auto'),()=>{},{options:[['auto','自动补全 NovelAI 路径（推荐）'],['exact','原样使用所填地址（高级）']]});
-                connection.append(node('p','自动模式会在基础路径后补全 /ai/generate-image；完整端点会避免重复追加。原样模式保留所填地址。','miao-muted'));
-                generationPreview=field(connection,'实际生图请求 URL','',()=>{});generationPreview.readOnly=true;generationPreview.onclick=()=>generationPreview.select();
-                generationURL.addEventListener('input',updateEndpointPreview);generationURLMode.addEventListener('change',updateEndpointPreview);
+                generationURLMode=field(connection,'生图 URL 处理',settings.customGenerationURLMode||'auto',()=>{},{options:[['auto','自动补全 NovelAI 路径（推荐）'],['exact','原样使用所填地址（高级）']]});
             }
             const key=field(connection,'API Key','',()=>{},{type:'password'});key.autocomplete='new-password';key.placeholder=custom?'输入完整 Bearer Token（不含 Bearer 前缀）':'输入你的 NovelAI Key';
             if(custom){
-                encodeURLMode=field(connection,'Vibe 在线编码地址',settings.customEncodeURLMode||(settings.customEncodeURL?'manual':'disabled'),()=>{},{options:[['derived','跟随生图地址自动推导（推荐）'],['manual','自定义 URL 或追加路径'],['disabled','禁用在线编码']]});
+                encodeURLMode=field(connection,'Vibe 在线编码地址',settings.customEncodeURLMode||'derived',()=>{},{options:[['derived','跟随生图地址自动推导（推荐）'],['manual','自定义 URL 或追加路径'],['disabled','禁用在线编码']]});
                 encodeURL=field(connection,'Vibe 自定义 URL 或追加路径',settings.customEncodeURL,()=>{});encodeURL.placeholder='完整 URL、/站点根路径或相对追加路径';
-                encodeURLMode.addEventListener('change',updateEndpointPreview);encodeURL.addEventListener('input',updateEndpointPreview);
-                connection.append(node('p','完整 http(s) URL 使用原地址；以 / 开头的路径从站点根目录解析；不以 / 开头的路径追加到生图 API Base。手动和自动编码都使用同一个 API Key。','miao-muted'));
-                encodePreview=field(connection,'实际 Vibe 请求 URL','',()=>{});encodePreview.readOnly=true;encodePreview.onclick=()=>encodePreview.select();
-                encodePreviewHint=node('p',undefined,'miao-muted');connection.append(encodePreviewHint);
                 updateEndpointPreview=()=>{
-                    if(!generationURL||!generationURLMode||!encodeURL||!encodeURLMode)return;
                     encodeURL.closest('.miao-field').hidden=encodeURLMode.value!=='manual';
-                    try{
-                        const resolved=resolveCustomEndpoints({customGenerationURL:generationURL.value,customGenerationURLMode:generationURLMode.value,customEncodeURL:encodeURL.value,customEncodeURLMode:encodeURLMode.value});
-                        generationPreview.value=resolved.generationURL;
-                        encodePreview.value=resolved.encodeURL||'在线编码已禁用';
-                        encodePreviewHint.textContent=resolved.encodeError||(
-                            encodeURLMode.value==='disabled'?'在线编码已禁用；已有编码的 Vibe 仍可正常使用。':
-                            resolved.crossOrigin?`警告：编码请求会将同一 Key 发送到另一站点（${resolved.generationOrigin} → ${resolved.encodeOrigin}），保存时需要确认。`:
-                            encodeURLMode.value==='derived'?'路径仅根据生图地址推导，尚未验证站点支持 /ai/encode-vibe。':'保存后按此地址发送；预览不代表接口测试成功。'
-                        );
-                    }catch(error){generationPreview.value='';encodePreview.value='';encodePreviewHint.textContent=error.message;}
                 };
+                generationURL.addEventListener('input',updateEndpointPreview);
+                generationURLMode.addEventListener('change',updateEndpointPreview);
+                encodeURLMode.addEventListener('change',updateEndpointPreview);
+                encodeURL.addEventListener('input',updateEndpointPreview);
                 updateEndpointPreview();
             }
             const rememberSetting=custom?'rememberCustomKey':'rememberDirectKey';
@@ -384,7 +369,6 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                             const amount=field(grid,'信息提取量',information,v=>information=v,{type:'number'});amount.min='0';amount.max='1';amount.step='0.05';
                             const encode=action(card,settings.naiConnection==='custom'?'在线编码并保存（可能消耗额度）':'编码并保存（2 Anlas）',async()=>{await encodeVibe({id:item.id,model,information});await refresh();});
                             encode.disabled=!onlineEncodingAvailable(settings);
-                            if(encode.disabled)card.append(node('p','自定义连接未配置 Vibe 编码完整 URL，在线编码已禁用；仍可导入已有编码的 Vibe 文件。','miao-muted'));
                         }
                         action(card,'删除 Vibe',async()=>{if(await deleteVibe(item.id))await refresh();});list.append(card);
                     }
