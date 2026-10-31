@@ -193,9 +193,9 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const queue=section(account,'共享 Key 排队');
             account.insertBefore(queue,connection);
             const queueToggle=node('label',undefined,'miao-switch-row'),queueCheck=node('input');queueCheck.type='checkbox';queueCheck.checked=settings.cloudQueue;queueCheck.onchange=()=>{settings.cloudQueue=queueCheck.checked;save();};queueToggle.append(node('span','启用云端排队'),queueCheck);queue.append(queueToggle);
-            queue.append(node('p','仅协调使用同一队列服务地址的 Mewo 请求。官网、其他插件或不同队列的请求不受保护，仍可能发生占线。','miao-muted'));
+            queue.append(node('p','仅协调使用同一队列服务地址的 Meow 请求。官网、其他插件或不同队列的请求不受保护，仍可能发生占线。','miao-muted'));
             field(queue,'队列服务地址',settings.queueUrl,v=>{settings.queueUrl=v.trim();save();}).placeholder='https://miao-image-queue.savlu329.workers.dev';
-            const queueDocs=node('a','自行部署 Mewo 队列服务');queueDocs.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/main/docs/QUEUE.md#cloudflare-workers-部署';queueDocs.target='_blank';queueDocs.rel='noopener noreferrer';queue.append(queueDocs);
+            const queueDocs=node('a','自行部署 Meow 队列服务');queueDocs.href='https://github.com/AYUUKI-K/Meow-Text-to-Image/blob/main/docs/QUEUE.md#cloudflare-workers-部署';queueDocs.target='_blank';queueDocs.rel='noopener noreferrer';queue.append(queueDocs);
             const status=node('p','尚未测试队列连接','miao-muted');queue.append(status);
             action(queue,'测试连接',async()=>{try{validateQueueURL(settings.queueUrl);await queueStatus();status.textContent='队列连接正常';}catch(error){status.textContent='队列连接失败';throw error;}});
         } else if(activeTab==='config') {
@@ -316,7 +316,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const view=createFavoritesView({favorites,profiles:settings.profiles,activeProfileId:p.id,initialDraft:initialFavorite,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,openImage,bindImage,onError});initialFavorite=undefined;body.append(view.element);commitPage=view.commit;
         } else if(activeTab==='vibes') {
             const manage=section(body,'Vibe');
-            const guide=node('a','Vibe 文档');guide.href='https://github.com/AYUUKI-K/Mewo-Text-to-Image/blob/main/docs/VIBE.md';guide.target='_blank';guide.rel='noopener';manage.append(guide);
+            const guide=node('a','Vibe 文档');guide.href='https://github.com/AYUUKI-K/Meow-Text-to-Image/blob/main/docs/VIBE.md';guide.target='_blank';guide.rel='noopener';manage.append(guide);
             const upload=node('input');upload.type='file';upload.accept='.zip,.naiv4vibe,.naiv4vibeBundle,.json,image/png,image/jpeg,image/webp';upload.multiple=true;upload.hidden=true;upload.dataset.miaoVibeImport='true';manage.append(upload);
             const actions=node('div',undefined,'miao-actions');manage.append(actions);
             manage.append(node('p','支持多选文件或导入 ZIP；可勾选多个 Vibe 打包导出。','miao-muted'));

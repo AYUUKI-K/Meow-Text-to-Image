@@ -2,7 +2,7 @@ import {BUNDLED_RESOURCES} from './resources.js';
 import {sha256} from '../platform/browser-crypto.js';
 import {hostFetch} from '../platform/host-fetch.js';
 
-export const RESOURCE_REMOTE_BASE='https://raw.githubusercontent.com/AYUUKI-K/Mewo-Text-to-Image/main/';
+export const RESOURCE_REMOTE_BASE='https://raw.githubusercontent.com/AYUUKI-K/Meow-Text-to-Image/main/';
 export function validateResourceManifest(data){
     const match=typeof data?.worldName==='string'&&data.worldName.match(/^\[喵喵\]文生图 (2\.\d+(?:\.\d+)?)$/);
     if(data?.schema!==1||!Number.isSafeInteger(data.revision)||data.revision<1||!match||typeof data.version!=='string'||data.version.length>40||!data.version.startsWith(match[1]+'-')||!['worldSHA256','regexSHA256'].every(key=>/^[a-f0-9]{64}$/.test(data[key]||'')))throw Error('资源版本信息无效');

@@ -12,7 +12,7 @@ Vibe 生图与普通生成使用同一个自定义生图 URL。在线编码需�
 
 ## TT iOS 的 HTTP 限制与错误诊断
 
-TT 2.4.0 的 TestFlight 构建恢复了 iOS 传输安全限制，WebView 不能像标准 IPA 构建一样放行明文 HTTP。Mewo 自定义接口走外站 `fetch`，不进入 TT 同源原生路由；因此同站点、同 Key 在 ST 成功，不代表在此环境也可访问。请向站方取得有效的 HTTPS 完整端点，手动配置；Mewo 不会自动把 HTTP 改成 HTTPS 或失败后重发。源码依据：[TT 2.4.0 构建流程](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/.github/workflows/stable-release.yml#L443)。浏览器不能读取响应时，仍无法单独排除 CORS、DNS、TLS 或网络问题。
+TT 2.4.0 的 TestFlight 构建恢复了 iOS 传输安全限制，WebView 不能像标准 IPA 构建一样放行明文 HTTP。Meow 自定义接口走外站 `fetch`，不进入 TT 同源原生路由；因此同站点、同 Key 在 ST 成功，不代表在此环境也可访问。请向站方取得有效的 HTTPS 完整端点，手动配置；Meow 不会自动把 HTTP 改成 HTTPS 或失败后重发。源码依据：[TT 2.4.0 构建流程](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/.github/workflows/stable-release.yml#L443)。浏览器不能读取响应时，仍无法单独排除 CORS、DNS、TLS 或网络问题。
 
 自定义接口报错会显示本地诊断码；诊断码不是 HTTP 状态码，没有可读响应时不会虚构 403、502 等站点错误：
 
@@ -26,7 +26,7 @@ TT 2.4.0 的 TestFlight 构建恢复了 iOS 传输安全限制，WebView 不能�
 | `MEWO_NAI_LOCAL_TIMEOUT` | 本地等待超时，服务端结果仍可能未知 |
 | `MEWO_CUSTOM_ABORTED` / `MEWO_CUSTOM_PRE_SEND` | 请求中断 / 发送前任务失效 |
 
-在 TT 设置中启用前端控制台日志捕获后，可在前端日志搜索 `[Mewo NAI]`。记录仅包含诊断码、阶段、HTTP 状态（无响应时为 null）、错误类型、宿主/平台和端点协议，不含完整 URL、Key、请求头、提示词、图片、Vibe 编码、原始异常或堆栈。这些错误记录位于前端日志，不会作为聊天模型请求出现在 LLM API 日志中。是否开启日志捕获由你在 TT 设置中选择。
+在 TT 设置中启用前端控制台日志捕获后，可在前端日志搜索 `[Meow NAI]`。记录仅包含诊断码、阶段、HTTP 状态（无响应时为 null）、错误类型、宿主/平台和端点协议，不含完整 URL、Key、请求头、提示词、图片、Vibe 编码、原始异常或堆栈。这些错误记录位于前端日志，不会作为聊天模型请求出现在 LLM API 日志中。是否开启日志捕获由你在 TT 设置中选择。
 
 
 [返回项目首页](../README.md) · [Vibe 使用说明](VIBE.md) · [云端队列与自部署](QUEUE.md)

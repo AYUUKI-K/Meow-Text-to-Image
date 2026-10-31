@@ -117,7 +117,7 @@ const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,libr
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
 const activeVault=()=>settings.naiConnection==='custom'?customVault:directVault;
-const direct=createDirectClient({settings,save,onDiagnostic:entry=>console.error('[Mewo NAI]',JSON.stringify(entry)),getHeaders:()=>ctx().getRequestHeaders(),getKey:async(expectedKeyHash,connection)=>{
+const direct=createDirectClient({settings,save,onDiagnostic:entry=>console.error('[Meow NAI]',JSON.stringify(entry)),getHeaders:()=>ctx().getRequestHeaders(),getKey:async(expectedKeyHash,connection)=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
     assertConnection(settings,connection);
     const key=await (connection.naiConnection==='custom'?customVault:directVault).get();

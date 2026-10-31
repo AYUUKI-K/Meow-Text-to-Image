@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,existsSync,mkdtempSync,cpSync,rmSync} from 'node:fs';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {resolve,relative,dirname,join} from 'node:path';
+import {resolve,relative,dirname,join,posix} from 'node:path';
 import {tmpdir} from 'node:os';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -21,7 +21,7 @@ test('extension entry resolves every local module and keeps host imports at the 
             if(local.startsWith('..')){
                 // The extension is installed under /scripts/extensions/third-party/<name>/.
                 const browserURL=new URL(specifier,new URL(relative(root,file),'https://host.invalid/scripts/extensions/third-party/mewo/'));
-                assert.ok(allowedHost.has(relative('/scripts',browserURL.pathname)),browserURL.pathname);
+                assert.ok(allowedHost.has(posix.relative('/scripts',browserURL.pathname)),browserURL.pathname);
             }else{
                 assert.ok(existsSync(target),`missing ${local}`);walk(target);
             }

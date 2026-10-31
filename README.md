@@ -20,7 +20,7 @@
 在酒馆的扩展管理中安装本仓库：
 
 ```text
-https://github.com/AYUUKI-K/Mewo-Text-to-Image
+https://github.com/AYUUKI-K/Meow-Text-to-Image
 ```
 
 安装或更新后刷新酒馆页面，已打开的页面需要完整刷新才能载入新脚本。

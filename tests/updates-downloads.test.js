@@ -1,14 +1,14 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createExtensionUpdater} from '../src/platform/updates.js';
 import {downloadImageSelection} from '../src/images/downloads.js';
-test('update checks cache and only update this installed extension in its own scope',async()=>{
+for(const folder of ['Mewo-Text-to-Image','Meow-Text-to-Image'])test(`update checks cache and only update the installed ${folder} in its own scope`,async()=>{
     const calls=[];
-    const updater=createExtensionUpdater({moduleURL:'https://tavern/scripts/extensions/third-party/Mewo-Text-to-Image/index.js',getGlobal:name=>name==='third-party/Mewo-Text-to-Image',getHeaders:()=>({'X-CSRF-Token':'test'}),fetchImpl:async(url,options)=>{calls.push({url,...JSON.parse(options.body)});return Response.json({isUpToDate:false});}});
+    const updater=createExtensionUpdater({moduleURL:`https://tavern/scripts/extensions/third-party/${folder}/index.js`,getGlobal:name=>name==='third-party/'+folder,getHeaders:()=>({'X-CSRF-Token':'test'}),fetchImpl:async(url,options)=>{calls.push({url,...JSON.parse(options.body)});return Response.json({isUpToDate:false});}});
     await Promise.all([updater.check(),updater.check()]);await updater.check();assert.equal(calls.length,1);
     await updater.check(true);assert.equal(calls.length,2);
     await updater.install();assert.equal((await updater.check()).needsReload,true);assert.equal(calls.length,4);
     assert.deepEqual(calls.map(c=>c.url),['/api/extensions/version','/api/extensions/version','/api/extensions/update','/api/extensions/version']);
-    for(const call of calls){assert.equal(call.extensionName,'Mewo-Text-to-Image');assert.equal(call.global,true);}
+    for(const call of calls){assert.equal(call.extensionName,folder);assert.equal(call.global,true);}
     assert.throws(()=>createExtensionUpdater({moduleURL:'https://example.com/index.js'}),/安装目录/);
 });
 test('failed update remains an error and never pretends it was installed',async()=>{

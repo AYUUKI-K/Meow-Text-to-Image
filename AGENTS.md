@@ -1,4 +1,4 @@
-# Mewo-Text-to-Image 协作约定
+# Meow-Text-to-Image 协作约定
 
 本文件供所有维护者及其编码 Agent 共同使用。项目是 SillyTavern 前端扩展，基本功能也适配 TauriTavern。
 

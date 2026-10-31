@@ -1,6 +1,6 @@
-# Mewo 云端队列自部署指南
+# Meow 云端队列自部署指南
 
-云端队列用于协调使用同一把 API Key 的 Mewo 生图任务，让它们依次获得发送许可。它只负责排队，**不生成图片，也不转发生图请求**。
+云端队列用于协调使用同一把 API Key 的 Meow 生图任务，让它们依次获得发送许可。它只负责排队，**不生成图片，也不转发生图请求**。
 
 如果只是使用别人已经部署好的队列，可以直接跳到[在插件中填写地址](#在插件中填写地址)。需要自己部署时，按下面的 Cloudflare Workers 步骤操作。
 
@@ -19,8 +19,8 @@
 打开终端，执行：
 
 ```sh
-git clone --branch main --single-branch https://github.com/AYUUKI-K/Mewo-Text-to-Image.git
-cd Mewo-Text-to-Image
+git clone --branch main --single-branch https://github.com/AYUUKI-K/Meow-Text-to-Image.git
+cd Meow-Text-to-Image
 ```
 
 本指南使用 `main` 分支。后续更新插件与队列时，请使用相互兼容的版本。
@@ -58,7 +58,7 @@ npx wrangler deploy --config wrangler.jsonc
 https://miao-image-queue.<你的子域名>.workers.dev
 ```
 
-记下这个 **HTTPS 根地址**，后面要填入 Mewo。这里是你自己账号下的地址，不是仓库作者的公共服务地址。
+记下这个 **HTTPS 根地址**，后面要填入 Meow。这里是你自己账号下的地址，不是仓库作者的公共服务地址。
 
 如果使用 Cloudflare 的 Git 仓库集成，请连接你有权限使用的仓库副本，选择对应分支，将项目根目录设为仓库根目录，部署命令填写 `npx wrangler deploy --config wrangler.jsonc`。不要只复制 `worker.js` 到网页编辑器；它还依赖仓库里的队列与协议模块。
 
@@ -93,7 +93,7 @@ https://miao-image-queue.<你的子域名>.workers.dev/ping
 
 ## 在插件中填写地址
 
-1. 打开 Mewo 的「生成」页，先配置并保存当前使用的官方 NovelAI 或自定义连接凭证。
+1. 打开 Meow 的「生成」页，先配置并保存当前使用的官方 NovelAI 或自定义连接凭证。
 2. 在「共享 Key 排队」中，将「队列服务地址」改为你部署得到的 **HTTPS 根地址**。不要追加 `/ping`、`/relay` 或生图路径，也不要填写带查询参数的地址。
 3. 点击该区域的「测试连接」，确认显示「连接正常」。
 4. 确认「启用云端排队」已勾选，并保存设置。新安装默认开启，已有用户保留原选择。
@@ -107,7 +107,7 @@ https://miao-image-queue.<你的子域名>.workers.dev/ping
 
 同一把 Key 的使用者应填写**同一个队列地址**。不同队列服务之间不会共享排队状态；同一个服务可以处理多把 Key，无需为每把 Key 单独部署。
 
-更换 Key 后，请在 Mewo 中重新保存凭证。已经排队的任务固定使用提交时的连接信息；切换连接或修改地址、凭证后，旧任务可能取消，需要重新提交。
+更换 Key 后，请在 Meow 中重新保存凭证。已经排队的任务固定使用提交时的连接信息；切换连接或修改地址、凭证后，旧任务可能取消，需要重新提交。
 
 「实际测试生图」会调用生图接口，可能消耗额度；它与队列区域的「测试连接」是两个不同操作。
 
@@ -187,8 +187,8 @@ node queue-service/service.mjs
 在仓库根目录执行：
 
 ```sh
-docker build -f Dockerfile.queue -t mewo-queue .
-docker run -d --name mewo-queue -p 7860:7860 mewo-queue
+docker build -f Dockerfile.queue -t meow-queue .
+docker run -d --name meow-queue -p 7860:7860 meow-queue
 ```
 
 本机检查地址仍为 `http://127.0.0.1:7860/ping`。对外使用时，由部署平台或反向代理提供 HTTPS，并转发到容器的 7860 端口。不要启动多个互不共享状态的队列容器来承接同一个服务地址。
