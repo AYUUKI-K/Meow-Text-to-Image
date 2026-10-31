@@ -85,10 +85,7 @@ export function maskReasoning(text, configured={}) {
     let value=String(text??'');
     // Instructions in comments can mention an opening reasoning tag literally.
     value=value.replace(/<!--[\s\S]*?(?:-->|$)/g,match=>match.replace(/[^\r\n]/g,' '));
-    const pairs=[['<think>','</think>'],['<thinking>','</thinking>'],['<analysis>','</analysis>'],['<reasoning>','</reasoning>'],['<imgthink>','</imgthink>'],['<imagethink>','</imagethink>']];
-    if(configured.prefix?.trim())pairs.unshift([configured.prefix,configured.suffix||'']);
-    const ranges=[];
-    for(const [prefix,suffix] of pairs){
+    const maskPair=(prefix,suffix)=>{
         let cursor=0;
         while(cursor<value.length){
             const start=value.indexOf(prefix,cursor);if(start<0)break;
@@ -102,10 +99,17 @@ export function maskReasoning(text, configured={}) {
                     else{position=close+suffix.length;if(--depth===0){end=position;break;}}
                 }
             }
-            ranges.push([start,end]);cursor=end;
+            value=value.slice(0,start)+value.slice(start,end).replace(/[^\r\n]/g,' ')+value.slice(end);
+            cursor=end;
         }
-    }
-    for(const [start,end] of ranges)value=value.slice(0,start)+value.slice(start,end).replace(/[^\r\n]/g,' ')+value.slice(end);
+    };
+    // Mask outer reasoning first so tags inside it cannot open a second range.
+    const outerPairs=[['<think>','</think>'],['<thinking>','</thinking>'],['<analysis>','</analysis>'],['<reasoning>','</reasoning>']];
+    if(configured.prefix?.trim())outerPairs.unshift([configured.prefix,configured.suffix||'']);
+    for(const [prefix,suffix] of outerPairs)maskPair(prefix,suffix);
+    // imgthink tags are reasoning too, but only when they remain visible.
+    maskPair('<imgthink>','</imgthink>');
+    maskPair('<imagethink>','</imagethink>');
     return value;
 }
 export function pageItems(items,page=0,size=24){

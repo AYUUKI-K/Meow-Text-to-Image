@@ -15,6 +15,22 @@ test('nested and repeated reasoning blocks are excluded and separate extra reaso
  assert.deepEqual(parseBlocks(maskReasoning(text)).map(b=>b.prompt),['good']);
  assert.equal(maskReasoning('plain').length,5);
 });
+test('an imgthink inside a closed outer reasoning block cannot mask body tags',()=>{
+ const text='<thinking>正文需要插入 5 张图 <imgthink>未闭合内容</thinking><content><imgthink>构思一</imgthink>image###one###<imgthink>构思二</imgthink>image###two###<imgthink>构思三</imgthink>image###three###<imgthink>构思四</imgthink>image###four###<imgthink>构思五</imgthink>image###five###</content>';
+ const masked=maskReasoning(text);
+ assert.equal(masked.length,text.length);
+ assert.deepEqual(parseBodyBlocks(text).map(b=>b.prompt),['one','two','three','four','five']);
+ assert.deepEqual(parseBodyBlocks(text).map(b=>b.start),['one','two','three','four','five'].map(prompt=>text.indexOf(`image###${prompt}`)));
+});
+test('unclosed imgthink outside outer reasoning remains masked through end of text',()=>{
+ assert.deepEqual(parseBodyBlocks('正文 <imgthink>image###must_not_leak###').map(b=>b.prompt),[]);
+ assert.deepEqual(parseBodyBlocks('<imgthink>隐藏</imgthink>image###visible###').map(b=>b.prompt),['visible']);
+});
+test('nested imgthink, analysis and custom reasoning preserve only outside body tags',()=>{
+ const format={prefix:'<star_cot>',suffix:'</star_cot>'};
+ const text='<analysis><imgthink>异常</analysis>image###a###<star_cot><imgthink>异常</star_cot>image###b###<!-- <imgthink> -->image###c###';
+ assert.deepEqual(parseBodyBlocks(text,undefined,format).map(b=>b.prompt),['a','b','c']);
+});
 test('body cards retain existing image identities after reasoning exclusion',()=>{
  const text='<think>image###draft###</think>image###same### image###same###';
  assert.deepEqual(parseBodyBlocks(text).map(b=>[b.index,b.prompt]),[[1,'same'],[2,'same']]);
