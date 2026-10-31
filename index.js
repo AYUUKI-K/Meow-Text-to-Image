@@ -74,7 +74,7 @@ delete settings.libraryView;
 settings.samplePrompt??=SAMPLE_PROMPT;
 settings.profiles=settings.profiles.map(normalizeProfile);
 const generationOptionsMigrated=migrateGenerationOptions(settings,{newInstallation});
-const connectionMigrated=migrateConnection(settings);
+const connectionMigrated=migrateConnection(settings,{newInstallation});
 settings.floatingReroll ??= false;
 settings.floatingIconType=settings.floatingIconType==='fontawesome'?'fontawesome':'default';
 if(!validFontAwesomeIcon(settings.floatingIcon))settings.floatingIcon={...defaultFontAwesomeIcon};
@@ -156,12 +156,12 @@ async function errorPopup(error,{detail=false}={}) {
     try{return await pending;}finally{errorDialogs.delete(summary);}
 }
 const guard=fn=>(...args)=>Promise.resolve().then(()=>fn(...args)).catch(errorPopup);
-async function confirmSettings(question,title='确认删除',{parent}={}){
+async function confirmSettings(question,title='确认删除',{parent,confirmLabel='删除'}={}){
     if(pendingSettingsConfirm)return false;
     if(!isTT()){
         const content=el('div');content.append(el('h3',title));
         if(typeof question==='string')content.append(el('p',question));else content.append(question);
-        const pending=showPopup(content,POPUP_TYPE.CONFIRM,'',{okButton:'删除',cancelButton:'取消'});
+        const pending=showPopup(content,POPUP_TYPE.CONFIRM,'',{okButton:confirmLabel,cancelButton:'取消'});
         pendingSettingsConfirm=()=>{};
         try{return (await pending)===1;}finally{pendingSettingsConfirm=null;}
     }
@@ -183,7 +183,7 @@ async function confirmSettings(question,title='确认删除',{parent}={}){
     const message=el('div',undefined,'miao-confirmation-message');message.id='miao-confirmation-message';
     if(typeof question==='string')message.textContent=question;else message.append(question);
     card.setAttribute('aria-describedby',message.id);card.append(message);
-    const actions=el('div',undefined,'miao-confirmation-actions'),cancel=el('button','取消','miao-button'),confirm=el('button','删除','miao-button miao-danger');
+    const actions=el('div',undefined,'miao-confirmation-actions'),cancel=el('button','取消','miao-button'),confirm=el('button',confirmLabel,'miao-button miao-danger');
     cancel.type=confirm.type='button';cancel.dataset.action='cancel';confirm.dataset.action='confirm';actions.append(cancel,confirm);card.append(actions);layer.append(card);
     const previousFocus=document.activeElement,wasInert=content.inert;content.inert=true;dialog.dataset.miaoConfirming='true';body.append(layer);
     return new Promise((resolve,reject)=>{
@@ -975,6 +975,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
     if(!['resources','favorites'].includes(initialTab))initialTab=undefined;
     if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,initialFavorite,favorites,saveFavorite,generateFavorite,sceneFromImage,
+        confirmCustomVibeOrigin:({generationOrigin,encodeOrigin})=>confirmSettings(`在线编码将使用同一个 API Key。生图站点：${generationOrigin}\n编码站点：${encodeOrigin}\n只有在你信任该编码站点时才继续保存。`,'确认跨站点 Vibe 编码',{confirmLabel:'确认并保存'}),
         removeFavorite:async id=>{if(!await confirmSettings('删除这条收藏？图片文件会保留。','删除收藏'))return false;await favorites.remove(id);return true;},
         collectImage:url=>openSettings('favorites',draftFromImage(url)),buildThumbnails,
         getResourceStatus:()=>resourceUpdater.snapshot(),checkResources:force=>resourceUpdater.check(force),theme:resolvedTheme,onTheme:applyTheme,onError:errorPopup,

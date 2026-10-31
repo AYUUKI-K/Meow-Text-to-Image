@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDirectClient,naiPayload} from '../src/novelai/direct-client.js';
-import {migrateConnection,connectionSnapshot,assertConnection,usesDirectGeneration,validateEndpoint,saveCustomConnection,onlineEncodingAvailable} from '../src/novelai/nai-connection.js';
+import {migrateConnection,connectionSnapshot,assertConnection,usesDirectGeneration,validateEndpoint,resolveCustomEndpoints,saveCustomConnection,onlineEncodingAvailable} from '../src/novelai/nai-connection.js';
 import {parseNAIImage,unzipNAIPNG} from '../src/novelai/nai-response.js';
 import {generationOptions,runGenerationTask} from '../src/generation/generation-options.js';
 import {prepareGeneration,sendPrepared} from '../src/generation/generation-lifecycle.js';
@@ -18,9 +18,9 @@ const key='custom-token.with-full.suffix',prompt='private prompt with\nnew line'
 const id='12345678-1234-1234-1234-123456789abc';
 const raw={id,name:'fixture',image:'cHJpdmF0ZS1pbWFnZQ==',encodings:{'v4-5full':{fixture:{encoding,params:{information_extracted:1}}}}};
 const request=()=>({...buildRequest({...defaults,model:'nai-diffusion-4-5-full'},prompt),negative_prompt:negative,vibes:[]});
-function fixture({url='https://relay.invalid/image/custom?route=%2Fraw',reply=()=>new Response(png),settings:overrides={}}={}){
+function fixture({url='https://relay.invalid/image/custom?route=%2Fraw',reply=()=>new Response(png),settings:overrides={},onDiagnostic=()=>{}}={}){
     const settings={naiConnection:'custom',customGenerationURL:url,customEncodeURL:'https://encode.invalid/independent',customKeyHash:'custom-hash',keyHash:'official-hash',vibeLibrary:[{id}],...overrides},calls=[];
-    const client=createDirectClient({settings,save(){},getHeaders:()=>({'X-ST':'host-only'}),getKey:async(expected,connection)=>{if(expected)assert.equal(expected,connection.keyHash);return connection.naiConnection==='custom'?key:'official-token';},unzipPNG:async bytes=>{assert.deepEqual(Buffer.from(bytes),zip);return png.toString('base64');},fetchImpl:async(url,options={})=>{
+    const client=createDirectClient({settings,save(){},getHeaders:()=>({'X-ST':'host-only'}),getKey:async(expected,connection)=>{if(expected)assert.equal(expected,connection.keyHash);return connection.naiConnection==='custom'?key:'official-token';},unzipPNG:async bytes=>{assert.deepEqual(Buffer.from(bytes),zip);return png.toString('base64');},onDiagnostic,fetchImpl:async(url,options={})=>{
         calls.push({url,options});
         if(url.startsWith('/user/files/'))return Response.json(raw);
         if(url==='/api/files/upload')return Response.json({path:'/user/files/'+JSON.parse(options.body).name});
@@ -35,6 +35,46 @@ test('old settings migrate to official without touching original credentials or 
     assert.equal(settings.keyHash,'official-existing');assert.equal(settings.rememberDirectKey,true);
     assert.equal(settings.enabled,true);assert.equal(settings.autoRetryEnabled,true);assert.equal(settings.cloudQueue,true);
     assert.equal(migrateConnection(settings),false);
+});
+
+test('custom endpoint migration preserves legacy URLs and distinguishes them from empty initialized fields',()=>{
+    const legacy={naiConnection:'custom',customGenerationURL:'https://relay.invalid/special/%2f?x=1',customEncodeURL:'https://encode.invalid/vibe?route=old',customKeyHash:'old-hash'};
+    assert.equal(migrateConnection(legacy),true);assert.equal(legacy.customGenerationURLMode,'exact');assert.equal(legacy.customEncodeURLMode,'manual');
+    assert.equal(resolveCustomEndpoints(legacy).generationURL,legacy.customGenerationURL);assert.equal(resolveCustomEndpoints(legacy).encodeURL,legacy.customEncodeURL);
+    assert.equal(migrateConnection(legacy),false);assert.equal(legacy.customGenerationURLMode,'exact');
+    const legacyDisabled={naiConnection:'custom',customGenerationURL:'https://relay.invalid/ai/generate-image',customEncodeURL:'',customKeyHash:'old-hash'};
+    migrateConnection(legacyDisabled);assert.equal(legacyDisabled.customGenerationURLMode,'exact');assert.equal(legacyDisabled.customEncodeURLMode,'disabled');
+    const newConnection={};migrateConnection(newConnection,{newInstallation:true});assert.equal(newConnection.customGenerationURLMode,'auto');assert.equal(newConnection.customEncodeURLMode,'derived');
+    const oldEmptyFields={naiConnection:'official',customGenerationURL:'',customEncodeURL:'',customKeyHash:''};migrateConnection(oldEmptyFields);assert.equal(oldEmptyFields.customGenerationURLMode,'auto');assert.equal(oldEmptyFields.customEncodeURLMode,'derived');
+});
+
+test('custom URL resolver covers base URLs, existing routes, exact paths and manual Vibe routes',()=>{
+    const cases=[
+        ['https://nai.pkppkq.bond/','https://nai.pkppkq.bond/ai/generate-image','https://nai.pkppkq.bond/ai/encode-vibe'],
+        ['https://nai.pkppkq.bond/v1','https://nai.pkppkq.bond/v1/ai/generate-image','https://nai.pkppkq.bond/v1/ai/encode-vibe'],
+        ['https://nai.pkppkq.bond/v1/ai/generate-image///','https://nai.pkppkq.bond/v1/ai/generate-image','https://nai.pkppkq.bond/v1/ai/encode-vibe'],
+        ['http://chami.yyqzx.com/image/chami','http://chami.yyqzx.com/image/chami/ai/generate-image','http://chami.yyqzx.com/image/chami/ai/encode-vibe'],
+    ];
+    for(const [input,generation,encode] of cases){
+        const resolved=resolveCustomEndpoints({customGenerationURL:input,customGenerationURLMode:'auto',customEncodeURLMode:'derived'});
+        assert.equal(resolved.generationURL,generation);assert.equal(resolved.encodeURL,encode);assert.equal(resolved.encodeEnabled,true);
+        assert.doesNotMatch(resolved.generationURL,/\/ai\/ai\//);assert.doesNotMatch(resolved.encodeURL,/generate-image\/ai\/encode-vibe/);
+    }
+    const exact=resolveCustomEndpoints({customGenerationURL:'http://chami.yyqzx.com/image/chami',customGenerationURLMode:'exact',customEncodeURLMode:'derived'});
+    assert.equal(exact.generationURL,'http://chami.yyqzx.com/image/chami');assert.equal(exact.encodeURL,'http://chami.yyqzx.com/image/chami/ai/encode-vibe');
+    const relative=resolveCustomEndpoints({customGenerationURL:'https://relay.invalid/v1/ai/generate-image',customGenerationURLMode:'exact',customEncodeURL:'vendor/encode?mode=v2',customEncodeURLMode:'manual'});
+    assert.equal(relative.encodeURL,'https://relay.invalid/v1/vendor/encode?mode=v2');
+    const rootPath=resolveCustomEndpoints({customGenerationURL:'https://relay.invalid/v1/ai/generate-image',customGenerationURLMode:'exact',customEncodeURL:'/custom/encode',customEncodeURLMode:'manual'});
+    assert.equal(rootPath.encodeURL,'https://relay.invalid/custom/encode');
+    const absolute=resolveCustomEndpoints({customGenerationURL:'https://relay.invalid/v1/ai/generate-image',customGenerationURLMode:'exact',customEncodeURL:'https://other.invalid/encode?key=manual',customEncodeURLMode:'manual'});
+    assert.equal(absolute.encodeURL,'https://other.invalid/encode?key=manual');assert.equal(absolute.crossOrigin,true);
+});
+
+test('custom URL resolver preserves generation query semantics and blocks ambiguous derived encoding',()=>{
+    const resolved=resolveCustomEndpoints({customGenerationURL:'https://relay.invalid/v1?route=%2Fimage&key=private',customGenerationURLMode:'auto',customEncodeURLMode:'derived'});
+    assert.equal(resolved.generationURL,'https://relay.invalid/v1/ai/generate-image?route=%2Fimage&key=private');
+    assert.equal(resolved.encodeURL,'https://relay.invalid/v1/ai/encode-vibe');assert.equal(resolved.encodeEnabled,false);assert.match(resolved.encodeError,/查询参数.*手动/);
+    for(const bad of ['https://relay.invalid/path%zz','https://relay.invalid/path#fragment','https://user:pass@relay.invalid/path'])assert.throws(()=>resolveCustomEndpoints({customGenerationURL:bad,customGenerationURLMode:'auto',customEncodeURLMode:'derived'}),/HTTP\/HTTPS|百分号|fragment/);
 });
 
 test('endpoint validation accepts arbitrary full HTTP(S) paths exactly, rejects credentials and other schemes',()=>{
@@ -114,7 +154,7 @@ test('generic 403 and unknown 502 do not guess parameter limits or change/retry 
 test('missing encoding endpoint blocks online encoding before any I/O; import/export of existing Vibes remains available',async()=>{
     const {client,settings,calls}=fixture({settings:{customEncodeURL:''}});
     assert.equal(onlineEncodingAvailable(settings),false);
-    await assert.rejects(client.encode({id,model:'nai-diffusion-4-5-full',information:.5}),/未配置 Vibe 编码/);assert.equal(calls.length,0);
+    await assert.rejects(client.encode({id,model:'nai-diffusion-4-5-full',information:.5}),/禁用在线 Vibe 编码/);assert.equal(calls.length,0);
     const [item]=await client.import({data:raw});assert.ok(item.id);
     const exported=await client.export([id]);assert.equal(exported.length,1);
     assert.equal(JSON.stringify(exported).includes(key),false);assert.equal(JSON.stringify(settings).includes(key),false);
@@ -132,8 +172,32 @@ test('custom encoding uses the independent exact URL and custom token, preservin
     assert.equal(calls.filter(c=>c.url==='/api/files/upload').some(c=>c.options.body.includes(key)),false);
 });
 
+test('new custom routes send generation and Vibe encoding to the snapshotted derived endpoints',async()=>{
+    const {client,calls,settings}=fixture({url:'https://relay.invalid/v1/',reply:url=>url.includes('/generate-image')?new Response(png):new Response('encoded fixture'),settings:{customGenerationURLMode:'auto',customEncodeURL:'',customEncodeURLMode:'derived'}});
+    const connection=connectionSnapshot(settings);
+    assert.equal(connection.resolvedGenerationURL,'https://relay.invalid/v1/ai/generate-image');
+    assert.equal(connection.resolvedEncodeURL,'https://relay.invalid/v1/ai/encode-vibe');
+    await client.generate(request(),{connection});
+    await client.encode({id,model:'nai-diffusion-4-5-full',information:.5},{connection});
+    const generation=calls.find(call=>call.url===connection.resolvedGenerationURL),encode=calls.find(call=>call.url===connection.resolvedEncodeURL);
+    assert.ok(generation);assert.ok(encode);assert.equal(generation.options.headers.Authorization,'Bearer '+key);assert.equal(encode.options.headers.Authorization,'Bearer '+key);
+    assert.equal(generation.options.headers['Content-Type'],'application/json');assert.equal(encode.options.headers['Content-Type'],'application/json');
+    assert.equal(generation.options.credentials,'omit');assert.equal(encode.options.credentials,'omit');assert.equal(generation.options.redirect,'error');assert.equal(encode.options.redirect,'error');
+    assert.deepEqual(JSON.parse(encode.options.body),{image:raw.image,model:'nai-diffusion-4-5-full',information_extracted:.5});
+    assert.equal(calls.some(call=>call.url.includes('novelai.net')),false);
+});
+
+test('ambiguous derived Vibe routes and disabled encoding never send a POST',async()=>{
+    for(const customEncodeURLMode of ['derived','disabled']){
+        const {client,calls}=fixture({url:'https://relay.invalid/v1?tenant=test',settings:{customGenerationURLMode:'auto',customEncodeURL:'',customEncodeURLMode}});
+        assert.equal(onlineEncodingAvailable({naiConnection:'custom',customGenerationURL:'https://relay.invalid/v1?tenant=test',customGenerationURLMode:'auto',customEncodeURLMode}),false);
+        await assert.rejects(client.encode({id,model:'nai-diffusion-4-5-full',information:.5}),/查询参数|禁用在线/);
+        assert.equal(calls.filter(call=>String(call.options.method).toUpperCase()==='POST'&&!call.url.startsWith('/api/')).length,0);
+    }
+});
+
 test('prepared/local queued tasks reject changed connection, either URL, credential, or switch-away-and-back before send',async()=>{
-    for(const change of [s=>s.naiConnection='official',s=>s.customGenerationURL+='2',s=>s.customEncodeURL+='2',s=>s.customKeyHash='changed',s=>{s.naiConnection='official';s.connectionRevision=1;s.naiConnection='custom';s.connectionRevision=2;}]){
+    for(const change of [s=>s.naiConnection='official',s=>s.customGenerationURL+='2',s=>s.customEncodeURL+='2',s=>s.customGenerationURLMode='auto',s=>s.customEncodeURLMode='disabled',s=>s.customKeyHash='changed',s=>{s.naiConnection='official';s.connectionRevision=1;s.naiConnection='custom';s.connectionRevision=2;}]){
         const {client,settings,calls}=fixture(),snapshot=generationOptions(settings),valid=()=>{assertConnection(settings,snapshot);return true;};
         const prepared=await prepareGeneration(()=>client.prepareGenerate(request(),{connection:snapshot}),{canContinue:valid});
         change(settings);
@@ -155,7 +219,7 @@ test('custom generation uses existing cloud lease, wait, retry and release with 
     }});
     assert.equal(image,png.toString('base64'));assert.equal(posts,2);assert.deepEqual(events,['wait','send','wait','send']);assert.equal(q.stats().active,0);
     assert.equal(scope.keyHash,await fingerprintKey(key));assert.notEqual(scope.keyHash,settings.keyHash);
-    const serialized=JSON.stringify(rpc);for(const secret of [key,prompt,negative,settings.customGenerationURL,settings.customEncodeURL])assert.equal(serialized.includes(secret),false);
+    const serialized=JSON.stringify(rpc);for(const secret of [key,prompt,negative,settings.customGenerationURL,settings.customEncodeURL,scope.resolvedGenerationURL,scope.resolvedEncodeURL])assert.equal(serialized.includes(secret),false);
     assert.equal(calls.length,2);
 });
 
@@ -184,12 +248,28 @@ test('CORS/mixed content failures explain browser restrictions without retrying 
     assert.equal(calls.length,1);
 });
 
+test('query credentials in custom endpoint URLs never enter request diagnostics or errors',async()=>{
+    const marker='query-secret-marker',diagnostics=[],{client}=fixture({url:`https://relay.invalid/image/custom?token=${marker}`,reply:()=>{throw new TypeError(`Failed to fetch https://relay.invalid/image/custom?token=${marker}`);},onDiagnostic:entry=>diagnostics.push(entry)});
+    await assert.rejects(client.generate(request()),error=>{assert.equal(error.message.includes(marker),false);return true;});
+    assert.equal(JSON.stringify(diagnostics).includes(marker),false);assert.equal(diagnostics.length,1);assert.equal(diagnostics[0].endpointProtocol,'https');
+});
+
 test('saving validates locally, keeps only endpoints/hash and excludes token from profile exports',async()=>{
     let saved=0;const settings={keyHash:'official-existing',rememberDirectKey:true,rememberCustomKey:false},values=[],vault={set:async(...args)=>values.push(args),get:async()=>''};
     const save=()=>saved++;
     await saveCustomConnection({settings,vault,input:key,generationURL:'http://relay.invalid/custom',fingerprint:fingerprintKey,save});
     assert.deepEqual(values,[[key,false]]);assert.equal(saved,1);assert.equal(settings.keyHash,'official-existing');assert.equal(settings.rememberDirectKey,true);
-    assert.equal(settings.customKeyHash,await fingerprintKey(key));assert.equal(settings.customEncodeURL,'');
+    assert.equal(settings.customKeyHash,await fingerprintKey(key));assert.equal(settings.customEncodeURL,'');assert.equal(settings.customGenerationURLMode,'auto');assert.equal(settings.customEncodeURLMode,'derived');
     assert.equal(JSON.stringify(settings).includes(key),false);assert.equal(JSON.stringify(promptFileData({...defaults,...settings})).includes(key),false);
     await assert.rejects(saveCustomConnection({settings,vault,input:key,generationURL:'ftp://relay.invalid',fingerprint:fingerprintKey,save}),/HTTP\/HTTPS/);assert.equal(values.length,1);
+});
+
+test('cross-origin manual Vibe endpoint requires explicit confirmation before saving the shared Key',async()=>{
+    const settings={},values=[],vault={set:async(...args)=>values.push(args),get:async()=>''},save=()=>{};
+    const valuesToSave={settings,vault,input:key,generationURL:'https://relay.invalid/v1',generationURLMode:'auto',encodeURL:'https://other.invalid/encode?token=private',encodeURLMode:'manual',fingerprint:fingerprintKey,save};
+    await assert.rejects(saveCustomConnection(valuesToSave),/需要确认.*另一站点/);assert.equal(values.length,0);assert.equal(settings.customGenerationURL,undefined);
+    let confirmation;
+    await saveCustomConnection({...valuesToSave,confirmCrossOrigin:async origins=>{confirmation=origins;return true;}});
+    assert.deepEqual(confirmation,{generationOrigin:'https://relay.invalid',encodeOrigin:'https://other.invalid'});
+    assert.equal(values.length,1);assert.equal(settings.customEncodeURL,'https://other.invalid/encode?token=private');assert.equal(settings.customEncodeURLMode,'manual');
 });

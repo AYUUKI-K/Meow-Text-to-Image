@@ -6,7 +6,7 @@ import {randomId} from '../platform/browser-crypto.js';
 import {hostFetch} from '../platform/host-fetch.js';
 import {checkedFetch,stageError,redactErrorText} from '../platform/request-errors.js';
 import {varietyBoostSigma} from '../core/core.js';
-import {connectionSnapshot,assertConnection,validateEndpoint} from './nai-connection.js';
+import {connectionSnapshot,assertConnection} from './nai-connection.js';
 import {parseNAIImage,payloadSecrets,requestSummary} from './nai-response.js';
 
 export function base64Bytes(bytes){let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(binary);}
@@ -36,7 +36,10 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
     const prepareNAI=async(endpoint,body,{expectedKeyHash,connection=connectionSnapshot(settings),summary=''}={})=>{
         connection={...connection};assertConnection(settings,connection);
         const custom=connection.naiConnection==='custom';
-        const url=custom?validateEndpoint(endpoint==='encode-vibe'?connection.customEncodeURL:connection.customGenerationURL,{label:endpoint==='encode-vibe'?'Vibe 编码完整 URL':'生图完整 URL'}):'https://image.novelai.net/ai/'+endpoint;
+        if(custom&&connection.endpointError)throw Error(connection.endpointError);
+        if(custom&&endpoint==='encode-vibe'&&!connection.encodeEnabled)throw Error(connection.encodeError||'自定义接口已禁用在线 Vibe 编码；仍可导入和使用已有编码的 Vibe 文件');
+        const url=custom?(endpoint==='encode-vibe'?connection.resolvedEncodeURL:connection.resolvedGenerationURL):'https://image.novelai.net/ai/'+endpoint;
+        if(custom&&!url)throw Error(endpoint==='encode-vibe'?'自定义接口未配置有效的 Vibe 编码地址':'请先设置有效的自定义生图 URL');
         const key=await getKey(expectedKeyHash,connection);if(!key)throw Error('请先在「生成」页重新填写并保存当前连接的 API Key，用于当前浏览器直连');
         const source=endpoint==='encode-vibe'?'nai-encode':'nai-generation',serialized=JSON.stringify(body);
         const secrets=[key,...payloadSecrets(body)];
@@ -64,7 +67,7 @@ export function createDirectClient({settings,save,getHeaders,getKey,unzipPNG,fet
     const prepareEncode=async({id,model,information},scope={})=>{
         const connection=scope.connection||connectionSnapshot(settings);
         assertConnection(settings,connection);
-        if(connection.naiConnection==='custom'&&!connection.customEncodeURL)throw Error('自定义接口未配置 Vibe 编码完整 URL，无法在线编码；仍可导入已有编码的 Vibe 文件');
+        if(connection.naiConnection==='custom'&&!connection.encodeEnabled)throw Error(connection.endpointError||connection.encodeError||'自定义接口已禁用在线 Vibe 编码；仍可导入和使用已有编码的 Vibe 文件');
         information=Number(information);const modelKey=vibeModelKeys[model];
         if(!modelKey||!Number.isFinite(information)||information<0||information>1)throw Error('请选择 V4/V4.5 模型，信息提取量为 0～1');
         const item=await read(id),key='miao-'+information;
