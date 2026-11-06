@@ -2286,5 +2286,27 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-batch-export .miao-button {min-height: 44px;}
 .miao-image-viewer:has(>img[data-miao-export-state=loading])::before {content: '正在准备 JPG…'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--mi-muted); font-size: 14px; pointer-events: none;}
 
-.miao-error-view {text-align: start; overflow-wrap: anywhere;}
-.miao-error-view pre {white-space: pre-wrap; max-height: 45dvh; overflow: auto;}
+.miao-error-view {display:flex;flex-direction:column;align-items:stretch;gap:12px;width:100%;min-width:0;max-width:100%;box-sizing:border-box;text-align:start;overflow-wrap:anywhere;writing-mode:horizontal-tb;}
+.miao-error-view h3,.miao-error-view p {margin:0;min-width:0;}
+.miao-error-code {display:block;max-width:100%;padding:8px 10px;border:1px solid var(--mi-line,currentColor);border-radius:8px;font-size:12px;white-space:normal;overflow-wrap:anywhere;}
+.miao-error-actions {display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0;}
+.miao-error-view .miao-error-copy {display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;writing-mode:horizontal-tb;text-orientation:mixed;white-space:nowrap;word-break:normal;overflow-wrap:normal;width:auto;min-width:120px;max-width:100%;min-height:44px;padding:8px 14px;}
+.miao-error-copy-status {flex:1 1 140px;min-width:0;font-size:13px;}
+.miao-error-details {min-width:0;max-width:100%;}
+.miao-error-details summary {min-height:44px;padding:10px 0;cursor:pointer;box-sizing:border-box;}
+.miao-error-view pre {box-sizing:border-box;max-width:100%;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:45dvh;overflow:auto;font-size:12px;line-height:1.6;text-align:start;}
+
+
+
+/* Resource options and history controls share the host's existing colors. */
+.miao-history-retention{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 16px;min-width:0}
+.miao-history-retention>.miao-retention-label,.miao-history-retention>p{grid-column:1/-1;margin:0}
+.miao-retention-label{font-weight:600;font-size:14px}
+.miao-history-retention>.miao-button{min-width:0;min-height:44px;padding:8px 4px;white-space:nowrap;font-size:13px}
+.miao-world-option-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;min-width:0}
+.miao-world-option-list>.miao-field{grid-column:1/-1}
+.miao-world-options .miao-switch-row{display:grid;grid-template-columns:minmax(0,1fr) 28px;align-items:center;gap:12px;min-width:0;min-height:44px;margin:0}
+.miao-world-options .miao-switch-row>span{min-width:0;overflow-wrap:anywhere}
+.miao-world-options>.miao-button{min-height:44px;margin-top:12px}
+
+@container miao-settings (max-width:480px){.miao-world-option-list{grid-template-columns:minmax(0,1fr)}}

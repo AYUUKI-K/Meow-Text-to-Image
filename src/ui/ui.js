@@ -1,3 +1,4 @@
+import {createWorldOptionsView} from './world-options-view.js';
 import {reconcileProfileSelection} from '../profiles/profile-selection.js';
 import {createResourceMacrosView} from './resource-macros-view.js';
 import {validateQueueURL} from '../queue/cloud-queue.js';
@@ -16,7 +17,7 @@ import {onlineEncodingAvailable,resolveCustomEndpoints} from '../novelai/nai-con
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const panelMemory=new WeakMap();
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,readWorldOptions,saveWorldOptions,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
@@ -389,10 +390,11 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const status=node('div',undefined,'miao-notice');status.setAttribute('role','status');resources.append(status);
             paintResources=()=>{const state=getResourceStatus();status.replaceChildren(node('strong',state.available?`${state.latest.worldName} 可更新`:settings.installed?(state.error||state.checking?'资源已载入':'资源已是最新'):'内置资源未载入'),node('p',`当前：${settings.world||'未载入'}`));if(state.checking)status.append(node('p','检查中…'));else if(state.error)status.append(node('p','检查失败，可重试'));};paintResources();
             action(resources,'检查资源更新',()=>checkResources(true));
-            action(resources,'更新资源',async()=>{await installDefaults();render();},true);
+            action(resources,'更新资源',async()=>{await commitPage();await installDefaults();render();},true);
             const upload=(label,fn)=>{const file=node('input');file.type='file';file.accept='.json';file.hidden=true;file.onchange=safe(async()=>{if(file.files[0])await fn(file.files[0]);file.value='';render();});resources.append(file);action(resources,label,()=>file.click());};
             upload('导入世界书',installWorld);upload('导入正则',async f=>installRegex(JSON.parse(await f.text())));
             const macrosView=createResourceMacrosView({read:readResourceMacros,save:saveResourceMacros,onError});body.append(macrosView.element);
+            body.append(createWorldOptionsView({read:readWorldOptions,save:saveWorldOptions,onError}).element);
             const capture=section(body,'捕捉标签');
 
             const start=field(capture,'起始标签',settings.startTag,()=>{});start.placeholder='image###';
@@ -485,6 +487,14 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 draw();
                 if(result.failed)throw Error(`${result.failed} 张缩略图生成失败，请点击刷新列表重试。`);
             });
+            const retention=node('div',undefined,'miao-history-retention');
+            retention.append(node('span','清理旧图','miao-retention-label'));
+            let retentionBusy=false;
+            const retentionButtons=[1,3,7].map(days=>action(retention,`清理 ${days} 天外`,async()=>{
+                if(retentionBusy)return;retentionBusy=true;retentionButtons.forEach(button=>button.disabled=true);
+                try{if(await cleanOldImages(selectedFolder,days,images))await refresh();}finally{retentionBusy=false;retentionButtons.forEach(button=>button.disabled=false);}
+            }));
+            retention.append(node('p','按生成时间清理当前分类，保留收藏图片和配置例图。','miao-muted'));cleanup.insertBefore(retention,controls);
             const cleanDates=action(controls,'清理选中日期',async()=>{if(!selected.size)throw new Error('请先勾选需要清理的日期');if(await deleteImages(selectedFolder,images.filter(i=>selected.has(i.day)).map(i=>i.name)))await refresh();});
             refresh();
         }

@@ -1,3 +1,7 @@
+import {worldOptions,patchWorldOptions} from './src/resources/world-options.js';
+import {planHistoryCleanup,isProtectedHistoryImage} from './src/images/image-cleanup.js';
+import {createErrorView} from './src/ui/error-view.js';
+import {summarizeError} from './src/platform/error-summary.js';
 import {selectGenerationProfile,reconcileProfileSelection} from './src/profiles/profile-selection.js';
 import {parseGenerationBody,generationCandidates,createEggMarkerCache} from './src/profiles/easter-egg-selection.js';
 import {prepareGeneration,sendPrepared} from './src/generation/generation-lifecycle.js';
@@ -146,12 +150,10 @@ async function showPopup(content,type,input='',options={}){
 
 const errorDialogs=new Map();
 async function errorPopup(error,{detail=false}={}) {
-    const title=errorTitle(error),summary=redactErrorText(error.message||error).slice(0,2200);
-    if(isTT()&&!detail){notices.error(summary,title,{escapeHtml:true,onclick:()=>{void errorPopup(error,{detail:true});}});return;}
+    const title=errorTitle(error),info=summarizeError(error),summary=info.diagnostic;
+    if(isTT()&&!detail){notices.error(info.brief,title,{escapeHtml:true,onclick:()=>{void errorPopup(error,{detail:true});}});return;}
     if(errorDialogs.has(summary))return errorDialogs.get(summary);
-    const box=el('div',undefined,'miao-prompt-view miao-error-view');box.append(el('h3','喵喵文生图：'+title),el('p',summary.split('\n')[0]));
-    const details=el('details'),copy=el('button','复制诊断摘要','menu_button');details.append(el('summary','错误详情'),el('pre',summary));
-    copy.type='button';copy.onclick=()=>Promise.resolve().then(()=>navigator.clipboard.writeText(summary)).then(()=>{copy.textContent='已复制';}).catch(()=>{copy.textContent='复制失败，请手动选择详情';});box.append(details,copy);
+    const box=createErrorView(error,{title:'喵喵文生图：'+title,copyText:text=>typeof hostUtils.copyText==='function'?hostUtils.copyText(text):navigator.clipboard.writeText(text)});
     const pending=showPopup(box,POPUP_TYPE.TEXT);errorDialogs.set(summary,pending);
     try{return await pending;}finally{errorDialogs.delete(summary);}
 }
@@ -207,7 +209,7 @@ async function confirmSettings(question,title='确认删除',{parent,confirmLabe
         dialog.addEventListener('keydown',onKey,true);dialog.addEventListener('cancel',onCancel,true);dialog.addEventListener('close',onClose);cancel.focus({preventScroll:true});restoreScroll();
     });
 }
-const generationError=error=>notices.error(redactErrorText(error.message||error),errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:12000,onclick:()=>{void errorPopup(error,{detail:true});}});
+const generationError=error=>notices.error(summarizeError(error).brief,errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:9000,onclick:()=>{void errorPopup(error,{detail:true});}});
 function reasoningFormat(){const r=ctx().powerUserSettings?.reasoning||{};return {prefix:ctx().substituteParams?.(r.prefix||'')??r.prefix,suffix:ctx().substituteParams?.(r.suffix||'')??r.suffix};}
 function blocks(message) { return parseBodyBlocks(message.mes,settings.pattern,reasoningFormat()); }
 const blockSlot=block=>`body:${block.bodyIndex}:${block.prompt}`;
@@ -556,6 +558,19 @@ async function installWorld(file,{targetName,activate=true,existing,preserveMacr
     if(activate&&!wi.selected_world_info.includes(name))wi.onWorldInfoChange({state:'on',silent:'true'},name);
     settings.world=name;eggMarkerCache.invalidate();save();
 }
+function resourceWorldName(){return [settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(name=>name&&wi.world_names.includes(name));}
+async function readWorldBook(world=resourceWorldName()){
+    if(!world)return {world:'',book:{entries:{}}};
+    wi.worldInfoCache?.delete(world);const book=await wi.loadWorldInfo(world);
+    if(!book)throw Error('无法读取世界书，请重新读取');return {world,book};
+}
+async function writeWorldBook(world,book){
+    await checkedFetch('world-save','/api/worldinfo/edit',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name:world,data:book})},{fetchImpl:hostFetch});
+    wi.worldInfoCache?.set(world,book);await wi.updateWorldInfoList();
+    if(!wi.world_names.includes(world))throw Error('世界书列表刷新失败');
+    if(ctx().eventTypes.WORLDINFO_UPDATED)await ctx().eventSource.emit(ctx().eventTypes.WORLDINFO_UPDATED,world,book);
+    eggMarkerCache.invalidate();
+}
 async function readResourceMacros(){
     const world=[settings.world,...bundledWorldTargets(wi.world_names,settings.world)].find(name=>name&&wi.world_names.includes(name));
     if(!world)return {world:'',macros:[]};
@@ -575,29 +590,15 @@ async function saveResourceMacros(snapshot,values){
     if(ctx().eventTypes.WORLDINFO_UPDATED)await ctx().eventSource.emit(ctx().eventTypes.WORLDINFO_UPDATED,snapshot.world,next);
     return {world:snapshot.world,macros:worldMacros(next)};
 }
+async function readWorldOptions(){const {world,book}=await readWorldBook();return {world,...worldOptions(book)};}
+async function saveWorldOptions(snapshot,values){
+    if(resourceInstallPromise)throw Error('资源正在更新，请稍后重新读取');
+    if(!snapshot?.world||!wi.world_names.includes(snapshot.world))throw Error('世界书不存在，请先更新资源');
+    const {book}=await readWorldBook(snapshot.world);await writeWorldBook(snapshot.world,patchWorldOptions(book,snapshot,values));return readWorldOptions();
+}
 async function installRegex(rules) {
     const existing=getScriptsByType(SCRIPT_TYPES.GLOBAL,{allowedOnly:false});
     await saveScriptsByType(mergeRegexRules(existing,rules),SCRIPT_TYPES.GLOBAL);
-}
-async function migrateResourceBindings(oldNames,newName=WORLD_NAME){
-    const c=ctx();
-    for(const character of c.characters||[]){
-        if(!oldNames.includes(character.data?.extensions?.world))continue;
-        const response=await fetch('/api/characters/merge-attributes',{method:'POST',headers:c.getRequestHeaders(),body:JSON.stringify({avatar:character.avatar,data:{extensions:{world:newName}}})});
-        if(!response.ok)throw Error(`世界书绑定更新失败：HTTP ${response.status}`);
-        character.data.extensions.world=newName;
-    }
-    const characterWorld=document.getElementById('character_world');
-    if(characterWorld&&oldNames.includes(characterWorld.value))characterWorld.value=newName;
-    const previousChatWorld=c.chatMetadata?.world_info;
-    const chatChanged=migrateWorldBindings({selected:wi.selected_world_info,worldInfo:wi.world_info,powerUser:c.powerUserSettings,chatMetadata:c.chatMetadata},oldNames,newName);
-    settings.world=newName;
-    settings.worldAliases={...Object.fromEntries(Object.entries(settings.worldAliases||{}).map(([old,next])=>[old,oldNames.includes(next)?newName:next])),...Object.fromEntries(oldNames.map(name=>[name,newName]))};
-    if(chatChanged){
-        try{if(!c.saveMetadata)throw Error('酒馆不支持保存聊天世界书绑定');if(await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}
-        catch(error){c.chatMetadata.world_info=previousChatWorld;throw error;}
-    }
-    await persistSettings();
 }
 async function restoreResourceChatBinding(){
     const c=ctx(),name=c.chatMetadata?.world_info,next=settings.worldAliases?.[name];
@@ -613,36 +614,30 @@ function installDefaults(){
     return resourceInstallPromise;
 }
 async function installResourcePack(){
-    const {manifest,world,rules}=await resourceUpdater.load(),worldName=manifest.worldName;
-    // Validate the entire pack before the first write.
-    mergeWorldEntries({entries:{}},JSON.parse(world));mergeRegexRules([],rules);
-    const targets=bundledWorldTargets(wi.world_names,settings.world,worldName);
+    const {manifest,world,rules}=await resourceUpdater.load(),selectedWorld=resourceWorldName();
+    const userNamedWorld=selectedWorld&&!/^\[喵喵\]文生图\s*2\.\d+(?:\.\d+)?$/.test(selectedWorld),worldName=userNamedWorld?selectedWorld:manifest.worldName;
+    const incoming=JSON.parse(world);mergeWorldEntries({entries:{}},incoming);mergeRegexRules([],rules);
+    const targets=userNamedWorld?[worldName]:bundledWorldTargets(wi.world_names,settings.world,worldName),installed=targets.filter(name=>wi.world_names.includes(name));
     let existing={entries:{}};
-    for(const name of targets.filter(name=>wi.world_names.includes(name))){
-        const data=await wi.loadWorldInfo(name);if(!data)throw Error('无法读取原世界书，请重试');
-        existing=mergeWorldEntries(existing,data,{preserveMacros:true});
+    for(const name of installed){const {book}=await readWorldBook(name);existing=mergeWorldEntries(existing,book,{preserveMacros:true,preserveOptions:true});}
+    const merged=mergeWorldEntries(existing,incoming,{preserveMacros:true,preserveOptions:true});
+    await writeWorldBook(worldName,merged);await installRegex(rules);
+    const oldNames=installed.filter(name=>name!==worldName),c=ctx();
+    for(const character of c.characters||[]){
+        if(!oldNames.includes(character.data?.extensions?.world))continue;
+        await checkedFetch('world-bindings','/api/characters/merge-attributes',{method:'POST',headers:c.getRequestHeaders(),body:JSON.stringify({avatar:character.avatar,data:{extensions:{world:worldName}}})},{fetchImpl:hostFetch});
+        character.data.extensions.world=worldName;
     }
-    await installWorld(new File([world],worldName+'.json',{type:'application/json'}),{targetName:worldName,existing,preserveMacros:true,activate:!targets.some(name=>wi.world_names.includes(name))});
-    await installRegex(rules);
-    const oldNames=targets.filter(name=>name!==worldName);
-    if(oldNames.length){
-        await migrateResourceBindings(oldNames,worldName);
-        for(const name of oldNames){
-            const response=await fetch('/api/worldinfo/delete',{method:'POST',headers:ctx().getRequestHeaders(),body:JSON.stringify({name})});
-            if(!response.ok)throw Error(`旧版世界书替换失败：HTTP ${response.status}`);
-            wi.worldInfoCache?.delete(name);
-        }
-        await wi.updateWorldInfoList();
-        if(oldNames.some(name=>wi.world_names.includes(name)))throw Error('世界书列表刷新失败');
-        const editor=document.getElementById('world_editor_select');
-        const option=editor&&[...editor.options].find(option=>option.text===worldName);
-        if(option){editor.value=option.value;editor.dispatchEvent(new Event('change',{bubbles:true}));}
-    }
-    settings.world=worldName;
-    const previous={installed:settings.installed,resourceVersion:settings.resourceVersion,resourceRevision:settings.resourceRevision};
-    settings.installed=true;settings.resourceVersion=manifest.version;settings.resourceRevision=manifest.revision;
+    const characterWorld=document.getElementById('character_world');
+    if(characterWorld&&oldNames.includes(characterWorld.value))characterWorld.value=worldName;
+    const oldChatWorld=c.chatMetadata?.world_info;
+    const changed=migrateWorldBindings({selected:wi.selected_world_info,worldInfo:wi.world_info,powerUser:c.powerUserSettings,chatMetadata:c.chatMetadata},oldNames,worldName);
+    if(changed){try{if(!c.saveMetadata||await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}catch(error){c.chatMetadata.world_info=oldChatWorld;throw error;}}
+    if(!installed.length&&!wi.selected_world_info.includes(worldName))wi.onWorldInfoChange({state:'on',silent:'true'},worldName);
+    const previous={world:settings.world,worldAliases:settings.worldAliases,installed:settings.installed,resourceVersion:settings.resourceVersion,resourceRevision:settings.resourceRevision};
+    settings.world=worldName;settings.worldAliases={...Object.fromEntries(Object.entries(settings.worldAliases||{}).map(([name,next])=>[name,oldNames.includes(next)?worldName:next])),...Object.fromEntries(oldNames.map(name=>[name,worldName]))};settings.installed=true;settings.resourceVersion=manifest.version;settings.resourceRevision=manifest.revision;
     try{await persistSettings();}catch(error){Object.assign(settings,previous);throw error;}
-    save();renderAll();notices.success(`${worldName} 已更新`,'喵喵文生图');
+    resourceUpdater.changed();renderAll();notices.success(`${worldName} 与正则已更新，原宏和开关已保留`,'资源更新');
 }
 function resolvedTheme(){return 'host';}
 function applyTheme() {
@@ -937,16 +932,26 @@ function indexChatImages(){
     for(const message of ctx().chat)for(const {record} of swipeImageRecords(message))for(const version of imageVersions(record))if(!version.deleted&&version.url)changed=rememberImage(settings.imageArchive,version.url,version.archive||record.archive||context,location.href)||changed;
     if(changed)save();
 }
-async function deleteImages(folder,names,{parent}={}) {
+async function cleanOldImages(folder,days,visibleImages){
+    const visible=new Set(visibleImages.map(image=>image.url)),current=(await listImages(folder)).filter(image=>visible.has(image.url));
+    const plan=planHistoryCleanup(current,{days,profiles:settings.profiles,favorites:favorites.list(),base:location.href});
+    if(!plan.images.length){notices.info('没有符合条件的历史图片；收藏和例图会保留','历史清理');return false;}
+    return deleteImages(folder,plan.images.map(image=>image.name),{preserveSamples:true,days});
+}
+async function deleteImages(folder,names,{parent,preserveSamples=false,days}={}) {
     folder=validateArchivePath(folder);
-    const allowed=new Map((await listImages(folder)).map(item=>[item.name,item]));
+    const listing=await listImages(folder),allowed=new Map();
+    for(const item of listing){if(names.includes(item.name)&&allowed.has(item.name)&&allowed.get(item.name).url!==item.url)throw Error('存在不同目录的同名图片，请进入具体目录后清理');allowed.set(item.name,item);}
     if(!names.length)return;
     if(names.some(name=>!allowed.has(name)))throw new Error('清理列表已变化，请刷新后重试');
-    const protectedCount=names.filter(name=>favorites.protects(allowed.get(name).url)).length;
-    names=names.filter(name=>!favorites.protects(allowed.get(name).url));
-    if(protectedCount)notices.info(`已保留 ${protectedCount} 张收藏例图；移除收藏中的例图后才能删除`,'喵喵文生图');
+    names=[...new Set(names)];
+    const protectedImage=image=>favorites.protects(image.url)||preserveSamples&&isProtectedHistoryImage(image,{profiles:settings.profiles,favorites:favorites.list(),base:location.href});
+    const protectedCount=names.filter(name=>protectedImage(allowed.get(name))).length;
+    names=names.filter(name=>!protectedImage(allowed.get(name)));
+    if(protectedCount)notices.info(`已保留 ${protectedCount} 张收藏或配置例图`,'喵喵文生图');
     if(!names.length)return false;
     const question=el('div');question.append(el('p',`删除 ${names.length} 张图片？目录：${folder}`),el('p','永久删除后，聊天中引用的原图也将失效。'));
+    if(preserveSamples)question.append(el('p',`范围：当前分类中超过 ${days}×24 小时的图片。收藏提示词、收藏图片和配置例图保留。`));
     const previews=el('div',undefined,'miao-history-grid');
     for(const name of names.slice(0,24)){const image=el('img');image.alt=name;bindImage(image,allowed.get(name).url,{lazy:true});previews.append(image);}
     if(names.length>24)question.append(el('p',`共 ${names.length} 张，下方预览前 24 张。`));
@@ -954,7 +959,7 @@ async function deleteImages(folder,names,{parent}={}) {
     if(!await confirmSettings(question,'删除图片',{parent}))return false;
     const removed=[];let failure;
     for(const name of names) {
-        if(favorites.protects(allowed.get(name).url))continue;
+        if(protectedImage(allowed.get(name)))continue;
         try {await imageAPI('delete',{path:`user/images/${allowed.get(name).folder}/${name}`});removed.push(name);}
         catch(error){failure=error;break;}
     }
@@ -991,7 +996,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
-        testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
+        testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,readWorldOptions,saveWorldOptions,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,

@@ -61,12 +61,12 @@ test('patch world upgrades cover old minor and patch versions without overwritin
     assert.equal(migrateWorldBindings({selected,chatMetadata},old,current),true);assert.deepEqual(selected,[current,'其他书']);assert.equal(chatMetadata.world_info,current);
 });
 
-test('bundled pack is exactly world 2.2.2 and the four supplied regex versions',async()=>{
+test('bundled pack is exactly world 2.2.3 and the four supplied regex versions',async()=>{
     const book=JSON.parse(await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8'));
     const rules=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
     assert.equal(Object.keys(book.entries).length,13);
     assert.ok(book.entries[10].content.includes('easter_egg'));
-    assert.deepEqual(rules.map(rule=>rule.scriptName),['喵喵文生图1-去标签-1024','喵喵文生图2-去imagethink-1024','喵喵文生图3-居中美化-0511','喵喵文生图4-彩蛋介绍美化-1024']);
+    assert.deepEqual(rules.map(rule=>rule.scriptName),['喵喵文生图1-去标签-1024','喵喵文生图2-去imagethink-1024','喵喵文生图3-居中美化-1106','喵喵文生图4-彩蛋介绍美化-1024']);
     assert.deepEqual(mergeWorldEntries(mergeWorldEntries({entries:{}},book),book),mergeWorldEntries({entries:{}},book));
     assert.equal(mergeRegexRules(mergeRegexRules([],rules),rules).length,4);
 });
