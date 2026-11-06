@@ -885,7 +885,7 @@
     align-items: center;
     gap: 4px;
     width: min(360px,100%);
-    margin: 16px auto;
+    margin: 8px auto;
     padding: 0 !important;
     border: 0 !important;
     border-radius: 0 !important;
@@ -898,6 +898,7 @@
 .miao-image-card>img {
     display: block;
     width: 100%;
+    height: auto;
     max-height: 440px;
     object-fit: contain;
     border-radius: 4px;
@@ -905,6 +906,22 @@
     touch-action: manipulation;
     user-select: none;
     -webkit-user-drag: none;
+}
+
+/* Captions and their images form one compact block inside a message. */
+#chat .mes_text .miao-image-caption {
+    margin-block: 4px 0;
+    padding: 0;
+}
+#chat .mes_text .miao-image-caption>summary::-webkit-details-marker {
+    display: none;
+}
+#chat .mes_text .miao-image-caption+.miao-image-card,
+#chat .mes_text .miao-image-caption+p>.miao-image-card:first-child {
+    margin-top: 4px;
+}
+#chat .mes_text .miao-image-caption+p:has(>.miao-image-card:first-child) {
+    margin-top: 0;
 }
 
 .miao-image-tools[hidden] {

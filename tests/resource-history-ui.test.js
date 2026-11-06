@@ -21,7 +21,7 @@ test('resource upgrade preserves persona/options; TT retention protects examples
   });
   await page.locator('#miao-nai-menu').click();const nav=page.locator('.miao-tabs');await nav.getByRole('button',{name:'资源',exact:true}).click();
   await page.getByRole('button',{name:'更新资源',exact:true}).click();
-  try{await page.waitForFunction(()=>window.preview.settings.resourceVersion==='2.2.3-1107',{},{timeout:6000});}
+  try{await page.waitForFunction(()=>window.preview.settings.resourceVersion==='2.2.3-1107b',{},{timeout:6000});}
   catch(error){
    const diagnostic=await page.evaluate(()=>({errors:[...document.querySelectorAll('.miao-error-view')].map(n=>n.textContent),toasts:window.miaoTestToasts,writes:window.preview.worldWrites?.length,resource:window.preview.settings.resourceVersion}));
    throw Error('资源更新未完成：'+JSON.stringify(diagnostic));
