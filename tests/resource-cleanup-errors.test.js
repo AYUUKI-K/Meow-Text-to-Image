@@ -38,11 +38,11 @@ test('short errors retain diagnostic codes, hide secrets and keep uncertain-resu
  assert.ok(summarizeError(Error('a'.repeat(500))).brief.length<=105);
  assert.equal(summarizeError(Object.assign(Error('图片删除失败'),{source:'image-delete',status:500})).brief,'图片删除失败');
 });
-test('updated centering regex replaces old family and keeps the full long title available in a native disclosure',async()=>{
+test('updated centering regex replaces old family and uses a plain small caption without truncating the full title',async()=>{
  const rules=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8')),rule=rules.find(item=>item.scriptName.includes('居中美化'));
  const title='很长的标题'.repeat(30),rendered=`┈┈${title}┈┈`.replace(new RegExp(rule.findRegex.slice(1,rule.findRegex.lastIndexOf('/')),rule.findRegex.slice(rule.findRegex.lastIndexOf('/')+1)),rule.replaceString);
- assert.equal(rule.id,'ff3cb76e-e821-414d-ad49-9d49fb8e1903');assert.equal(rule.markdownOnly,true);assert.equal(rule.promptOnly,false);assert.ok(rendered.includes('<details'));assert.equal(rendered.split(title).length-1,2);assert.ok(rendered.includes('text-overflow:ellipsis'));assert.equal(rendered.includes('$1'),false);
+ assert.equal(rule.id,'ff3cb76e-e821-414d-ad49-9d49fb8e1903');assert.equal(rule.markdownOnly,true);assert.equal(rule.promptOnly,false);assert.ok(rendered.startsWith('<div class="miao-image-caption"'));assert.equal(rendered.split(title).length-1,1);assert.ok(rendered.includes('font-size:0.82em'));assert.equal(/<\/?(?:details|summary|span)\b/.test(rendered),false);assert.equal(rendered.includes('$1'),false);
  const expression=()=>new RegExp(rule.findRegex.slice(1,rule.findRegex.lastIndexOf('/')),'gi');
- assert.ok('┈┈标题┈┈\n\n\nimage###scene###'.replace(expression(),rule.replaceString).endsWith('</details>image###scene###'));
- assert.ok('┈┈标题┈┈\n\n普通正文'.replace(expression(),rule.replaceString).endsWith('</details>\n\n普通正文'),'ordinary paragraph breaks must be preserved');
+ assert.ok('┈┈标题┈┈\n\n\nimage###scene###'.replace(expression(),rule.replaceString).endsWith('</div>image###scene###'));
+ assert.ok('┈┈标题┈┈\n\n普通正文'.replace(expression(),rule.replaceString).endsWith('</div>\n\n普通正文'),'ordinary paragraph breaks must be preserved');
 });

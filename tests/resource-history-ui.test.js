@@ -21,7 +21,7 @@ test('resource upgrade preserves persona/options; TT retention protects examples
   });
   await page.locator('#miao-nai-menu').click();const nav=page.locator('.miao-tabs');await nav.getByRole('button',{name:'资源',exact:true}).click();
   await page.getByRole('button',{name:'更新资源',exact:true}).click();
-  try{await page.waitForFunction(()=>window.preview.settings.resourceVersion==='2.2.3-1107b',{},{timeout:6000});}
+  try{await page.waitForFunction(()=>window.preview.settings.resourceVersion==='2.2.3-1107c',{},{timeout:6000});}
   catch(error){
    const diagnostic=await page.evaluate(()=>({errors:[...document.querySelectorAll('.miao-error-view')].map(n=>n.textContent),toasts:window.miaoTestToasts,writes:window.preview.worldWrites?.length,resource:window.preview.settings.resourceVersion}));
    throw Error('资源更新未完成：'+JSON.stringify(diagnostic));
@@ -31,7 +31,7 @@ test('resource upgrade preserves persona/options; TT retention protects examples
    return {header:entry('tag头').content,subtitle:entry('小标题[选开]').disable,bl:entry('bl[选一]').disable,user:entry('用户添加').content,selected:p.selectedWorlds,rules:p.regexScripts};
   });
   for(const value of ['KEPT_PERSONA','{{user}}','custom_cot','::4}}'])assert.ok(upgraded.header.includes(value));assert.equal(upgraded.subtitle,true);assert.equal(upgraded.bl,false);assert.equal(upgraded.user,'用户自己的条目');
-  assert.deepEqual(upgraded.selected,['[喵喵]文生图 2.2.3']);assert.equal(upgraded.rules.filter(rule=>rule.scriptName.includes('居中美化')).length,1);assert.ok(upgraded.rules.find(rule=>rule.scriptName.includes('居中美化')).replaceString.includes('text-overflow:ellipsis'));
+  assert.deepEqual(upgraded.selected,['[喵喵]文生图 2.2.3']);assert.equal(upgraded.rules.filter(rule=>rule.scriptName.includes('居中美化')).length,1);assert.ok(upgraded.rules.find(rule=>rule.scriptName.includes('居中美化')).replaceString.includes('font-size:0.82em'));
   await page.getByRole('checkbox',{name:'小标题',exact:true}).check();await page.waitForFunction(()=>Object.values(window.preview.worlds['[喵喵]文生图 2.2.3'].entries).find(entry=>entry.comment==='小标题[选开]').disable===false);
   const bg=await page.evaluate(()=>Object.entries(window.preview.worlds['[喵喵]文生图 2.2.3'].entries).find(([,entry])=>entry.comment==='bg[选一]')[0]);await page.getByRole('combobox',{name:'世界书性向选项',exact:true}).selectOption(bg);
   await page.waitForFunction(()=>Object.values(window.preview.worlds['[喵喵]文生图 2.2.3'].entries).find(entry=>entry.comment==='bl[选一]').disable===true);

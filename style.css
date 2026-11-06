@@ -912,9 +912,11 @@
 #chat .mes_text .miao-image-caption {
     margin-block: 4px 0;
     padding: 0;
-}
-#chat .mes_text .miao-image-caption>summary::-webkit-details-marker {
-    display: none;
+    text-align: center;
+    font-size: 0.82em;
+    line-height: 1.5;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 #chat .mes_text .miao-image-caption+.miao-image-card,
 #chat .mes_text .miao-image-caption+p>.miao-image-card:first-child {
