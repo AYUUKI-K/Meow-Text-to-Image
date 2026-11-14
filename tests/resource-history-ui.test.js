@@ -19,7 +19,7 @@ test('resource upgrade preserves persona/options; TT retention protects examples
    Object.assign(book.entries,{55:{uid:55,comment:'tag头',content:'{{setvar::人格::KEPT_PERSONA}}\n{{setvar::对象::{{user}}}}\n{{setvar::cot_xml::custom_cot}}\n{{setvar::张数::4}}'},56:{uid:56,comment:'小标题[选开]',content:'old subtitle',disable:true,constant:true},57:{uid:57,comment:'bl[选一]',content:'old choice',disable:false,constant:true}});
 
   });
-  await page.locator('#miao-nai-menu').click();const nav=page.locator('.miao-tabs');await nav.getByRole('button',{name:'资源',exact:true}).click();
+  await page.locator('#miao-nai-menu').click();await page.locator('.miao-overview').getByRole('button',{name:'资源',exact:true}).click();
   await page.getByRole('button',{name:'更新资源',exact:true}).click();
   try{await page.waitForFunction(()=>window.preview.settings.resourceVersion==='2.2.3-1107c',{},{timeout:6000});}
   catch(error){
@@ -48,7 +48,7 @@ test('resource upgrade preserves persona/options; TT retention protects examples
    const names={recent:name('miao',0,'aa'),two:name('miao',2,'ab'),four:name('miao',4,'ac'),eight:name('miao',8,'ad'),sample:name('sample',9,'ae'),favorite:name('favorite',9,'af'),profile:name('miao',10,'ba'),saved:name('miao',11,'bb')};
    p.files=Object.values(names);p.settings.profiles[0].preview={url:path(names.profile)};p.settings.promptFavorites=[{id:'saved-fixture',name:'Saved',positive:'fixture',images:[path(names.saved)]}];return names;
   });
-  await mobile.locator('#miao-nai-menu').click();await mobile.locator('.miao-tabs').getByRole('button',{name:'图库',exact:true}).click();await mobile.locator('.miao-history-tile').first().waitFor();await mobile.setViewportSize({width:375,height:780});
+  await mobile.locator('#miao-nai-menu').click();await mobile.locator('.miao-overview').getByRole('button',{name:'图库',exact:true}).click();await mobile.locator('.miao-history-tile').first().waitFor();await mobile.setViewportSize({width:375,height:780});
   const clean=mobile.getByRole('button',{name:'清理 3 天外',exact:true});await clean.click();await mobile.locator('.miao-confirmation-layer').waitFor();assert.ok((await mobile.locator('.miao-confirmation-message').textContent()).includes('删除 2 张图片'));
   await mobile.locator('[data-action=cancel]').click();await mobile.locator('.miao-confirmation-layer').waitFor({state:'detached'});assert.equal(await mobile.evaluate(()=>window.preview.files.length),8);
   await clean.click();await mobile.locator('.miao-confirmation-layer').waitFor();

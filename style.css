@@ -2329,3 +2329,49 @@ img[data-miao-export-state=loading] {visibility: hidden;}
 .miao-world-options>.miao-button{min-height:44px;margin-top:12px}
 
 @container miao-settings (max-width:480px){.miao-world-option-list{grid-template-columns:minmax(0,1fr)}}
+
+/* The settings window stays independent of the host's modal and TT classes. */
+dialog.miao-settings-window[open] {
+    position: fixed !important;
+    inset: auto !important;
+    transform: none !important;
+    margin: 0 !important;
+    z-index: 2147483000;
+    display: flex !important;
+    flex-direction: column;
+    width: min(960px,calc(var(--miao-panel-width,100vw) - 16px)) !important;
+    height: min(800px,calc(var(--miao-panel-height,100dvh) - 16px)) !important;
+    max-width: calc(var(--miao-panel-width,100vw) - 16px) !important;
+    max-height: calc(var(--miao-panel-height,100dvh) - 16px) !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border: 1px solid var(--mi-line);
+    border-radius: 12px;
+    background: var(--mi-bg,Canvas) !important;
+    color: var(--mi-ink,CanvasText);
+    box-shadow: 0 12px 40px #0003;
+    overflow: hidden !important;
+    box-sizing: border-box;
+}
+dialog.miao-settings-window[open][data-collapsed=true] {
+    width: min(300px,calc(var(--miao-panel-width,100vw) - 16px)) !important;
+    height: 58px !important;
+}
+dialog.miao-settings-window[open]:not([data-collapsed=true]):has(.miao-settings[data-section=overview]) {height:auto!important;}
+.miao-settings-window[data-collapsed=true] #miao-nai-settings>:not(.miao-header),
+.miao-settings-window[data-collapsed=true] .miao-home-button,
+.miao-settings-window[data-collapsed=true] .miao-save-button {display:none!important;}
+.miao-settings-window .miao-header {gap:6px;padding-inline:10px;}
+.miao-window-handle {display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;min-height:44px;padding:0;border:0;background:transparent;color:inherit;cursor:grab;touch-action:none;user-select:none;}
+.miao-window-handle:active {cursor:grabbing;}
+.miao-window-title {flex:1;min-width:0;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.miao-window-toggle {display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:24px;cursor:pointer;touch-action:manipulation;}
+.miao-window-handle:focus-visible,.miao-window-toggle:focus-visible {outline:2px solid var(--mi-blue,Highlight);outline-offset:-2px;}
+.miao-home-button {font-size:13px;}
+.miao-settings-window .miao-save-button {min-width:48px;padding-inline:10px;}
+.miao-settings-window .miao-actions {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:8px;align-items:stretch;}
+.miao-settings-window .miao-actions>.miao-button {width:100%;min-height:44px;white-space:normal;line-height:1.4;}
+@container miao-settings (max-width:480px) {
+    .miao-settings-window .miao-header {gap:3px;padding-inline:6px;}
+}

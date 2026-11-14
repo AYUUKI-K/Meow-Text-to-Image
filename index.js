@@ -14,6 +14,7 @@ import {createFavorites,validateFavorite,favoritesEnabled,FAVORITE_FOLDER,FAVORI
 import {generationOptions,migrateGenerationOptions,migrateGenerationMode,runGenerationTask} from './src/generation/generation-options.js';
 import {waitForGeneration} from './src/generation/generation-delay.js';
 import {showPagePopup} from './src/ui/page-popup.js';
+import {showSettingsWindow} from './src/ui/settings-window.js';
 import {showPanelPage} from './src/ui/panel-page.js';
 import {showFloatingIconPicker} from './src/ui/icon-picker.js';
 import {defaultFontAwesomeIcon,validFontAwesomeIcon} from './src/ui/fontawesome-icons.js';
@@ -95,7 +96,6 @@ settings.endTag ??= '###';
 // The visible delimiters are authoritative, including for legacy saved patterns.
 settings.pattern = delimiterPattern(settings.startTag,settings.endTag);
 const running=new Map();
-const attempted=new Set();
 const cardBindings=new WeakMap();
 let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
@@ -132,7 +132,9 @@ const direct=createDirectClient({settings,save,onDiagnostic:entry=>console.error
 },unzipPNG:unzipNAIPNG});
 function el(tag,text,cls) { const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n; }
 async function showPopup(content,type,input='',options={}){
+    if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings'))return showSettingsWindow(content,{...options,getPosition:()=>settings.windowPosition,savePosition:value=>{settings.windowPosition=value;save();}});
     if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-image-viewer')){
+        settingsPopup?.expand?.();
         const parent=settingsPopup?.dlg?.isConnected?settingsPopup.dlg:settingsHost?.closest('dialog');
         return parent?showPanelPage(content,{...options,parent}):openSettings(undefined,undefined,{content,options});
     }
@@ -214,6 +216,10 @@ function reasoningFormat(){const r=ctx().powerUserSettings?.reasoning||{};return
 function blocks(message) { return parseBodyBlocks(message.mes,settings.pattern,reasoningFormat()); }
 const blockSlot=block=>`body:${block.bodyIndex}:${block.prompt}`;
 function identity(message,block) { return `${message.swipe_id??0}:${blockSlot(block)}`; }
+function generationIdentity(message,block,chat=currentChat()) {
+    message.miao_nai_image_id??=randomId();
+    return `${chat}:${message.miao_nai_image_id}:${identity(message,block)}`;
+}
 function state(message,key) {
     const at=key.indexOf(':'),swipe=Number(key.slice(0,at)),slot=key.slice(at+1),prompt=promptIdentity(slot.replace(/^(?:body:)?\d+:/,''));
     const text=(message.swipe_id??0)===swipe?message.mes:message.swipes?.[swipe];
@@ -225,8 +231,8 @@ function currentChat() { return String(ctx().getCurrentChatId()); }
 const promptIdentity=prompt=>String(prompt).replace(/\s+/g,' ').trim();
 function liveMessage(message,fallback){
     if(ctx().chat.includes(message))return message;
-    const byId=message.miao_nai_image_id&&ctx().chat.find(m=>m.miao_nai_image_id===message.miao_nai_image_id);
-    if(byId)return byId;
+    // A known message ID must not fall back to a new message at the old index.
+    if(message.miao_nai_image_id)return ctx().chat.find(m=>m.miao_nai_image_id===message.miao_nai_image_id)||null;
     if(!fallback)return null;
     const candidate=ctx().chat[fallback.messageIndex];
     if(!candidate||candidate.name!==fallback.name||!!candidate.is_user!==!!fallback.is_user||!!candidate.is_system!==!!fallback.is_system)return null;
@@ -285,14 +291,13 @@ function tagEditor(message,block){
 }
 function startGeneration(message,block,{automatic=false,egg=false}={}) {
     message=liveMessage(message);if(!message)throw Error('原楼层已切换，请重新点击当前图片');
-    const key=identity(message,block), chat=currentChat(), taskId=`${chat}:${ctx().chat.indexOf(message)}:${key}`;
+    const key=identity(message,block), chat=currentChat(), taskId=generationIdentity(message,block,chat);
     const existing=running.get(taskId)||taskFor(message,block);if(existing)return existing.promise;
-    message.miao_nai_image_id??=randomId();
     const {profile,profileId,profileName,source:profileSource}=selectGenerationProfile(settings,{egg});
     const request=buildRequest(profile,block.prompt);
     request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
-    attempted.add(taskId);
+    if(autoSession?.chat===chat)autoSession.attempted.add(taskId);
     const task={profileId,profileName,profileSource,profile,request,blockStart:block.start,blockRaw:block.raw,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
     const waiting=running.size>0||settings.cloudQueue;running.set(taskId,task);renderAll();
     if(waiting)notices.info('已加入生图队列','喵喵文生图');
@@ -978,7 +983,7 @@ async function deleteImages(folder,names,{parent,preserveSamples=false,days}={})
 async function openSettings(initialTab,initialFavorite,initialPage) {
     if(initialTab==='favorites'&&!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
     if(!['resources','favorites'].includes(initialTab))initialTab=undefined;
-    if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
+    if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){settingsPopup?.expand?.();if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,initialFavorite,favorites,saveFavorite,generateFavorite,sceneFromImage,
         confirmCustomVibeOrigin:({generationOrigin,encodeOrigin})=>confirmSettings(`在线编码将使用同一个 API Key。生图站点：${generationOrigin}\n编码站点：${encodeOrigin}\n只有在你信任该编码站点时才继续保存。`,'确认跨站点 Vibe 编码',{confirmLabel:'确认并保存'}),
         removeFavorite:async id=>{if(!await confirmSettings('删除这条收藏？图片文件会保留。','删除收藏'))return false;await favorites.remove(id);return true;},
@@ -1049,8 +1054,8 @@ async function autoLatest() {
     // Re-read live text after waiting for macros; never enqueue stale candidates.
     const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
     for(const {block,egg} of generationCandidates(parsed,{streaming:generationChat===currentChat(),eggEnabled})) {
-        const id=`${currentChat()}:${ctx().chat.indexOf(message)}:${identity(message,block)}`;
-        if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg});
+        const id=generationIdentity(message,block);
+        if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!session.attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg});
     }
 }
 function scanStream() {
@@ -1091,7 +1096,7 @@ async function init() {
         // never emit GENERATION_ENDED. They must not hide the last floor's cards.
         if(dryRun||type==='quiet'||type==='impersonate')return;
         streamActive=false;generationChat=currentChat();
-        autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',marker:settings.eggProfileEnabled?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
+        autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',attempted:new Set(),marker:settings.eggProfileEnabled?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
     });
     c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;renderAll();if(same)autoLatest();});
     if(c.eventTypes.GENERATION_STOPPED)c.eventSource.on(c.eventTypes.GENERATION_STOPPED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;scheduleRender(false);if(same&&settings.eggProfileEnabled)void autoLatest();});
