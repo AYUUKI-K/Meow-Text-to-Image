@@ -2354,20 +2354,12 @@ dialog.miao-settings-window[open] {
     overflow: hidden !important;
     box-sizing: border-box;
 }
-dialog.miao-settings-window[open][data-collapsed=true] {
-    width: min(300px,calc(var(--miao-panel-width,100vw) - 16px)) !important;
-    height: 58px !important;
-}
-dialog.miao-settings-window[open]:not([data-collapsed=true]):has(.miao-settings[data-section=overview]) {height:auto!important;}
-.miao-settings-window[data-collapsed=true] #miao-nai-settings>:not(.miao-header),
-.miao-settings-window[data-collapsed=true] .miao-home-button,
-.miao-settings-window[data-collapsed=true] .miao-save-button {display:none!important;}
+dialog.miao-settings-window[open]:has(.miao-settings[data-section=overview]) {height:auto!important;}
 .miao-settings-window .miao-header {gap:6px;padding-inline:10px;}
 .miao-window-handle {display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;min-height:44px;padding:0;border:0;background:transparent;color:inherit;cursor:grab;touch-action:none;user-select:none;}
 .miao-window-handle:active {cursor:grabbing;}
 .miao-window-title {flex:1;min-width:0;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.miao-window-toggle {display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;font-size:24px;cursor:pointer;touch-action:manipulation;}
-.miao-window-handle:focus-visible,.miao-window-toggle:focus-visible {outline:2px solid var(--mi-blue,Highlight);outline-offset:-2px;}
+.miao-window-handle:focus-visible {outline:2px solid var(--mi-blue,Highlight);outline-offset:-2px;}
 .miao-home-button {font-size:13px;}
 .miao-settings-window .miao-save-button {min-width:48px;padding-inline:10px;}
 .miao-settings-window .miao-actions {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:8px;align-items:stretch;}

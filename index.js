@@ -55,7 +55,7 @@ import {createExtensionUpdater} from './src/platform/updates.js';
 import {createResourceUpdater} from './src/resources/resource-updates.js';
 import {archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation,rememberImage,archiveItems} from './src/images/image-archives.js';
 import {createProfilePreviews,ensureProfileIds,sampleSignature,SAMPLE_PROMPT} from './src/profiles/profile-previews.js';
-import {downloadImageSelection} from './src/images/downloads.js';
+import {downloadImageSelection,downloadLocalPNG,downloadBrowserBlob} from './src/images/downloads.js';
 import {migrateSwipeImages,readSwipeImage,writeSwipeImage,moveSwipeImage,swipeImageRecords,removeSwipeImages} from './src/chat/swipe-history.js';
 import { defaults, parseBodyBlocks, maskReasoning, renderedBlockRange, buildRequest, latestImageMessage, canAutoGenerate, validateFolder, imageDay, imageURL, normalizeProfile, delimiterPattern } from './src/core/core.js';
 
@@ -134,7 +134,7 @@ function el(tag,text,cls) { const n=document.createElement(tag); if(text!==undef
 async function showPopup(content,type,input='',options={}){
     if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-settings'))return showSettingsWindow(content,{...options,getPosition:()=>settings.windowPosition,savePosition:value=>{settings.windowPosition=value;save();}});
     if(type===POPUP_TYPE.TEXT&&content?.matches?.('.miao-image-viewer')){
-        settingsPopup?.expand?.();
+        settingsPopup?.focus?.();
         const parent=settingsPopup?.dlg?.isConnected?settingsPopup.dlg:settingsHost?.closest('dialog');
         return parent?showPanelPage(content,{...options,parent}):openSettings(undefined,undefined,{content,options});
     }
@@ -364,19 +364,20 @@ function makeCard(message,block) {
     const actions=el('div',undefined,'miao-image-tools');actions.hidden=true;
     const button=(label,fn,parent=actions)=>{const b=el('button',label,'miao-button');b.type='button';if(label==='删除')bindButtonPress(b,()=>guard(fn)());else b.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();guard(fn)();});parent.append(b);return b;};
     if(current?.url&&!current.deleted){
-        const image=el('img');image.alt='生成的剧情插图';bindImage(image,current.url,{lazy:true});image.draggable=false;image.tabIndex=0;image.setAttribute('role','button');image.setAttribute('aria-label','单击图片显示选项，双击重新生成');
+        const image=el('img');image.alt='生成的剧情插图';bindImage(image,current.url,{lazy:true});image.draggable=false;image.tabIndex=0;image.setAttribute('role','button');
         const setRatio=(width,height)=>{if(width>0&&height>0&&Number.isFinite(width/height))card.style.setProperty('--miao-image-ratio',String(width/height));};
         setRatio(current.request?.width,current.request?.height);
         image.addEventListener('load',()=>setRatio(image.naturalWidth,image.naturalHeight));
         if(image.complete)setRatio(image.naturalWidth,image.naturalHeight);
-        image.setAttribute('aria-label',`单击图片显示选项，${settings.rerollClicks===3?'三':'双'}击重新生成`);
+        image.setAttribute('aria-label',`单击图片显示选项，再单击放大，${settings.rerollClicks===3?'三':'双'}击重新生成`);
+        const activateImage=()=>{if(actions.hidden)actions.hidden=false;else guard(()=>openChatImage(message,block,current.url))();};
         const cancelGesture=bindImageGesture(image,{getClicks:()=>settings.rerollClicks===3?3:2,
-            onSingle:()=>{if(image.isConnected&&image.dataset.toolsEpoch===String(imageToolsEpoch))actions.hidden=!actions.hidden;},
+            onSingle:()=>{if(image.isConnected&&image.dataset.toolsEpoch===String(imageToolsEpoch))activateImage();},
             onReroll:()=>{const now=Date.now();if(task||now-lastGestureReroll<900)return;lastGestureReroll=now;actions.hidden=true;guard(()=>generate(message,block))();}});
         image.addEventListener('pointerdown',()=>{image.dataset.toolsEpoch=String(imageToolsEpoch);});
         image.addEventListener('click',()=>{image.dataset.toolsEpoch??=String(imageToolsEpoch);});
         card._cancelGesture=cancelGesture;
-        image.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();actions.hidden=!actions.hidden;}});
+        image.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();if(!event.repeat){cancelGesture();activateImage();}}});
         card.append(image);
         const available=versions.map((version,index)=>({version,index})).filter(({version})=>version.url&&!version.deleted);
         if(available.length>1){
@@ -663,8 +664,10 @@ async function testImage() {
 function saveCapture(start,end) {
     const pattern=delimiterPattern(start,end);settings.startTag=start;settings.endTag=end;settings.pattern=pattern;save();renderAll();notices.success('捕捉标签已保存');
 }
-async function downloadImage(url,name='miao-image.png') {
+async function downloadImage(url,name) {
+    if(!name){try{name=decodeURIComponent(new URL(url,location.href).pathname.split('/').at(-1))||'miao-image.png';}catch{name='miao-image.png';}}
     const format=settings.exportFormat;
+    if(format!=='jpg'&&!isTT()&&downloadLocalPNG({url,name}))return;
     const file=await inStage('image-export',()=>imagePresentation.file({url,name},format));return saveFile(file.blob,file.name);
 }
 async function saveDownload(blob,name,format=settings.exportFormat){
@@ -673,8 +676,7 @@ async function saveDownload(blob,name,format=settings.exportFormat){
 }
 async function saveFile(blob,name){
     if(isTT()&&typeof hostUtils.download==='function')return hostUtils.download(blob,name,blob.type,{throwOnFailure:true});
-    const objectURL=URL.createObjectURL(blob);
-    const link=el('a');link.href=objectURL;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(objectURL),60000);
+    return downloadBrowserBlob(blob,name);
 }
 async function exportPromptFile(profile){
     // Snapshot before reading the image so edits during export cannot mix two configurations.
@@ -704,7 +706,7 @@ async function downloadImages(images){
     if(ios&&images.length>1)return showImageBatchExport({parent:settingsPopup.dlg,images,prepareFile:image=>imagePresentation.file(image,format),saveFile,makeZip:async files=>{
         if(!globalThis.JSZip)await import('/lib/jszip.min.js');const zip=new JSZip();for(const file of files)zip.file(file.name,file.blob);return zip.generateAsync({type:'blob',compression:'STORE'});
     }});
-    await downloadImageSelection(images,{saveBlob:(blob,name)=>saveDownload(blob,name,format)});
+    await downloadImageSelection(images,{downloadURL:format!=='jpg'&&!isTT()?image=>downloadLocalPNG(image):undefined,saveBlob:(blob,name)=>saveDownload(blob,name,format)});
 }
 function imageRecord(url){
     const path=value=>{try{return localImagePath(value);}catch{return value;}};
@@ -983,7 +985,7 @@ async function deleteImages(folder,names,{parent,preserveSamples=false,days}={})
 async function openSettings(initialTab,initialFavorite,initialPage) {
     if(initialTab==='favorites'&&!favoritesEnabled(settings))throw Error('请先在「生成」页开启收藏提示词');
     if(!['resources','favorites'].includes(initialTab))initialTab=undefined;
-    if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){settingsPopup?.expand?.();if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
+    if(settingsPopup?.dlg?.isConnected||settingsHost?.isConnected){settingsPopup?.focus?.();if(initialTab)settingsHost.dispatchEvent(new CustomEvent('miao-open-section',{detail:{section:initialTab,favorite:initialFavorite}}));return;}
     const panel=createSettingsPanel({settings,save,persistSettings,initialTab,initialFavorite,favorites,saveFavorite,generateFavorite,sceneFromImage,
         confirmCustomVibeOrigin:({generationOrigin,encodeOrigin})=>confirmSettings(`在线编码将使用同一个 API Key。生图站点：${generationOrigin}\n编码站点：${encodeOrigin}\n只有在你信任该编码站点时才继续保存。`,'确认跨站点 Vibe 编码',{confirmLabel:'确认并保存'}),
         removeFavorite:async id=>{if(!await confirmSettings('删除这条收藏？图片文件会保留。','删除收藏'))return false;await favorites.remove(id);return true;},

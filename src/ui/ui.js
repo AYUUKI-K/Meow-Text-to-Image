@@ -121,13 +121,12 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         const header=node('header',undefined,'miao-header');
         const back=node('button','主页','miao-drawer-back miao-home-button');back.type='button';back.setAttribute('aria-label','返回主页');back.title='主页';back.onclick=()=>{activeTab='overview';render();root.closest('.popup-content')?.scrollTo({top:0});};header.append(back);
         const titles={overview:'喵喵文生图',generation:'生成',config:'配置',vibes:'Vibe',resources:'资源',images:'图库',favorites:'收藏'};
-        const handle=node('button',undefined,'miao-window-handle');handle.type='button';handle.setAttribute('aria-label','拖动窗口，方向键移动，Home 键复位');handle.title='移动窗口';handle.innerHTML='<svg width="18" height="20" viewBox="0 0 18 20" fill="currentColor" aria-hidden="true"><circle cx="6" cy="4" r="1.5"/><circle cx="12" cy="4" r="1.5"/><circle cx="6" cy="10" r="1.5"/><circle cx="12" cy="10" r="1.5"/><circle cx="6" cy="16" r="1.5"/><circle cx="12" cy="16" r="1.5"/></svg>';header.append(handle);
+        const handle=node('button',undefined,'miao-window-handle');handle.type='button';handle.setAttribute('aria-label','拖动窗口，方向键移动，Home 键复位');handle.title='移动窗口';handle.innerHTML='<svg class="miao-window-grip" width="18" height="20" viewBox="0 0 18 20" fill="currentColor" aria-hidden="true"><circle cx="6" cy="4" r="1.5"/><circle cx="12" cy="4" r="1.5"/><circle cx="6" cy="10" r="1.5"/><circle cx="12" cy="10" r="1.5"/><circle cx="6" cy="16" r="1.5"/><circle cx="12" cy="16" r="1.5"/></svg>';header.append(handle);
         const title=node('span',titles[activeTab]||'喵喵文生图','miao-window-title');header.append(title);
         header.dataset.compact=String(activeTab!=='overview');
         if(activeTab!=='overview'){
             const saveButton=action(header,'保存',async()=>{saveButton.textContent='保存中…';try{await commitPage();await persistSettings();afterSave();const current=root.querySelector('.miao-save-button');if(current)current.textContent='已保存';}catch(error){const current=root.querySelector('.miao-save-button');if(current)current.textContent='保存';throw error;}});saveButton.classList.add('miao-save-button');
         }
-        const fold=node('button','−','miao-window-toggle');fold.type='button';fold.setAttribute('aria-label','折叠窗口');fold.setAttribute('aria-expanded','true');bindButtonPress(fold,()=>root.dispatchEvent(new Event('miao-toggle-window')));header.append(fold);
         const close=node('button','×','miao-drawer-close');close.type='button';close.setAttribute('aria-label','关闭设置');close.onclick=safe(closeSettings);header.append(close);root.append(header);
         const tabs=node('nav',undefined,'miao-tabs');tabs.setAttribute('aria-label','设置分区');
         for(const [id,label] of [['generation','生成'],['config','配置'],['vibes','Vibe'],['resources','资源'],['images','图库'],['favorites','收藏']].filter(([id])=>id!=='favorites'||favoritesEnabled(settings))) {
