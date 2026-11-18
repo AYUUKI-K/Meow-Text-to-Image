@@ -20,7 +20,7 @@ import {activeSecondaryPreset,addSecondaryPreset,listedSecondaryMacros,readSecon
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const panelMemory=new WeakMap();
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,saveSecondaryPresets,exportSecondaryPreset,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,saveSecondaryPresets,exportSecondaryPreset,lastSecondaryRequest,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);memory.promptExpanded??=new Set();
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
@@ -94,6 +94,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             return {label,summary,content};
         });
         const macros=node('p',undefined,'miao-notice');macros.hidden=true;
+        const sent=node('details'),sentLabel=node('summary','最近发送 · 宏展开后'),sentContent=node('pre',undefined,'miao-capture-sample');
+        sent.hidden=true;sent.append(sentLabel,sentContent);messages.append(sent);
         presets.append(actions,file,ready,messages,macros);
         action(actions,'导入副 API 预设',()=>file.click());
         action(actions,'导出当前预设',async()=>showPreparedFile(ready,await exportSecondaryPreset(activeSecondaryPreset(readSecondaryLibrary(settings)))));
@@ -116,7 +118,10 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 content.textContent=preview[index].content;
             }
             const other=listedSecondaryMacros(preset);macros.hidden=!other.length;
-            macros.textContent=other.length?'其他宏按原文发送：'+other.join('、'):'';
+            macros.textContent=other.length?'发送前展开：'+other.join('、'):'';
+            const expanded=lastSecondaryRequest(preset);
+            sent.hidden=!expanded;
+            sentContent.textContent=expanded?.map(({role,content})=>role+'\n'+content).join('\n\n')??'';
             ready.replaceChildren();ready.hidden=true;
         }
         paint();
@@ -467,7 +472,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,maxTags:limit.value,remember:remember.value==='device'});
                     key.value='';
                 });
-                api.append(node('p','出词时会将当前楼层正文发给填写的副 API。','miao-muted'));
+                api.append(node('p','出词时发送当前楼层正文，以及预设引用的上下文、世界书和宏值。','miao-muted'));
                 action(actions,'保存副 API',async()=>{await commitPage();render();},true);
                 renderSecondaryPresets(body,withPromptLock);
             }else{

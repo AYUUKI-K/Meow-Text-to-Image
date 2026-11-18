@@ -28,7 +28,7 @@ import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_
 import {editedTag} from './src/prompts/tag-edit.js';
 import {secondaryEnabled,secondaryConnection,secondaryBody,requestSecondaryTags,secondaryPattern} from './src/prompts/secondary-tags.js';
 import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile} from './src/prompts/secondary-presets.js';
-import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks} from './src/chat/secondary-tags.js';
+import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,secondaryHistory} from './src/chat/secondary-tags.js';
 import {exportPreview,previewPNG} from './src/prompts/prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
@@ -101,6 +101,8 @@ let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
 let secondarySession=null,secondaryJob=null;
+let secondaryRequestPreview=null;
+const secondaryWorldInfo=new WeakMap();
 const promptInjection=createPromptInjection({context:ctx,settings,onError:()=>notices.error('D0 提示词注入失败，请检查宿主兼容性','提示词')});
 const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
 const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
@@ -1006,6 +1008,11 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         savePromptConfig,saveSecondarySettings,testImage,installDefaults,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         saveSecondaryPresets:library=>saveSecondarySettings('secondary',undefined,library),
         exportSecondaryPreset:preset=>{const {blob,name}=secondaryPresetFile(preset);return prepareFileDownload(blob,name);},
+        lastSecondaryRequest:preset=>{
+            const last=secondaryRequestPreview,message=latestImageMessage(ctx().chat);
+            return last?.chat===currentChat()&&last.message===message&&last.text===message?.mes&&
+                last.swipe===(message?.swipe_id??0)&&last.preset===preset.id?last.messages:null;
+        },
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
@@ -1083,7 +1090,30 @@ async function runSecondaryTags(message,automatic){
             const key=await secondaryVault(connection.url).get();
             if(!current()||controller.signal.aborted)return;
             if(!key)throw Error('请在「生图指令」页保存副 API Key');
-            return requestSecondaryTags({...connection,maxTags:remaining,preset},key,body,{signal:controller.signal});
+            const host=ctx(),world=secondaryWorldInfo.get(message);
+            const values=secondaryHistory(host.chat,message,source=>secondaryBody(source,settings.pattern,reasoningFormat()));
+            values.世界书触发=()=>world?.chat===chat&&world.swipe===swipe&&world.text===text?world.content:'';
+            const macros={
+                values,
+                substitute:host.substituteParams?.bind(host),
+                legacy:host.powerUserSettings?.experimental_macro_engine===false,
+                readVariable:name=>{
+                    for(const [scope,store] of [
+                        [host.variables?.local,host.chatMetadata?.variables],
+                        [host.variables?.global,extension_settings.variables?.global],
+                    ]){
+                        if(scope?.has?.(name))return scope.get(name);
+                        if(Object.hasOwn(store??{},name))return store[name];
+                    }
+                },
+            };
+            return requestSecondaryTags({...connection,maxTags:remaining,preset},key,body,{
+                signal:controller.signal,macros,
+                onPrepared:messages=>{
+                    if(!current()||controller.signal.aborted)throw new DOMException('Cancelled','AbortError');
+                    secondaryRequestPreview={chat,message,text,swipe,preset:preset.id,messages};
+                },
+            });
         };
         const tags=await Promise.race([request(),cancelled]);
         if(!tags||!current()||controller.signal.aborted)return;
@@ -1116,9 +1146,10 @@ function finishSecondarySession(){
     const session=secondarySession;
     secondarySession=null;
     const message=latestImageMessage(ctx().chat);
-    if(!session||session.chat!==currentChat()||!message||settings.mode==='manual')return;
+    if(!session||session.chat!==currentChat()||!message)return;
     if(message===session.message&&message.mes===session.text&&(message.swipe_id??0)===session.swipe)return;
-    void runSecondaryTags(message,true);
+    secondaryWorldInfo.set(message,{chat:session.chat,text:message.mes,swipe:message.swipe_id??0,content:session.worldInfo??''});
+    if(settings.mode!=='manual')void runSecondaryTags(message,true);
 }
 function scanStream() {
     if(!settings.enabled||settings.mode!=='stream'||!streamActive||generationChat!==currentChat())return;
@@ -1150,6 +1181,10 @@ async function init() {
     }
     refreshPrompt();
     for(const name of ['CHAT_LOADED','CHAT_CHANGED','GENERATION_AFTER_COMMANDS'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],refreshPrompt);
+    if(c.eventTypes.WORLD_INFO_ACTIVATED)c.eventSource.on(c.eventTypes.WORLD_INFO_ACTIVATED,entries=>{
+        if(secondarySession?.chat!==currentChat()||!Array.isArray(entries))return;
+        secondarySession.worldInfo=entries.filter(entry=>typeof entry?.content==='string').map(entry=>entry.content).join('\n\n').slice(0,12000);
+    });
 
     let migrated=false;for(const message of c.chat)migrated=migrateSwipeImages(message)||migrated;if(migrated)await c.saveChat();
     document.addEventListener('click',event=>{
@@ -1173,7 +1208,7 @@ async function init() {
         removeSwipeImages(message,swipeId);await ctx().saveChat();scheduleRender(false);
     });
     c.eventSource.on(c.eventTypes.CHAT_CHANGED,()=>{
-        streamActive=false;generationChat=null;autoSession=null;secondarySession=null;secondaryJob?.controller.abort();
+        streamActive=false;generationChat=null;autoSession=null;secondarySession=null;secondaryRequestPreview=null;secondaryJob?.controller.abort();
         scheduleRender(false);setTimeout(()=>guard(indexChatImages)(),0);
     });
     for(const name of ['CHAT_LOADED','MORE_MESSAGES_LOADED'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],()=>setTimeout(()=>guard(indexChatImages)(),0));

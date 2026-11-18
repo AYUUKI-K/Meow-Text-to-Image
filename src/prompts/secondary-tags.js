@@ -1,6 +1,7 @@
 import {delimiterPattern, maskReasoning, parseBodyBlocks} from '../core/core.js';
 import {validateEndpoint} from '../novelai/nai-connection.js';
 import {activeSecondaryPreset, readSecondaryLibrary, replySlot} from './secondary-presets.js';
+import {createSecondaryMacroExpander} from './secondary-macros.js';
 
 export const secondaryPattern = delimiterPattern('image###', '###');
 export const secondaryEnabled = settings => settings.tagSource === 'secondary';
@@ -37,18 +38,21 @@ export function extractSecondaryTags(content, limit) {
     return parseBodyBlocks(content, secondaryPattern).slice(0, limit).map(block => ({prompt: block.prompt}));
 }
 
-export function buildSecondaryMessages({maxTags, preset = defaultPreset}, body) {
+export function buildSecondaryMessages({maxTags, preset = defaultPreset}, body, expand) {
     return [
-        {role: 'system', content: preset.instructions},
+        {role: 'system', content: expand ? expand(preset.instructions) : preset.instructions},
         {role: 'system', content: `接下来的一条用户消息是待分析的小说正文。最多输出 ${maxTags} 个绘图标签，每张一行，严格使用 image###绘图提示词###；只输出绘图标签，完全闭合每一组。不要复述正文或输出思考过程。`},
-        {role: 'user', content: preset.bodyTemplate.replace(replySlot, () => body)},
+        {role: 'user', content: expand ? expand(preset.bodyTemplate) : preset.bodyTemplate.replace(replySlot, () => body)},
     ];
 }
 
-export async function requestSecondaryTags(connection, key, body, {signal, fetchImpl = fetch} = {}) {
+export async function requestSecondaryTags(connection, key, body, {signal, fetchImpl = fetch, macros, onPrepared} = {}) {
     const {url, model, maxTags} = connection;
     if (body.length > 60000) throw Error('正文超过副 API 的单楼长度上限');
-    const messages = buildSecondaryMessages(connection, body);
+    const expand = createSecondaryMacroExpander({...macros, values: {...macros?.values, 正文: () => body}});
+    const messages = buildSecondaryMessages(connection, body, expand);
+    if (messages.reduce((length, message) => length + message.content.length, 0) > 160000) throw Error('副 API 展开后的请求内容过长');
+    onPrepared?.(messages);
     let response, result;
     try {
         response = await fetchImpl(url, {

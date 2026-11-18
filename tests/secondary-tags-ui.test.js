@@ -40,18 +40,20 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await presetPicker.selectOption('electronic-ghost');
             const messages=page.locator('.miao-secondary-preset-messages');
             const bodyTemplate='<剧情原文>\n{{正文}}\n</剧情原文>';
-            const bodyEntry=messages.locator('details').last();
+            const bodyEntry=messages.locator('details').nth(2);
             await bodyEntry.locator('pre').waitFor();
-            await page.waitForFunction(expected=>document.querySelector('.miao-secondary-preset-messages details:last-child pre')?.textContent===expected,bodyTemplate);
+            await page.waitForFunction(expected=>document.querySelector('.miao-secondary-preset-messages details:nth-child(3) pre')?.textContent===expected,bodyTemplate);
             await messages.getByText('预设指令 · system',{exact:true}).click();
             await messages.locator('details[open] pre').getByText(/你是尤瑞/).waitFor();
             assert.equal(requests.length,0,'previewing a preset must not call the secondary API');
             await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://tag-fixture.invalid/v1');
             await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture-model');
             await page.getByLabel('副 API Key',{exact:true}).fill('fixture-secondary-key');
-            const fixture={type:'miao-secondary-tag-preset',version:1,name:'Fixture preset',instructions:'FIXTURE_DIRECTOR {{getvar::对象}}',bodyTemplate};
+            const fixture={type:'miao-secondary-tag-preset',version:1,name:'Fixture preset',
+                instructions:'{{setvar::对象::猫}}{{setglobalvar::标题::{{getvar::对象}}和花}}FIXTURE_DIRECTOR {{getvar::对象}}',
+                bodyTemplate:bodyTemplate+'\n{{getglobalvar::标题}}\n{{角色启用列表}}\n{{上下文}}\n{{用户需求}}\n{{世界书触发}}'};
             await page.locator('input[type=file]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
-            await page.getByText('其他宏按原文发送：{{getvar::对象}}',{exact:true}).waitFor();
+            await page.getByText(/发送前展开：.*\{\{getvar::对象\}\}/).waitFor();
             assert.equal(await presetPicker.inputValue(),'import-0');
             await page.getByRole('button',{name:'保存副 API',exact:true}).click();
             await page.waitForFunction(()=>!!window.preview.settings.secondaryTagAPI);
@@ -75,13 +77,22 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.evaluate(async tt=>{
                 const p=window.preview;
                 Object.assign(p.settings,{mode:tt?'manual':'stream',cloudQueue:false,eggProfileEnabled:false});
-                p.chat.splice(0,p.chat.length,{name:'User',mes:'Earlier private text',is_user:true});
+                p.context.powerUserSettings.experimental_macro_engine=false;
+                const local=new Map([['角色启用列表','cats']]),global=new Map();
+                const scope=store=>({has:key=>store.has(key),get:key=>store.get(key)});
+                p.context.variables={local:scope(local),global:scope(global)};
+                // Model Tavern's flat legacy substitution API. Plugin must protect the visible reply and resolve nested setters.
+                p.context.substituteParams=text=>text
+                    .replace(/\{\{set(global)?var::([^:]+)::([^}]*)\}\}/g,(_,g,name,value)=>{(g?global:local).set(name,value);return '';})
+                    .replace(/\{\{get(global)?var::([^}]+)\}\}/g,(_,g,name)=>(g?global:local).get(name)??'');
+                p.chat.splice(0,p.chat.length,{name:'System',mes:'never send fixture',is_system:true},{name:'User',mes:'Earlier visible text',is_user:true});
                 window.drawSecondaryFixture=()=>{document.getElementById('chat').innerHTML=p.chat.map((message,index)=>`<div class="mes" mesid="${index}"><div class="mes_text">${message.mes}</div></div>`).join('');};
                 window.drawSecondaryFixture();await p.emit('CHAT_CHANGED');
                 await p.emit('GENERATION_STARTED','normal',{},false);
+                await p.emit('WORLD_INFO_ACTIVATED',[{content:'Garden lore'}]);
                 p.chat.push({name:'Reply',mes:'<think>private reasoning</think>正文：猫跳上窗台。 image###inline main tag###'});
                 window.drawSecondaryFixture();
-                await p.emit('STREAM_TOKEN_RECEIVED');await p.emit('CHARACTER_MESSAGE_RENDERED',1);
+                await p.emit('STREAM_TOKEN_RECEIVED');await p.emit('CHARACTER_MESSAGE_RENDERED',2);
             },tt);
             await page.waitForTimeout(180);
             assert.equal(requests.length,0);
@@ -97,12 +108,19 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.equal(requests.length,1);
             assert.equal(requests[0].auth,'Bearer fixture-secondary-key');
             assert.equal(requests[0].body.model,'fixture-model');
-            assert.equal(requests[0].body.messages[0].content,fixture.instructions);
-            assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n正文：猫跳上窗台。\n</剧情原文>'});
+            assert.equal(requests[0].body.messages[0].content,'FIXTURE_DIRECTOR 猫');
+            assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n正文：猫跳上窗台。\n</剧情原文>\n猫和花\ncats\n用户：Earlier visible text\nEarlier visible text\nGarden lore'});
             assert.equal(await page.evaluate(()=>window.preview.chat.at(-1).mes),'<think>private reasoning</think>正文：猫跳上窗台。 image###inline main tag###');
             if(tt){
                 assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
                 await secondary.getByRole('button',{name:'生成插图',exact:true}).waitFor();
+                await page.locator('#miao-nai-menu').tap();
+                await nav.getByRole('button',{name:'生图指令',exact:true}).tap();
+                await messages.getByText('最近发送 · 宏展开后',{exact:true}).tap();
+                const expanded=messages.locator('details').nth(3).locator('pre');
+                assert.equal(await expanded.textContent(),requests[0].body.messages.map(({role,content})=>role+'\n'+content).join('\n\n'));
+                assert.equal(requests.length,1,'the last-request preview must not send a request');
+                await page.getByRole('button',{name:'关闭设置',exact:true}).tap();
             }else{
                 await secondary.locator(':scope>img').waitFor();
                 assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
