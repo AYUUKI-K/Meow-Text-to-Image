@@ -15,10 +15,11 @@ import {FAVORITE_FOLDER,favoritesEnabled} from '../prompts/prompt-favorites.js';
 import {novelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {fontAwesomeElement} from './fontawesome-icons.js';
 import {onlineEncodingAvailable,resolveCustomEndpoints} from '../novelai/nai-connection.js';
+import {readSecondaryPreset,secondaryEnabled} from '../prompts/secondary-tags.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const panelMemory=new WeakMap();
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);memory.promptExpanded??=new Set();
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
@@ -394,36 +395,71 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             };
             const savePanelPrompt=next=>withPromptLock(()=>savePromptConfig(next));
             let switching=false;
-            const source=field(resources,'来源',settings.promptConfig.mode,async value=>{
+            const selectedSource=()=>secondaryEnabled(settings)?'secondary':settings.promptConfig.mode;
+            const source=field(resources,'来源',selectedSource(),async value=>{
                 if(switching)return;switching=true;source.disabled=true;
-                try{await commitPage();await savePanelPrompt({...settings.promptConfig,mode:value});render();}
-                catch(error){source.value=settings.promptConfig.mode;onError(error);}finally{switching=false;source.disabled=false;}
-            },{options:[['builtin','使用插件内置指令'],['external','使用外部预设／世界书']]});
-            let macrosView;
-            const warnings=node('div');
-            const paintWarnings=()=>{warnings.replaceChildren();for(const text of promptWarnings(settings.promptConfig,start.value,end.value))warnings.append(node('p',text,'miao-notice'));};
-            if(settings.promptConfig.mode==='builtin'){
-                resources.append(node('p','内置模式注入 D0；请检查配套世界书，避免重复指令。','miao-muted'));
-                if(settings.promptConfig.migration?.modified?.length)resources.append(node('p','旧世界书正文修改不会自动继承至内置模板。','miao-notice'));
-                if(settings.promptConfig.version===1){
-                    resources.append(node('p',(hasLegacyCustomizations(settings.promptConfig)?'检测到旧版自定义正文，已保留兼容组装与编辑。':'旧版配置尚未完成迁移，可重新保存为新树。')+'选择新树会使用定稿正文，并保留完整旧配置备份。','miao-notice'));
-                    action(resources,'使用新树结构（保留旧版备份）',async()=>{await commitPage();await savePanelPrompt(migrateTreeSettings(settings.promptConfig,{adoptTree:true}));render();});
-                }else if(settings.promptConfig.legacyBackup?.config){
-                    action(resources,'恢复旧版配置备份',async()=>{await commitPage();if(!window.confirm('恢复迁移前配置？当前树形设置将被替换。'))return;await savePanelPrompt(structuredClone(settings.promptConfig.legacyBackup.config));render();});
+                try{
+                    if(!secondaryEnabled(settings))await commitPage();
+                    if(value==='secondary')await withPromptLock(()=>saveSecondarySettings('secondary'));
+                    else await withPromptLock(()=>savePromptConfig({...settings.promptConfig,mode:value},{useMainAPI:true}));
+                    render();
                 }
-                const saveTree=async next=>{await savePanelPrompt(next);paintWarnings();};
-                macrosView=createResourceMacrosView({read:readResourceMacros,save:async(snapshot,values)=>{const result=await withPromptLock(()=>saveResourceMacros(snapshot,values));paintWarnings();return result;},onError});body.append(macrosView.element);
-                body.append(createPromptModulesView({settings,save:saveTree,onError,parent:()=>root.closest('dialog')||root,expanded:memory.promptExpanded}));
-                const tools=section(body,'工具'),file=node('input');file.type='file';file.accept='.json';file.hidden=true;file.onchange=safe(async()=>{if(file.files[0])await installRegex(JSON.parse(await file.files[0].text()));file.value='';});tools.append(file);action(tools,'导入正则',()=>file.click());
-            }
-            const capture=section(body,'捕捉标签');
+                catch(error){source.value=selectedSource();onError(error);}finally{switching=false;source.disabled=false;}
+            },{options:[['builtin','主 API · 插件内置指令'],['external','主 API · 外部预设／世界书'],['secondary','副 API · 正文结束后出词']]});
+            if(secondaryEnabled(settings)){
+                const api=section(body,'副 API（OpenAI 兼容）'),connection=settings.secondaryTagAPI||{};
+                let preset=connection.preset??null;
+                const url=field(api,'副 API 地址',connection.url,()=>{},{wide:true});
+                url.placeholder='https://example.com/v1/chat/completions';
+                const model=field(api,'副 API 模型',connection.model,()=>{});
+                const key=field(api,'副 API Key','',()=>{},{type:'password'});key.autocomplete='off';
+                const limit=field(api,'每楼图片上限',connection.maxTags??3,()=>{},{type:'number'});
+                limit.min='1';limit.max='8';limit.step='1';
+                const remember=field(api,'副 API Key 保存',connection.remember?'device':'page',()=>{},{options:[['page','当前页面'],['device','此设备']]});
+                const presetName=field(api,'当前副 API 预设',preset?.name||'默认指令',()=>{});presetName.readOnly=true;
+                const upload=node('input');upload.type='file';upload.accept='.json,application/json';upload.hidden=true;api.append(upload);
+                upload.onchange=safe(async()=>{
+                    const file=upload.files[0];upload.value='';
+                    if(!file)return;
+                    if(file.size>300000)throw Error('副 API 预设文件过大');
+                    preset=readSecondaryPreset(await file.text());presetName.value=preset.name;
+                });
+                const actions=node('div',undefined,'miao-actions');api.append(actions);
+                action(actions,'导入副 API 预设',()=>upload.click());
+                action(actions,'恢复默认指令',()=>{preset=null;presetName.value='默认指令';});
+                commitPage=async()=>withPromptLock(async()=>{
+                    await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,maxTags:limit.value,preset,remember:remember.value==='device'});
+                    key.value='';
+                });
+                api.append(node('p','出词时会将当前楼层正文发给填写的副 API。','miao-muted'));
+                action(actions,'保存副 API',async()=>{await commitPage();render();},true);
+            }else{
+                let macrosView;
+                const warnings=node('div');
+                const paintWarnings=()=>{warnings.replaceChildren();for(const text of promptWarnings(settings.promptConfig,start.value,end.value))warnings.append(node('p',text,'miao-notice'));};
+                if(settings.promptConfig.mode==='builtin'){
+                    resources.append(node('p','内置模式注入 D0；请检查配套世界书，避免重复指令。','miao-muted'));
+                    if(settings.promptConfig.migration?.modified?.length)resources.append(node('p','旧世界书正文修改不会自动继承至内置模板。','miao-notice'));
+                    if(settings.promptConfig.version===1){
+                        resources.append(node('p',(hasLegacyCustomizations(settings.promptConfig)?'检测到旧版自定义正文，已保留兼容组装与编辑。':'旧版配置尚未完成迁移，可重新保存为新树。')+'选择新树会使用定稿正文，并保留完整旧配置备份。','miao-notice'));
+                        action(resources,'使用新树结构（保留旧版备份）',async()=>{await commitPage();await savePanelPrompt(migrateTreeSettings(settings.promptConfig,{adoptTree:true}));render();});
+                    }else if(settings.promptConfig.legacyBackup?.config){
+                        action(resources,'恢复旧版配置备份',async()=>{await commitPage();if(!window.confirm('恢复迁移前配置？当前树形设置将被替换。'))return;await savePanelPrompt(structuredClone(settings.promptConfig.legacyBackup.config));render();});
+                    }
+                    const saveTree=async next=>{await savePanelPrompt(next);paintWarnings();};
+                    macrosView=createResourceMacrosView({read:readResourceMacros,save:async(snapshot,values)=>{const result=await withPromptLock(()=>saveResourceMacros(snapshot,values));paintWarnings();return result;},onError});body.append(macrosView.element);
+                    body.append(createPromptModulesView({settings,save:saveTree,onError,parent:()=>root.closest('dialog')||root,expanded:memory.promptExpanded}));
+                    const tools=section(body,'工具'),file=node('input');file.type='file';file.accept='.json';file.hidden=true;file.onchange=safe(async()=>{if(file.files[0])await installRegex(JSON.parse(await file.files[0].text()));file.value='';});tools.append(file);action(tools,'导入正则',()=>file.click());
+                }
+                const capture=section(body,'捕捉标签');
 
-            const start=field(capture,'起始标签',settings.startTag,()=>{});start.placeholder='image###';
-            const end=field(capture,'结束标签',settings.endTag,()=>{});end.placeholder='###';
-            const sample=node('pre',undefined,'miao-capture-sample');
-            const updateSample=()=>{sample.textContent=start.value+'\nprompt\n'+end.value;if(settings.promptConfig.mode==='builtin')paintWarnings();};start.addEventListener('input',updateSample);end.addEventListener('input',updateSample);updateSample();capture.append(sample);
-            if(settings.promptConfig.mode==='builtin')capture.append(warnings);
-            commitPage=async()=>{await macrosView?.commit();if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);};
+                const start=field(capture,'起始标签',settings.startTag,()=>{});start.placeholder='image###';
+                const end=field(capture,'结束标签',settings.endTag,()=>{});end.placeholder='###';
+                const sample=node('pre',undefined,'miao-capture-sample');
+                const updateSample=()=>{sample.textContent=start.value+'\nprompt\n'+end.value;if(settings.promptConfig.mode==='builtin')paintWarnings();};start.addEventListener('input',updateSample);end.addEventListener('input',updateSample);updateSample();capture.append(sample);
+                if(settings.promptConfig.mode==='builtin')capture.append(warnings);
+                commitPage=async()=>{await macrosView?.commit();if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);};
+            }
 
 
         }

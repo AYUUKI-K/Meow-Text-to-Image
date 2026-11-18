@@ -26,6 +26,8 @@ import {showImageBatchExport} from './src/ui/image-batch-export.js';
 import {readGenerationMetadata,generationInfo} from './src/images/image-metadata.js';
 import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './src/prompts/prompt-files.js';
 import {editedTag} from './src/prompts/tag-edit.js';
+import {secondaryEnabled,secondaryConnection,secondaryBody,requestSecondaryTags,secondaryPattern} from './src/prompts/secondary-tags.js';
+import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks} from './src/chat/secondary-tags.js';
 import {exportPreview,previewPNG} from './src/prompts/prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
@@ -97,6 +99,7 @@ const cardBindings=new WeakMap();
 let chatObserver,chatRootObserver,observedChat,imageSaves=0;
 let queue=Promise.resolve(), streamActive=false, timer, autoScheduled=false, generationChat=null, settingsHost=null,imageToolsEpoch=0;
 let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDispose=()=>{},lastGestureReroll=0;
+let secondarySession=null,secondaryJob=null;
 const promptInjection=createPromptInjection({context:ctx,settings,onError:()=>notices.error('D0 提示词注入失败，请检查宿主兼容性','提示词')});
 const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
 const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
@@ -119,6 +122,11 @@ const eggMarkerCache=createEggMarkerCache({read:readResourceMacros,key:()=>setti
 const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
+const secondaryVaults=new Map();
+function secondaryVault(url){
+    if(!secondaryVaults.has(url))secondaryVaults.set(url,createKeyVault(JSON.stringify([directUser,'secondary-tags',url])));
+    return secondaryVaults.get(url);
+}
 const activeVault=()=>settings.naiConnection==='custom'?customVault:directVault;
 const direct=createDirectClient({settings,save,onDiagnostic:entry=>console.error('[Meow NAI]',JSON.stringify(entry)),getHeaders:()=>ctx().getRequestHeaders(),getKey:async(expectedKeyHash,connection)=>{
     if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
@@ -212,37 +220,42 @@ async function confirmSettings(question,title='确认删除',{parent,confirmLabe
 }
 const generationError=error=>notices.error(redactErrorText(error.message||error),errorTitle(error,'生图失败'),{escapeHtml:true,timeOut:12000,onclick:()=>{void errorPopup(error,{detail:true});}});
 function reasoningFormat(){const r=ctx().powerUserSettings?.reasoning||{};return {prefix:ctx().substituteParams?.(r.prefix||'')??r.prefix,suffix:ctx().substituteParams?.(r.suffix||'')??r.suffix};}
-function blocks(message) { return parseBodyBlocks(message.mes,settings.pattern,reasoningFormat()); }
-const blockSlot=block=>`body:${block.bodyIndex}:${block.prompt}`;
+function blocks(message,swipe=message.swipe_id??0) {
+    const text=(message.swipe_id??0)===swipe?message.mes:message.swipes?.[swipe];
+    if(typeof text!=='string')return [];
+    const main=parseBodyBlocks(text,settings.pattern,reasoningFormat());
+    return [...main,...secondaryBlocks(message,swipe,text,main.length)];
+}
+const blockSlot=block=>block.secondary?`secondary:${block.secondaryIndex}:${block.prompt}`:`body:${block.bodyIndex}:${block.prompt}`;
 function identity(message,block) { return `${message.swipe_id??0}:${blockSlot(block)}`; }
 function state(message,key) {
     const at=key.indexOf(':'),swipe=Number(key.slice(0,at)),slot=key.slice(at+1),prompt=promptIdentity(slot.replace(/^(?:body:)?\d+:/,''));
-    const text=(message.swipe_id??0)===swipe?message.mes:message.swipes?.[swipe];
-    const all=parseBodyBlocks(text,settings.pattern,reasoningFormat()),unique=all.filter(b=>promptIdentity(b.prompt)===prompt).length===1;
+    if(slot.startsWith('secondary:'))return readSwipeImage(message,swipe,slot);
+    const all=blocks(message,swipe).filter(b=>!b.secondary),unique=all.filter(b=>promptIdentity(b.prompt)===prompt).length===1;
     const block=all.find(b=>blockSlot(b)===slot);
     return readSwipeImage(message,swipe,slot,unique,block?`${block.index}:${block.prompt}`:undefined);
 }
 function currentChat() { return String(ctx().getCurrentChatId()); }
 const promptIdentity=prompt=>String(prompt).replace(/\s+/g,' ').trim();
+const matchingBlocks=(available,target)=>available.filter(block=>!!block.secondary===!!target.secondary&&promptIdentity(block.prompt)===promptIdentity(target.prompt));
 function liveMessage(message,fallback){
     if(ctx().chat.includes(message))return message;
     const byId=message.miao_nai_image_id&&ctx().chat.find(m=>m.miao_nai_image_id===message.miao_nai_image_id);
     if(byId)return byId;
-    if(!fallback)return null;
+    if(!fallback||fallback.secondary)return null;
     const candidate=ctx().chat[fallback.messageIndex];
     if(!candidate||candidate.name!==fallback.name||!!candidate.is_user!==!!fallback.is_user||!!candidate.is_system!==!!fallback.is_system)return null;
-    const text=(candidate.swipe_id??0)===fallback.swipe?candidate.mes:candidate.swipes?.[fallback.swipe];
-    const matching=parseBodyBlocks(text,settings.pattern,reasoningFormat()).filter(b=>promptIdentity(b.prompt)===fallback.prompt);
+    const matching=matchingBlocks(blocks(candidate,fallback.swipe),fallback);
     return matching[fallback.occurrence]?candidate:null;
 }
 function taskTarget(task,inactive=false){
     if(task.cancelled||currentChat()!==task.chat)return null;
     const message=liveMessage(task.message,task);if(!message)return null;
     const active=(message.swipe_id??0)===task.swipe;if(!active&&!inactive)return null;
-    const text=active?message.mes:message.swipes?.[task.swipe];if(typeof text!=='string')return null;
-    const block=parseBodyBlocks(text,settings.pattern,reasoningFormat()).filter(b=>promptIdentity(b.prompt)===task.prompt)[task.occurrence];
+    const available=blocks(message,task.swipe).filter(b=>!!b.secondary===!!task.secondary);
+    const block=matchingBlocks(available,task)[task.occurrence];
     if(!block||block.start!==task.blockStart||block.raw!==task.blockRaw)return null;
-    if(task.profileSource==='egg'&&parseBodyBlocks(text,settings.pattern,reasoningFormat()).at(-1)?.start!==block.start)return null;
+    if(task.profileSource==='egg'&&available.at(-1)?.start!==block.start)return null;
     return {message,block};
 }
 function taskFor(message,block){
@@ -257,6 +270,7 @@ function generate(message,block,{automatic=false,egg}={}) {
         if(!current)throw Error('原 tag 已删除或修改，请重新生成');
         return startGeneration(live,current,{automatic,egg:egg===true});
     };
+    if(block.secondary&&egg===undefined)egg=settings.eggProfileEnabled&&blocks(message).filter(b=>b.secondary).at(-1)?.start===block.start;
     if(egg!==undefined||!settings.eggProfileEnabled){try{return start();}catch(error){generationError(error);return;}}
     return eggMarkerCache.read().then(marker=>{
         const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
@@ -270,13 +284,28 @@ function tagEditor(message,block){
         if(chat!==currentChat()||!live||(live.swipe_id??0)!==swipe)throw Error('聊天或分支已切换，请重新打开提示词');
         if(taskFor(live,block))throw Error('这个 tag 正在生图，请完成后再编辑');
         if(streamActive&&generationChat===chat&&live===latestImageMessage(ctx().chat))throw Error('请等待本次回复输出完成后再编辑');
-        const next=editedTag(live.mes,block,prompt,settings.pattern,reasoningFormat());
+        const oldTags=readSecondaryTags(live,swipe);
+        let next,updatedTags;
+        if(block.secondary){
+            if(oldTags[block.secondaryIndex]?.prompt!==block.prompt)throw Error('原 tag 已变化，请重新打开提示词');
+            const edit=editedTag(block.raw,{...block,start:0},prompt,secondaryPattern,reasoningFormat());
+            next={block:{...block,prompt:edit.block.prompt,raw:edit.text}};
+            updatedTags=oldTags.map((tag,index)=>index===block.secondaryIndex?{...tag,prompt:edit.block.prompt}:tag);
+        }else next=editedTag(live.mes,block,prompt,settings.pattern,reasoningFormat());
         buildRequest(settings.profiles[settings.active],next.block.prompt);
         const record=state(live,identity(live,block)),oldText=live.mes;
-        live.mes=next.text;if(live.swipes)live.swipes[swipe]=next.text;
+        if(block.secondary)writeSecondaryTags(live,swipe,updatedTags);
+        else{live.mes=next.text;if(live.swipes)live.swipes[swipe]=next.text;}
         moveSwipeImage(live,swipe,blockSlot(block),blockSlot(next.block),record);
         try{await inStage('chat-save',()=>ctx().saveChat());}
-        catch(error){if(live.mes===next.text){live.mes=oldText;if(live.swipes)live.swipes[swipe]=oldText;moveSwipeImage(live,swipe,blockSlot(next.block),blockSlot(block),record);}throw error;}
+        catch(error){
+            if(block.secondary&&readSecondaryTags(live,swipe)===updatedTags){
+                writeSecondaryTags(live,swipe,oldTags);moveSwipeImage(live,swipe,blockSlot(next.block),blockSlot(block),record);
+            }else if(!block.secondary&&live.mes===next.text){
+                live.mes=oldText;if(live.swipes)live.swipes[swipe]=oldText;moveSwipeImage(live,swipe,blockSlot(next.block),blockSlot(block),record);
+            }
+            throw error;
+        }
         if(chat!==currentChat()||(live.swipe_id??0)!==swipe)return;
         const root=document.querySelector(`#chat .mes[mesid="${ctx().chat.indexOf(live)}"] .mes_text`);
         const old=[...(root?.querySelectorAll('.miao-image-card')||[])].find(card=>card.dataset.miaoKey===`${swipe}:${blockSlot(block)}`);
@@ -294,7 +323,7 @@ function startGeneration(message,block,{automatic=false,egg=false}={}) {
     request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
     attempted.add(taskId);
-    const task={profileId,profileName,profileSource,profile,request,blockStart:block.start,blockRaw:block.raw,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),occurrence:blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
+    const task={profileId,profileName,profileSource,profile,request,blockStart:block.start,blockRaw:block.raw,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),secondary:!!block.secondary,occurrence:matchingBlocks(blocks(message),block).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
     const waiting=running.size>0||settings.cloudQueue;running.set(taskId,task);renderAll();
     if(waiting)notices.info('已加入生图队列','喵喵文生图');
     queue=queue.then(async()=>{
@@ -332,13 +361,13 @@ async function openChatImage(message,block,url){
     const resolve=item=>{
         const live=liveMessage(message);
         if(currentChat()!==chat||!live||(live.swipe_id??0)!==swipe)throw Error('聊天或分支已切换，请重新打开当前图片');
-        const target=blocks(live).filter(b=>promptIdentity(b.prompt)===item.prompt)[item.occurrence];
+        const target=matchingBlocks(blocks(live),item)[item.occurrence];
         if(!target)throw Error('原提示词已删除或修改，请重新打开当前图片');
         return {message:live,block:target};
     };
     const gallery=all.flatMap((b,index)=>{
         const image=selectedChatImage(message,b);if(!image?.url||image.deleted)return [];
-        return [{url:image.url,name:`本楼层插图 ${index+1}`,prompt:promptIdentity(b.prompt),occurrence:all.filter(other=>promptIdentity(other.prompt)===promptIdentity(b.prompt)).findIndex(other=>other.start===b.start),start:b.start}];
+        return [{url:image.url,name:`本楼层插图 ${index+1}`,prompt:promptIdentity(b.prompt),secondary:!!b.secondary,occurrence:matchingBlocks(all,b).findIndex(other=>other.start===b.start),start:b.start}];
     });
     const selected=gallery.find(item=>item.start===block.start);if(!selected)return;
     await openImage(url,undefined,gallery,{selected,navigationLabel:'本楼层图片',regenerate:async item=>{
@@ -352,8 +381,9 @@ function makeCard(message,block) {
     card.dataset.theme=resolvedTheme();
     card.dataset.miaoKey=key;
     card.dataset.miaoPrompt=promptIdentity(block.prompt);
+    card.dataset.miaoSource=block.secondary?'secondary':'main';
     card.dataset.miaoBodyIndex=String(block.bodyIndex);
-    card.dataset.miaoOccurrence=String(blocks(message).filter(b=>promptIdentity(b.prompt)===promptIdentity(block.prompt)).findIndex(b=>b.start===block.start));
+    card.dataset.miaoOccurrence=String(matchingBlocks(blocks(message),block).findIndex(b=>b.start===block.start));
     const record=state(message,key);
     const task=taskFor(message,block);
     const versions=imageVersions(record),wanted=Math.min(record?.selected??versions.length-1,versions.length-1),selected=versions[wanted]?.deleted?versions.findLastIndex(v=>!v.deleted):wanted,current=versions[selected];
@@ -380,7 +410,7 @@ function makeCard(message,block) {
             const switchTo=async offset=>{
                 // Cards may outlive their captured record after chat state updates.
                 const currentMessage=liveMessage(message);if(!currentMessage)return;
-                const occurrence=Number(card.dataset.miaoOccurrence),matching=blocks(currentMessage).filter(item=>promptIdentity(item.prompt)===promptIdentity(block.prompt)),currentBlock=matching[occurrence];
+                const occurrence=Number(card.dataset.miaoOccurrence),currentBlock=matchingBlocks(blocks(currentMessage),block)[occurrence];
                 if(!currentBlock)return;
                 const currentKey=identity(currentMessage,currentBlock),live=state(currentMessage,currentKey);if(!live||!selectImageVersion(live,offset))return;
                 writeSwipeImage(currentMessage,currentMessage.swipe_id??0,blockSlot(currentBlock),live);
@@ -505,7 +535,7 @@ function renderAll() {
         if(!message||!root)return;
         // The host replaces .mes_text with its editor. Never insert cards into it.
         if(mes.querySelector('textarea.edit_textarea,#curEditTextarea')){
-            mes.querySelectorAll('.miao-image-card').forEach(card=>{card._cancelGesture?.();card.remove();});return;
+            mes.querySelectorAll('.miao-image-card,.miao-secondary-tag-action').forEach(card=>{card._cancelGesture?.();card.remove();});return;
         }
         // Streaming markdown is continually rebuilt by ST. Generate in the
         // background and insert cards only after its final message render.
@@ -513,7 +543,7 @@ function renderAll() {
         const found=blocks(message),existing=[...root.querySelectorAll('.miao-image-card')],used=new Set();
         for(const block of found) {
             const card=makeCard(message,block);
-            const candidates=existing.filter(n=>!used.has(n)&&(n.dataset.miaoPrompt??n.dataset.miaoKey?.replace(/^\d+:(?:body:)?\d+:/,''))===card.dataset.miaoPrompt);
+            const candidates=existing.filter(n=>!used.has(n)&&(n.dataset.miaoSource||'main')===card.dataset.miaoSource&&(n.dataset.miaoPrompt??n.dataset.miaoKey?.replace(/^\d+:(?:body:)?\d+:/,''))===card.dataset.miaoPrompt);
             const old=candidates.find(n=>n.dataset.miaoOccurrence===card.dataset.miaoOccurrence)||existing.find(n=>!used.has(n)&&n.dataset.miaoKey===card.dataset.miaoKey)||candidates[0];
             if(old) {
                 used.add(old);
@@ -526,11 +556,29 @@ function renderAll() {
                     if(old.querySelector('img')&&!old.querySelector('.miao-image-tools')?.hidden&&card.querySelector('img'))card.querySelector('.miao-image-tools').hidden=false;
                     old.replaceWith(card);
                 }
-            } else replaceLiteral(root,block.raw,card,message,block);
+            } else if(block.secondary)root.append(card);
+            else replaceLiteral(root,block.raw,card,message,block);
         }
         for(const old of existing)if(!used.has(old))old.remove();
+        renderSecondaryAction(root,message,found);
     });
     }finally{observeChat();}
+}
+function renderSecondaryAction(root,message,found){
+    let action=root.querySelector('.miao-secondary-tag-action');
+    if(action&&action.message!==message){action.remove();action=null;}
+    const show=secondaryEnabled(settings)&&!!settings.secondaryTagAPI&&message===latestImageMessage(ctx().chat)&&
+        !secondarySession&&!found.some(block=>block.secondary)&&!!secondaryBody(message.mes,settings.pattern,reasoningFormat());
+    if(!show){action?.remove();return;}
+    if(!action){
+        action=el('div',undefined,'miao-secondary-tag-action');
+        action.message=message;
+        const button=el('button','提取绘图 tag','miao-button');button.type='button';
+        bindButtonPress(button,()=>{void runSecondaryTags(message,settings.mode!=='manual');});
+        action.append(button);root.append(action);
+    }
+    const button=action.querySelector('button'),busy=!!secondaryJob;
+    button.disabled=busy;button.textContent=busy?'副 API 出词中…':'提取绘图 tag';
 }
 function observeChat(){
     // Some hosts replace #chat or mount it after extensions have initialized.
@@ -546,14 +594,46 @@ function observeChat(){
     observedChat=root;chatObserver.observe(observedChat,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['src','mesid']});
 }
 let promptConfigSaving=false;
-async function savePromptConfig(next){
+async function savePromptConfig(next,{useMainAPI=false}={}){
     if(promptConfigSaving)throw Error('提示词配置正在保存，请稍后重试');
     promptConfigSaving=true;
-    const previous=settings.promptConfig;
+    const previous=settings.promptConfig,previousSource=settings.tagSource;
     settings.promptConfig=next;
-    try{promptInjection.update();await persistSettings();eggMarkerCache.invalidate();}
-    catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;try{promptInjection.update();}catch{}}throw error;}
+    if(useMainAPI)settings.tagSource='main';
+    try{
+        promptInjection.update();await persistSettings();eggMarkerCache.invalidate();
+        if(useMainAPI){secondarySession=null;secondaryJob?.controller.abort();renderAll();}
+    }
+    catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;settings.tagSource=previousSource;refreshPrompt();}throw error;}
     finally{promptConfigSaving=false;}
+}
+let savingSecondarySettings=false;
+async function saveSecondarySettings(source,values){
+    if(savingSecondarySettings)throw Error('副 API 设置正在保存');
+    savingSecondarySettings=true;
+    const previous=settings.tagSource,previousConnection=settings.secondaryTagAPI;
+    let restoreKey;
+    try{
+        if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
+        if(values){
+            const next=secondaryConnection(values),vault=secondaryVault(next.url);
+            const previousKey=await vault.get(),key=values.key.trim()||previousKey;
+            if(!key)throw Error('请填写此副 API 地址的 Key');
+            const {persistent}=await vault.status();
+            await vault.set(key,next.remember);
+            restoreKey=()=>vault.set(previousKey,persistent);
+            settings.secondaryTagAPI=next;
+        }
+        settings.tagSource=source;
+        promptInjection.update();
+        await persistSettings();
+        autoSession=null;secondarySession=null;secondaryJob?.controller.abort();
+        renderAll();
+    }catch(error){
+        settings.tagSource=previous;settings.secondaryTagAPI=previousConnection;refreshPrompt();
+        await restoreKey?.().catch(()=>{});
+        throw error;
+    }finally{savingSecondarySettings=false;}
 }
 async function readResourceMacros(){return fixedMacroSnapshot(settings.promptConfig);}
 async function saveResourceMacros(snapshot,values){
@@ -795,7 +875,7 @@ function changeFolder(value) {
     save();
 }
 function sceneFromImage(url){
-    for(const message of ctx().chat)for(const {slot,record} of swipeImageRecords(message))for(const version of imageVersions(record))if(version.url&&localImagePath(version.url)===localImagePath(url))return version.tagPrompt??slot.replace(/^(?:body:)?\d+:/,'');
+    for(const message of ctx().chat)for(const {slot,record} of swipeImageRecords(message))for(const version of imageVersions(record))if(version.url&&localImagePath(version.url)===localImagePath(url))return version.tagPrompt??slot.replace(/^(?:(?:body|secondary):)?\d+:/,'');
     return '';
 }
 function draftFromImage(url,scenePrompt=sceneFromImage(url),profileName){
@@ -919,7 +999,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
-        savePromptConfig,testImage,installDefaults,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
+        savePromptConfig,saveSecondarySettings,testImage,installDefaults,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
@@ -963,7 +1043,7 @@ function refreshFloating(){
 }
 async function autoLatest() {
     const session=autoSession;
-    if(!settings.enabled||!session?.enabled||session.chat!==currentChat())return;
+    if(secondaryEnabled(settings)||!settings.enabled||!session?.enabled||session.chat!==currentChat())return;
     const message=latestImageMessage(ctx().chat),swipe=message?.swipe_id??0;
     if(!message||!canAutoGenerate(ctx().chat,message,settings.mode,generationChat===currentChat()))return;
     const eggEnabled=settings.eggProfileEnabled;
@@ -975,6 +1055,63 @@ async function autoLatest() {
         const id=`${currentChat()}:${ctx().chat.indexOf(message)}:${identity(message,block)}`;
         if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg});
     }
+}
+async function runSecondaryTags(message,automatic){
+    const connection=settings.secondaryTagAPI,chat=currentChat(),swipe=message.swipe_id??0,text=message.mes;
+    if(secondaryJob?.controller.signal.aborted)secondaryJob=null;
+    if(!secondaryEnabled(settings)||!connection||secondarySession||secondaryJob||message!==latestImageMessage(ctx().chat))return;
+    const body=secondaryBody(text,settings.pattern,reasoningFormat());
+    const remaining=connection.maxTags-readSecondaryTags(message,swipe).length;
+    if(!body||remaining<1)return;
+    const controller=new AbortController();
+    const current=()=>secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&getCurrentUserHandle()===directUser&&
+        chat===currentChat()&&message===latestImageMessage(ctx().chat)&&(message.swipe_id??0)===swipe&&message.mes===text;
+    const job={controller,message,swipe,current};
+    secondaryJob=job;
+    renderAll();
+    const timeout=setTimeout(()=>controller.abort(Error('副 API 出词超时，请稍后手动重试')),90000);
+    const cancelled=new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true}));
+    try{
+        const request=async()=>{
+            const key=await secondaryVault(connection.url).get();
+            if(!current()||controller.signal.aborted)return;
+            if(!key)throw Error('请在「生图指令」页保存副 API Key');
+            return requestSecondaryTags({...connection,maxTags:remaining},key,body,{signal:controller.signal});
+        };
+        const tags=await Promise.race([request(),cancelled]);
+        if(!tags||!current()||controller.signal.aborted)return;
+        const previous=readSecondaryTags(message,swipe),known=new Set(previous.map(tag=>promptIdentity(tag.prompt)));
+        const added=tags.filter(tag=>{
+            const prompt=promptIdentity(tag.prompt);
+            if(known.has(prompt))return false;
+            known.add(prompt);return true;
+        });
+        if(!added.length)return;
+        const next=[...previous,...added.slice(0,Math.max(0,connection.maxTags-previous.length))];
+        writeSecondaryTags(message,swipe,next);
+        try{await ctx().saveChat();}
+        catch{if(readSecondaryTags(message,swipe)===next)writeSecondaryTags(message,swipe,previous);throw Error('副 API 已返回 tag，但保存聊天失败');}
+        if(current()&&!controller.signal.aborted&&automatic&&settings.mode!=='manual'){
+            for(const block of blocks(message).filter(block=>block.secondary&&block.secondaryIndex>=previous.length)){
+                generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&block.secondaryIndex===next.length-1});
+            }
+        }
+    }catch(error){
+        if(current()&&error?.name!=='AbortError')notices.error(error.message||'副 API 出词失败','副 API 出词失败',{escapeHtml:true});
+    }finally{
+        clearTimeout(timeout);
+        if(secondaryJob===job)secondaryJob=null;
+        renderAll();
+    }
+}
+
+function finishSecondarySession(){
+    const session=secondarySession;
+    secondarySession=null;
+    const message=latestImageMessage(ctx().chat);
+    if(!session||session.chat!==currentChat()||!message||settings.mode==='manual')return;
+    if(message===session.message&&message.mes===session.text&&(message.swipe_id??0)===session.swipe)return;
+    void runSecondaryTags(message,true);
 }
 function scanStream() {
     if(!settings.enabled||settings.mode!=='stream'||!streamActive||generationChat!==currentChat())return;
@@ -1018,24 +1155,45 @@ async function init() {
         // Final rendering and swipe navigation must release any stale stream lock.
         if(name==='MESSAGE_SWIPED'||name==='CHARACTER_MESSAGE_RENDERED'&&Number(messageId)===ctx().chat.length-1){streamActive=false;generationChat=null;}
         if(name==='CHARACTER_MESSAGE_RENDERED'&&Number(messageId)===ctx().chat.length-1){const session=autoSession;void autoLatest().finally(()=>{if(autoSession===session&&!generationChat)autoSession=null;});}
+        if(secondaryJob&&!secondaryJob.current())secondaryJob.controller.abort();
         scheduleRender(false);
     });
     if(c.eventTypes.MESSAGE_SWIPE_DELETED)c.eventSource.on(c.eventTypes.MESSAGE_SWIPE_DELETED,async({messageId,swipeId})=>{
         const message=ctx().chat[messageId];if(!message)return;
         for(const task of running.values())if(liveMessage(task.message,task)===message&&task.swipe>=swipeId)task.cancelled=true;
+        if(secondaryJob?.message===message&&secondaryJob.swipe>=swipeId)secondaryJob.controller.abort();
+        removeSecondarySwipe(message,Number(swipeId));
         removeSwipeImages(message,swipeId);await ctx().saveChat();scheduleRender(false);
     });
-    c.eventSource.on(c.eventTypes.CHAT_CHANGED,()=>{streamActive=false;generationChat=null;autoSession=null;scheduleRender(false);setTimeout(()=>guard(indexChatImages)(),0);});
+    c.eventSource.on(c.eventTypes.CHAT_CHANGED,()=>{
+        streamActive=false;generationChat=null;autoSession=null;secondarySession=null;secondaryJob?.controller.abort();
+        scheduleRender(false);setTimeout(()=>guard(indexChatImages)(),0);
+    });
     for(const name of ['CHAT_LOADED','MORE_MESSAGES_LOADED'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],()=>setTimeout(()=>guard(indexChatImages)(),0));
     c.eventSource.on(c.eventTypes.GENERATION_STARTED,(type,options,dryRun)=>{
         // Quiet prompts and prompt previews do not render a chat reply and may
         // never emit GENERATION_ENDED. They must not hide the last floor's cards.
         if(dryRun||type==='quiet'||type==='impersonate')return;
+        secondaryJob?.controller.abort();
+        if(secondaryEnabled(settings)){
+            const message=latestImageMessage(ctx().chat);
+            secondarySession={chat:currentChat(),message,text:message?.mes,swipe:message?.swipe_id??0};
+            scheduleRender(false);
+        }
         streamActive=false;generationChat=currentChat();
         autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',marker:settings.eggProfileEnabled?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
     });
-    c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;renderAll();if(same)autoLatest();});
-    if(c.eventTypes.GENERATION_STOPPED)c.eventSource.on(c.eventTypes.GENERATION_STOPPED,()=>{const same=generationChat===currentChat();streamActive=false;generationChat=null;scheduleRender(false);if(same&&settings.eggProfileEnabled)void autoLatest();});
+    c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{
+        const same=generationChat===currentChat();streamActive=false;generationChat=null;
+        const session=secondarySession;
+        // Some hosts emit ENDED first when the user stops an unfinished reply.
+        if(session)setTimeout(()=>{if(secondarySession===session){finishSecondarySession();renderAll();}},0);
+        renderAll();if(same)autoLatest();
+    });
+    if(c.eventTypes.GENERATION_STOPPED)c.eventSource.on(c.eventTypes.GENERATION_STOPPED,()=>{
+        const same=generationChat===currentChat();streamActive=false;generationChat=null;secondarySession=null;
+        scheduleRender(false);if(same&&settings.eggProfileEnabled)void autoLatest();
+    });
     c.eventSource.on(c.eventTypes.STREAM_TOKEN_RECEIVED,()=>{if(generationChat===currentChat())streamActive=true;setTimeout(()=>guard(()=>{scanStream();renderAll();})(),0);});
     for(const event of ['SECRET_WRITTEN','SECRET_DELETED','SECRET_ROTATED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],key=>{if(key===SECRET_KEYS.NOVEL){settings.keyHash='';save();settingsHost?.dispatchEvent(new Event('miao-key-changed'));}});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);

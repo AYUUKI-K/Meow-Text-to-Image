@@ -11,6 +11,8 @@ const publicFiles=new Set(["tests/support/profile-gallery-preview.mjs", "tests/s
 for(const file of ['src/prompts/prompt-templates.js','src/prompts/prompt-settings.js','src/prompts/prompt-composer.js','src/prompts/prompt-overrides.js','src/platform/prompt-injection.js','src/ui/prompt-modules-view.js','src/ui/prompt-editor.js'])publicFiles.add(file);
 publicFiles.add('tests/support/custom-connection-preview.mjs');
 publicFiles.add('src/novelai/character-prompts.js');
+publicFiles.add('src/prompts/secondary-tags.js');
+publicFiles.add('src/chat/secondary-tags.js');
 publicFiles.add('tests/support/prompt-tree-preview.mjs');
 for(const name of ['tree-defaults','tree-settings','tree-composer'])publicFiles.add('src/prompts/'+name+'.js');
 const manifest=JSON.parse(await readFile(new URL('manifest.json',root),'utf8'));
