@@ -26,13 +26,25 @@ export function secondaryBlocks(message, swipe, text, mainCount) {
     }));
 }
 
-export function secondaryHistory(chat, message, clean) {
-    const earlier = chat.slice(0, chat.indexOf(message)).filter(item => !item.is_system);
+export async function prepareSecondaryChat(chat, message, {includeContext, includeUser, applyRegex, clean}) {
+    const earlier = chat.slice(0, chat.indexOf(message)).filter(item => !item.is_system && item.role !== 'tool');
+    const depthOf = new Map(earlier.map((item, index) => [item, earlier.length - index]));
+    const history = includeContext ? earlier.slice(-12) : [];
+    const lastUser = includeUser ? earlier.findLast(item => item.is_user) : undefined;
+    const selected = [...new Set([...history, ...(lastUser ? [lastUser] : []), message])];
+    const regexed = await applyRegex(selected.map(item => ({item, depth: depthOf.get(item) ?? 0})));
+    if (!Array.isArray(regexed) || regexed.length !== selected.length || regexed.some(text => typeof text !== 'string')) {
+        throw Error('酒馆正则未返回有效的文本');
+    }
+    const text = new Map(selected.map((item, index) => [item, clean(regexed[index])]));
     return {
-        上下文: () => earlier.slice(-12).map(item => {
-            const content = clean(item.mes);
-            return content ? (item.is_user ? '用户：' : '角色：') + content : '';
-        }).filter(Boolean).join('\n\n').slice(-12000),
-        用户需求: () => clean(earlier.findLast(item => item.is_user)?.mes).slice(-12000),
+        body: text.get(message),
+        values: {
+            上下文: () => history.map(item => {
+                const content = text.get(item);
+                return content ? (item.is_user ? '用户：' : '角色：') + content : '';
+            }).filter(Boolean).join('\n\n').slice(-12000),
+            用户需求: () => (text.get(lastUser) ?? '').slice(-12000),
+        },
     };
 }

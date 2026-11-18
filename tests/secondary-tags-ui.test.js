@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {homedir} from 'node:os';
 const require=createRequire(import.meta.url);
@@ -16,6 +17,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             server.on('exit',()=>{clearTimeout(timer);reject(Error('预览启动失败'));});
         });
         browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
+        const meowRegex=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
         for(const tt of [false,true]){
             const endpoint='https://tag-fixture.invalid/v1/chat/completions',requests=[],errors=[];
             const page=await browser.newPage(tt?{viewport:{width:390,height:844},hasTouch:true,isMobile:true}:{});
@@ -74,7 +76,8 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 assert.equal(await presetPicker.locator('option').count(),3,'reimporting the same preset must not duplicate it');
             }
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
-            await page.evaluate(async tt=>{
+            const rawReply='<think>private reasoning</think>正文：猫跳上窗台。 ┈┈绘图标题┈┈ <easter_egg>彩蛋介绍</easter_egg> image###inline main tag###';
+            await page.evaluate(async({tt,meowRegex,rawReply})=>{
                 const p=window.preview;
                 Object.assign(p.settings,{mode:tt?'manual':'stream',cloudQueue:false,eggProfileEnabled:false});
                 p.context.powerUserSettings.experimental_macro_engine=false;
@@ -85,15 +88,26 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 p.context.substituteParams=text=>text
                     .replace(/\{\{set(global)?var::([^:]+)::([^}]*)\}\}/g,(_,g,name,value)=>{(g?global:local).set(name,value);return '';})
                     .replace(/\{\{get(global)?var::([^}]+)\}\}/g,(_,g,name)=>(g?global:local).get(name)??'');
-                p.chat.splice(0,p.chat.length,{name:'System',mes:'never send fixture',is_system:true},{name:'User',mes:'Earlier visible text',is_user:true});
+                p.regexScripts=[
+                    ...meowRegex,
+                    {findRegex:'正文：',replaceString:'画面：',placement:[2],promptOnly:true,minDepth:0,maxDepth:0},
+                    {findRegex:'旧楼正文',replaceString:'历史素材',placement:[2],promptOnly:true,minDepth:2,maxDepth:2},
+                    {findRegex:'Earlier visible text',replaceString:'Earlier filtered text',placement:[1],promptOnly:true,minDepth:1,maxDepth:1},
+                    {findRegex:'画面',replaceString:'Display-only edit',placement:[2],markdownOnly:true},
+                    {findRegex:'历史素材',replaceString:'Disabled edit',placement:[2],promptOnly:true,disabled:true},
+                ];
+                p.promptRegexCalls=[];
+                p.chat.splice(0,p.chat.length,{name:'System',mes:'never send fixture',is_system:true},
+                    {name:'Older assistant',mes:'旧楼正文。 ┈┈历史标题┈┈ image###old illustration###'},
+                    {name:'User',mes:'Earlier visible text',is_user:true});
                 window.drawSecondaryFixture=()=>{document.getElementById('chat').innerHTML=p.chat.map((message,index)=>`<div class="mes" mesid="${index}"><div class="mes_text">${message.mes}</div></div>`).join('');};
                 window.drawSecondaryFixture();await p.emit('CHAT_CHANGED');
                 await p.emit('GENERATION_STARTED','normal',{},false);
                 await p.emit('WORLD_INFO_ACTIVATED',[{content:'Garden lore'}]);
-                p.chat.push({name:'Reply',mes:'<think>private reasoning</think>正文：猫跳上窗台。 image###inline main tag###'});
+                p.chat.push({name:'Reply',mes:rawReply});
                 window.drawSecondaryFixture();
-                await p.emit('STREAM_TOKEN_RECEIVED');await p.emit('CHARACTER_MESSAGE_RENDERED',2);
-            },tt);
+                await p.emit('STREAM_TOKEN_RECEIVED');await p.emit('CHARACTER_MESSAGE_RENDERED',3);
+            },{tt,meowRegex,rawReply});
             await page.waitForTimeout(180);
             assert.equal(requests.length,0);
             assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
@@ -109,8 +123,13 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.equal(requests[0].auth,'Bearer fixture-secondary-key');
             assert.equal(requests[0].body.model,'fixture-model');
             assert.equal(requests[0].body.messages[0].content,'FIXTURE_DIRECTOR 猫');
-            assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n正文：猫跳上窗台。\n</剧情原文>\n猫和花\ncats\n用户：Earlier visible text\nEarlier visible text\nGarden lore'});
-            assert.equal(await page.evaluate(()=>window.preview.chat.at(-1).mes),'<think>private reasoning</think>正文：猫跳上窗台。 image###inline main tag###');
+            assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n画面：猫跳上窗台。\n</剧情原文>\n猫和花\ncats\n角色：历史素材。\n\n用户：Earlier filtered text\nEarlier filtered text\nGarden lore'});
+            assert.equal(await page.evaluate(()=>window.preview.chat.at(-1).mes),rawReply);
+            const calls=await page.evaluate(()=>window.preview.promptRegexCalls);
+            assert.deepEqual(calls.map(({placement,depth,isPrompt})=>[placement,depth,isPrompt]),[[2,2,true],[1,1,true],[2,0,true]]);
+            assert.ok(calls.every(call=>!call.isMarkdown&&!call.raw.includes('private reasoning')));
+            assert.ok(calls.at(-1).raw.includes('┈┈绘图标题┈┈'),'Meow scripts must see the original decorations');
+            assert.equal(await page.evaluate(()=>window.preview.regexBatchCalls??0),tt?1:0);
             if(tt){
                 assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
                 await secondary.getByRole('button',{name:'生成插图',exact:true}).waitFor();

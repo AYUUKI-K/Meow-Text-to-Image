@@ -27,8 +27,8 @@ import {readGenerationMetadata,generationInfo} from './src/images/image-metadata
 import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './src/prompts/prompt-files.js';
 import {editedTag} from './src/prompts/tag-edit.js';
 import {secondaryEnabled,secondaryConnection,secondaryBody,requestSecondaryTags,secondaryPattern} from './src/prompts/secondary-tags.js';
-import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile} from './src/prompts/secondary-presets.js';
-import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,secondaryHistory} from './src/chat/secondary-tags.js';
+import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile,listedSecondaryMacros} from './src/prompts/secondary-presets.js';
+import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,prepareSecondaryChat} from './src/chat/secondary-tags.js';
 import {exportPreview,previewPNG} from './src/prompts/prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
@@ -42,7 +42,7 @@ import { writeSecret, SECRET_KEYS } from '../../../secrets.js';
 import { getCurrentUserHandle } from '../../../user.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
 import * as wi from '../../../world-info.js';
-import { getScriptsByType, saveScriptsByType, SCRIPT_TYPES } from '../../regex/engine.js';
+import * as regexEngine from '../../regex/engine.js';
 import { createSettingsPanel } from './src/ui/ui.js';
 import {createDirectClient} from './src/novelai/direct-client.js';
 import {createKeyVault,saveCurrentKey} from './src/novelai/direct-key.js';
@@ -647,6 +647,7 @@ async function saveResourceMacros(snapshot,values){
     await savePromptConfig(next);return readResourceMacros();
 }
 async function installRegex(rules) {
+    const {getScriptsByType,saveScriptsByType,SCRIPT_TYPES}=regexEngine;
     const existing=getScriptsByType(SCRIPT_TYPES.GLOBAL,{allowedOnly:false});
     await saveScriptsByType(mergeRegexRules(existing,rules),SCRIPT_TYPES.GLOBAL);
 }
@@ -1069,13 +1070,34 @@ async function autoLatest() {
         if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg});
     }
 }
+async function secondaryPromptText(chat,message,preset){
+    const slots=new Set(listedSecondaryMacros(preset).map(raw=>raw.slice(2,-2).trim()));
+    const format=reasoningFormat();
+    return prepareSecondaryChat(chat,message,{
+        includeContext:slots.has('上下文'),
+        includeUser:slots.has('用户需求'),
+        clean:source=>secondaryBody(source,settings.pattern,format),
+        applyRegex:async rows=>{
+            const {getRegexedString,getRegexedStringBatchAsync,regex_placement}=regexEngine;
+            const requests=rows.map(({item,depth})=>({
+                // Suppress private reasoning even if a user's rule removes its markup.
+                rawString:maskReasoning(item.mes,format),
+                placement:item.is_user?regex_placement.USER_INPUT:regex_placement.AI_OUTPUT,
+                params:{isPrompt:true,depth},
+            }));
+            try{
+                if(typeof getRegexedStringBatchAsync==='function')return await getRegexedStringBatchAsync(requests);
+                return requests.map(({rawString,placement,params})=>getRegexedString(rawString,placement,params));
+            }catch{throw Error('副 API 应用酒馆正则失败，请检查启用的规则');}
+        },
+    });
+}
 async function runSecondaryTags(message,automatic){
     const connection=settings.secondaryTagAPI,chat=currentChat(),swipe=message.swipe_id??0,text=message.mes;
     if(secondaryJob?.controller.signal.aborted)secondaryJob=null;
     if(!secondaryEnabled(settings)||!connection||secondarySession||secondaryJob||message!==latestImageMessage(ctx().chat))return;
-    const body=secondaryBody(text,settings.pattern,reasoningFormat());
     const remaining=connection.maxTags-readSecondaryTags(message,swipe).length;
-    if(!body||remaining<1)return;
+    if(!text?.trim()||remaining<1)return;
     const library=settings.secondaryTagPresets,preset=activeSecondaryPreset(readSecondaryLibrary(settings));
     const controller=new AbortController();
     const current=()=>secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&settings.secondaryTagPresets===library&&getCurrentUserHandle()===directUser&&
@@ -1087,11 +1109,13 @@ async function runSecondaryTags(message,automatic){
     const cancelled=new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true}));
     try{
         const request=async()=>{
+            const host=ctx();
+            const {body,values}=await secondaryPromptText(host.chat,message,preset);
+            if(!current()||controller.signal.aborted||!body)return;
             const key=await secondaryVault(connection.url).get();
             if(!current()||controller.signal.aborted)return;
             if(!key)throw Error('请在「生图指令」页保存副 API Key');
-            const host=ctx(),world=secondaryWorldInfo.get(message);
-            const values=secondaryHistory(host.chat,message,source=>secondaryBody(source,settings.pattern,reasoningFormat()));
+            const world=secondaryWorldInfo.get(message);
             values.世界书触发=()=>world?.chat===chat&&world.swipe===swipe&&world.text===text?world.content:'';
             const macros={
                 values,
