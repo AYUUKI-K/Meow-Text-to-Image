@@ -423,7 +423,7 @@ function makeCard(message,block) {
 function collectVisibleText(root) {
     const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];let text='',n;
     const customTag=reasoningFormat().prefix?.match(/^<([\w-]+)>$/)?.[1]?.toLowerCase();
-    while((n=walker.nextNode())) { if(n.parentElement.closest('.miao-image-card,.mes_reasoning,.mes_reasoning_details,think,thinking,analysis,reasoning,imgthink,imagethink')||(customTag&&n.parentElement.closest(customTag)))continue; if(nodes.length)text+='\n';nodes.push({n,start:text.length});text+=n.textContent; }
+    while((n=walker.nextNode())) { if(n.parentElement.closest('.miao-image-card,.mes_reasoning,.mes_reasoning_details,think,thinking,analysis,reasoning,imgthink,imagethink,tag_think')||(customTag&&n.parentElement.closest(customTag)))continue; if(nodes.length)text+='\n';nodes.push({n,start:text.length});text+=n.textContent; }
     return {nodes,text};
 }
 function sourceText(value) {
@@ -729,7 +729,7 @@ async function requestImage(request,task,canContinue) {
     request=structuredClone(request);
     const valid=()=>{assertKey();return canContinue?.()??true;};
     const onStatus=status=>{if(task){task.status=status;task.onStatus?.(status);renderAll();}};
-    const directRoute=usesDirectGeneration(scope,isTT(),request.vibes);
+    const directRoute=usesDirectGeneration(scope,isTT(),request.vibes,request.characters);
     const run=async()=>{
         onStatus('准备中');
         const prepared=await prepareGeneration(async()=>{

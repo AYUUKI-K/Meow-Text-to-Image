@@ -398,7 +398,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 if(switching)return;switching=true;source.disabled=true;
                 try{await commitPage();await savePanelPrompt({...settings.promptConfig,mode:value});render();}
                 catch(error){source.value=settings.promptConfig.mode;onError(error);}finally{switching=false;source.disabled=false;}
-            },{options:[['builtin','使用插件内置指令'],['external','使用外部世界书']]});
+            },{options:[['builtin','使用插件内置指令'],['external','使用外部预设／世界书']]});
             let macrosView;
             const warnings=node('div');
             const paintWarnings=()=>{warnings.replaceChildren();for(const text of promptWarnings(settings.promptConfig,start.value,end.value))warnings.append(node('p',text,'miao-notice'));};

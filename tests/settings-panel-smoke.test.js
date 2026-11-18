@@ -112,3 +112,61 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  assert.deepEqual(errors,[]);
  }finally{await browser?.close();server.kill();}
 });
+
+test('external preset output generates from its chat cards through a custom NovelAI endpoint', {timeout:40000}, async()=>{
+ const {chromium}=await browserRuntime();
+ const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
+ let browser;
+ try{
+  const url=await new Promise((resolve,reject)=>{
+   const timer=setTimeout(()=>reject(Error('预览启动超时')),10000);
+   server.stdout.on('data',data=>{const match=String(data).match(/http:\/\/[^\s]+/);if(match){clearTimeout(timer);resolve(match[0]);}});
+   server.on('exit',()=>{clearTimeout(timer);reject(Error('预览启动失败'));});
+  });
+  browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
+  const endpoint='https://image-fixture.invalid/custom/generate';
+  for(const tt of ['', '&tt']){
+   const page=await browser.newPage(),sent=[],errors=[];
+   page.on('pageerror',error=>errors.push(error.message));
+   await page.route(endpoint,async route=>{
+    if(route.request().method()==='POST')sent.push(route.request().postDataJSON());
+    await route.fulfill({status:200,headers:{'access-control-allow-origin':'*','access-control-allow-methods':'POST, OPTIONS','access-control-allow-headers':'authorization, content-type','content-type':'image/png'},body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=','base64')});
+   });
+   await page.goto(url+'/?settings-smoke'+tt);
+   await page.locator('#miao-nai-menu').click();
+   await page.locator('.miao-tabs').getByRole('button',{name:'生图指令',exact:true}).click();
+   await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('external');
+   await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');
+   await page.locator('.miao-tabs').getByRole('button',{name:'生成',exact:true}).click();
+   await page.getByRole('combobox',{name:'连接方式',exact:true}).selectOption('custom');
+   await page.getByRole('textbox',{name:'自定义 API 地址',exact:true}).fill(endpoint);
+   await page.getByRole('combobox',{name:'生图 URL 处理',exact:true}).selectOption('exact');
+   await page.getByRole('combobox',{name:'Vibe 在线编码地址',exact:true}).selectOption('disabled');
+   await page.locator('input[type=password]').fill('fixture-key-not-real');
+   await page.getByRole('button',{name:'保存自定义连接',exact:true}).click();
+   await page.waitForFunction(()=>!!window.preview.settings.customKeyHash);
+   await page.getByRole('button',{name:'关闭设置',exact:true}).click();
+
+   await page.evaluate(async()=>{
+    const p=window.preview;
+    Object.assign(p.settings,{mode:'manual',cloudQueue:false,eggProfileEnabled:false});
+    const mes='<thinking>image###planning sample###</thinking><images><image>regex:fixture quote\n<font>Fixture title</font><Tag_think>image###draft sample###</Tag_think>image###Scene Composition: quiet park; Character 1 Prompt: red coat |centers:B4; Character 1 UC: scarf;###</image></images>';
+    p.chat.splice(0,p.chat.length,{name:'External preset fixture',mes});
+    document.getElementById('chat').innerHTML='<div class="mes" mesid="0"><div class="mes_text">'+mes+'</div></div>';
+    await p.emit('CHAT_CHANGED');
+   });
+   const card=page.locator('#chat .miao-image-card');
+   await card.getByRole('button',{name:'生成插图',exact:true}).click();
+   await card.locator(':scope>img').waitFor();
+   assert.equal(await card.count(),1);
+   assert.equal(sent.length,1);
+   assert.match(sent[0].input,/quiet park/);
+   assert.doesNotMatch(sent[0].input,/regex:|Character|draft sample|red coat/);
+   assert.deepEqual(sent[0].parameters.v4_prompt.caption.char_captions,[{char_caption:'red coat',centers:[{x:0.3,y:0.7}]}]);
+   assert.deepEqual(sent[0].parameters.v4_negative_prompt.caption.char_captions,[{char_caption:'scarf',centers:[{x:0.3,y:0.7}]}]);
+   assert.equal(await page.evaluate(()=>window.preview.calls.length),0,'host NovelAI endpoint must not be called');
+   assert.deepEqual(errors,[]);
+   await page.close();
+  }
+ }finally{await browser?.close();server.kill();}
+});

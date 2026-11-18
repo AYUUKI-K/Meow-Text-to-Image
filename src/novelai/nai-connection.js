@@ -140,7 +140,9 @@ export function assertConnection(settings,snapshot){
     const endpointsChanged=snapshot.naiConnection==='custom'&&['customGenerationURL','customEncodeURL','customGenerationURLMode','customEncodeURLMode','resolvedGenerationURL','resolvedEncodeURL','encodeEnabled','encodeError','endpointError'].some(key=>current[key]!==snapshot[key]);
     if(changed||endpointsChanged)throw Error('连接配置或 NAI Key 已更换，请重新提交任务');
 }
-export function usesDirectGeneration(connection,isTT,vibes){return connection.naiConnection==='custom'||isTT||!!vibes?.length;}
+export function usesDirectGeneration(connection,isTT,vibes,characters){
+    return connection.naiConnection==='custom'||isTT||!!vibes?.length||!!characters?.length;
+}
 export function onlineEncodingAvailable(settings){
     if(settings.naiConnection!=='custom')return true;
     try{return resolveCustomEndpoints(settings).encodeEnabled;}catch{return false;}

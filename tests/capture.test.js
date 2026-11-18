@@ -30,6 +30,15 @@ test('comment instructions mentioning imgthink do not hide the actual body',()=>
  assert.deepEqual(parseBodyBlocks('<!-- image###wrong###'),[]);
 });
 
+test('external preset Tag_think examples do not become images, even while streaming',()=>{
+ const planning='<thinking>image###draft###</thinking><image><TAG_THINK>image###sample###</Tag_think>';
+ const body='image###Scene Composition: sunny park; Character 1 Prompt: brown coat |centers:A1;###</image>';
+ for(let length=0;length<=planning.length;length++)assert.deepEqual(parseBodyBlocks(planning.slice(0,length)),[]);
+ const [block]=parseBodyBlocks(planning+body);
+ assert.equal(block.start,planning.length);
+ assert.equal(block.prompt,'Scene Composition: sunny park; Character 1 Prompt: brown coat |centers:A1;');
+});
+
 test('custom delimiter recovery also discards unfinished older openings',()=>{
  const pattern=delimiterPattern('<draw>','</draw>');
  assert.deepEqual(parseBodyBlocks('<draw>unfinished <draw>cat</draw>',pattern).map(b=>b.prompt),['cat']);
