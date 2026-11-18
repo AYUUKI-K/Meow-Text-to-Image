@@ -12,6 +12,7 @@ for(const file of ['src/prompts/prompt-templates.js','src/prompts/prompt-setting
 publicFiles.add('tests/support/custom-connection-preview.mjs');
 publicFiles.add('src/novelai/character-prompts.js');
 publicFiles.add('src/prompts/secondary-tags.js');
+publicFiles.add('src/prompts/secondary-presets.js');
 publicFiles.add('src/chat/secondary-tags.js');
 publicFiles.add('tests/support/prompt-tree-preview.mjs');
 for(const name of ['tree-defaults','tree-settings','tree-composer'])publicFiles.add('src/prompts/'+name+'.js');

@@ -1,22 +1,10 @@
 import {delimiterPattern, maskReasoning, parseBodyBlocks} from '../core/core.js';
 import {validateEndpoint} from '../novelai/nai-connection.js';
+import {activeSecondaryPreset, readSecondaryLibrary, replySlot} from './secondary-presets.js';
 
 export const secondaryPattern = delimiterPattern('image###', '###');
 export const secondaryEnabled = settings => settings.tagSource === 'secondary';
-const presetType = 'miao-secondary-tag-preset';
-const defaultInstructions = '你是一位插画分镜师。选取正文中最值得绘制的瞬间，按原文顺序输出清晰可见的主体、动作、环境和构图。使用简洁的 NovelAI 英文标签。';
-
-export function readSecondaryPreset(text) {
-    if (text.length > 100000) throw Error('副 API 预设文件过大');
-    let preset;
-    try { preset = JSON.parse(text.replace(/^\uFEFF/, '')); }
-    catch { throw Error('副 API 预设须为有效的 JSON 文件'); }
-    if (preset?.type !== presetType || preset.version !== 1 || typeof preset.name !== 'string' ||
-        typeof preset.instructions !== 'string' || !preset.instructions.trim()) {
-        throw Error('请选择副 API 专用预设 JSON');
-    }
-    return {name: preset.name.trim().slice(0, 80), instructions: preset.instructions.trim()};
-}
+const defaultPreset = activeSecondaryPreset(readSecondaryLibrary({}));
 
 export function secondaryConnection(values) {
     const address = String(values.url ?? '').trim();
@@ -29,7 +17,7 @@ export function secondaryConnection(values) {
     if (!model || model.length > 200) throw Error('请填写副 API 模型名');
     const maxTags = Number(values.maxTags ?? 3);
     if (!Number.isInteger(maxTags) || maxTags < 1 || maxTags > 8) throw Error('每楼图片上限须为 1～8 张');
-    return {url: url.href, model, maxTags, preset: values.preset ?? null, remember: values.remember === true};
+    return {url: url.href, model, maxTags, remember: values.remember === true};
 }
 
 export function secondaryBody(text, mainPattern, format) {
@@ -49,14 +37,18 @@ export function extractSecondaryTags(content, limit) {
     return parseBodyBlocks(content, secondaryPattern).slice(0, limit).map(block => ({prompt: block.prompt}));
 }
 
-export async function requestSecondaryTags(connection, key, body, {signal, fetchImpl = fetch} = {}) {
-    const {url, model, maxTags, preset} = connection;
-    if (body.length > 60000) throw Error('正文超过副 API 的单楼长度上限');
-    const messages = [
-        {role: 'system', content: preset?.instructions || defaultInstructions},
+export function buildSecondaryMessages({maxTags, preset = defaultPreset}, body) {
+    return [
+        {role: 'system', content: preset.instructions},
         {role: 'system', content: `接下来的一条用户消息是待分析的小说正文。最多输出 ${maxTags} 个绘图标签，每张一行，严格使用 image###绘图提示词###；只输出绘图标签，完全闭合每一组。不要复述正文或输出思考过程。`},
-        {role: 'user', content: body},
+        {role: 'user', content: preset.bodyTemplate.replace(replySlot, () => body)},
     ];
+}
+
+export async function requestSecondaryTags(connection, key, body, {signal, fetchImpl = fetch} = {}) {
+    const {url, model, maxTags} = connection;
+    if (body.length > 60000) throw Error('正文超过副 API 的单楼长度上限');
+    const messages = buildSecondaryMessages(connection, body);
     let response, result;
     try {
         response = await fetchImpl(url, {

@@ -15,11 +15,12 @@ import {FAVORITE_FOLDER,favoritesEnabled} from '../prompts/prompt-favorites.js';
 import {novelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {fontAwesomeElement} from './fontawesome-icons.js';
 import {onlineEncodingAvailable,resolveCustomEndpoints} from '../novelai/nai-connection.js';
-import {readSecondaryPreset,secondaryEnabled} from '../prompts/secondary-tags.js';
+import {buildSecondaryMessages,secondaryEnabled} from '../prompts/secondary-tags.js';
+import {activeSecondaryPreset,addSecondaryPreset,listedSecondaryMacros,readSecondaryLibrary,readSecondaryPreset,replySlot,secondaryPresets,SECONDARY_PRESET_FILE_LIMIT} from '../prompts/secondary-presets.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const panelMemory=new WeakMap();
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,saveSecondaryPresets,exportSecondaryPreset,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);memory.promptExpanded??=new Set();
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
@@ -73,6 +74,52 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         const actions=node('div',undefined,'miao-actions');parent.append(actions);
         if(result.share)action(actions,'分享文件',result.share,true);
         action(actions,'保存文件',result.save);action(actions,'复制文件名',result.copy);parent.scrollIntoView({block:'nearest'});
+    }
+    function renderSecondaryPresets(body,withPromptLock){
+        const presets=section(body,'预设');
+        const savePresetLibrary=next=>withPromptLock(async()=>{
+            try{await saveSecondaryPresets(next);}
+            finally{paint();}
+        });
+        const picker=field(presets,'当前副 API 预设','',safe(async()=>{
+            await savePresetLibrary({...readSecondaryLibrary(settings),activeId:picker.value});
+        }),{options:[]});
+        const actions=node('div',undefined,'miao-actions');
+        const file=node('input');file.type='file';file.accept='.json,application/json';file.hidden=true;
+        const ready=node('div');ready.hidden=true;
+        const messages=node('div',undefined,'miao-secondary-preset-messages');
+        const entries=['预设指令','输出要求','正文槽位'].map((label,index)=>{
+            const details=node('details'),summary=node('summary'),content=node('pre',undefined,'miao-capture-sample');
+            details.open=index===2;details.append(summary,content);messages.append(details);
+            return {label,summary,content};
+        });
+        const macros=node('p',undefined,'miao-notice');macros.hidden=true;
+        presets.append(actions,file,ready,messages,macros);
+        action(actions,'导入副 API 预设',()=>file.click());
+        action(actions,'导出当前预设',async()=>showPreparedFile(ready,await exportSecondaryPreset(activeSecondaryPreset(readSecondaryLibrary(settings)))));
+        file.onchange=safe(async()=>{
+            const selected=file.files[0];file.value='';
+            if(!selected)return;
+            if(selected.size>SECONDARY_PRESET_FILE_LIMIT)throw Error('副 API 预设文件过大');
+            const preset=readSecondaryPreset(await selected.text());
+            await savePresetLibrary(addSecondaryPreset(readSecondaryLibrary(settings),preset));
+        });
+        function paint(){
+            const library=readSecondaryLibrary(settings),preset=activeSecondaryPreset(library);
+            picker.replaceChildren(...secondaryPresets(library).map(item=>{
+                const option=node('option',item.name);option.value=item.id;return option;
+            }));
+            picker.value=preset.id;
+            const preview=buildSecondaryMessages({maxTags:settings.secondaryTagAPI?.maxTags??3,preset},replySlot);
+            for(const [index,{label,summary,content}] of entries.entries()){
+                summary.textContent=`${label} · ${preview[index].role}`;
+                content.textContent=preview[index].content;
+            }
+            const other=listedSecondaryMacros(preset);macros.hidden=!other.length;
+            macros.textContent=other.length?'其他宏按原文发送：'+other.join('、'):'';
+            ready.replaceChildren();ready.hidden=true;
+        }
+        paint();
     }
     async function profileVibes(parent,p){
         parent.append(node('p','读取中…','miao-muted'));
@@ -408,7 +455,6 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             },{options:[['builtin','主 API · 插件内置指令'],['external','主 API · 外部预设／世界书'],['secondary','副 API · 正文结束后出词']]});
             if(secondaryEnabled(settings)){
                 const api=section(body,'副 API（OpenAI 兼容）'),connection=settings.secondaryTagAPI||{};
-                let preset=connection.preset??null;
                 const url=field(api,'副 API 地址',connection.url,()=>{},{wide:true});
                 url.placeholder='https://example.com/v1/chat/completions';
                 const model=field(api,'副 API 模型',connection.model,()=>{});
@@ -416,23 +462,14 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 const limit=field(api,'每楼图片上限',connection.maxTags??3,()=>{},{type:'number'});
                 limit.min='1';limit.max='8';limit.step='1';
                 const remember=field(api,'副 API Key 保存',connection.remember?'device':'page',()=>{},{options:[['page','当前页面'],['device','此设备']]});
-                const presetName=field(api,'当前副 API 预设',preset?.name||'默认指令',()=>{});presetName.readOnly=true;
-                const upload=node('input');upload.type='file';upload.accept='.json,application/json';upload.hidden=true;api.append(upload);
-                upload.onchange=safe(async()=>{
-                    const file=upload.files[0];upload.value='';
-                    if(!file)return;
-                    if(file.size>300000)throw Error('副 API 预设文件过大');
-                    preset=readSecondaryPreset(await file.text());presetName.value=preset.name;
-                });
                 const actions=node('div',undefined,'miao-actions');api.append(actions);
-                action(actions,'导入副 API 预设',()=>upload.click());
-                action(actions,'恢复默认指令',()=>{preset=null;presetName.value='默认指令';});
                 commitPage=async()=>withPromptLock(async()=>{
-                    await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,maxTags:limit.value,preset,remember:remember.value==='device'});
+                    await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,maxTags:limit.value,remember:remember.value==='device'});
                     key.value='';
                 });
                 api.append(node('p','出词时会将当前楼层正文发给填写的副 API。','miao-muted'));
                 action(actions,'保存副 API',async()=>{await commitPage();render();},true);
+                renderSecondaryPresets(body,withPromptLock);
             }else{
                 let macrosView;
                 const warnings=node('div');

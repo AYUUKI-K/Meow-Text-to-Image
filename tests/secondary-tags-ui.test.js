@@ -36,15 +36,41 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await nav.getByRole('button',{name:'生图指令',exact:true}).click();
             await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
             await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');
+            const presetPicker=page.getByRole('combobox',{name:'当前副 API 预设',exact:true});
+            await presetPicker.selectOption('electronic-ghost');
+            const messages=page.locator('.miao-secondary-preset-messages');
+            const bodyTemplate='<剧情原文>\n{{正文}}\n</剧情原文>';
+            const bodyEntry=messages.locator('details').last();
+            await bodyEntry.locator('pre').waitFor();
+            await page.waitForFunction(expected=>document.querySelector('.miao-secondary-preset-messages details:last-child pre')?.textContent===expected,bodyTemplate);
+            await messages.getByText('预设指令 · system',{exact:true}).click();
+            await messages.locator('details[open] pre').getByText(/你是尤瑞/).waitFor();
+            assert.equal(requests.length,0,'previewing a preset must not call the secondary API');
             await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://tag-fixture.invalid/v1');
             await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture-model');
             await page.getByLabel('副 API Key',{exact:true}).fill('fixture-secondary-key');
-            await page.locator('input[type=file]').setInputFiles({name:'fixture.json',mimeType:'application/json',
-                buffer:Buffer.from(JSON.stringify({type:'miao-secondary-tag-preset',version:1,name:'Fixture preset',instructions:'FIXTURE_DIRECTOR'}))});
-            await page.waitForFunction(()=>[...document.querySelectorAll('input')].some(input=>input.value==='Fixture preset'));
+            const fixture={type:'miao-secondary-tag-preset',version:1,name:'Fixture preset',instructions:'FIXTURE_DIRECTOR {{getvar::对象}}',bodyTemplate};
+            await page.locator('input[type=file]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
+            await page.getByText('其他宏按原文发送：{{getvar::对象}}',{exact:true}).waitFor();
+            assert.equal(await presetPicker.inputValue(),'import-0');
             await page.getByRole('button',{name:'保存副 API',exact:true}).click();
             await page.waitForFunction(()=>!!window.preview.settings.secondaryTagAPI);
             assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('fixture-secondary-key'));
+            const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
+            if(tt){
+                await exportButton.tap();
+                await page.waitForFunction(()=>!!window.preview.nativeDownloads?.length);
+                assert.equal(await page.evaluate(()=>window.preview.nativeDownloads[0].name),'meow-tag-preset.json');
+            }else{
+                const [download]=await Promise.all([page.waitForEvent('download'),exportButton.click()]);
+                const chunks=[];for await(const chunk of await download.createReadStream())chunks.push(chunk);
+                const data=Buffer.concat(chunks);
+                assert.deepEqual(JSON.parse(data.toString()),fixture,'the export must contain only portable preset fields');
+                const saves=await page.evaluate(()=>window.preview.settingsSaves);
+                await page.locator('input[type=file]').setInputFiles({name:download.suggestedFilename(),mimeType:'application/json',buffer:data});
+                await page.waitForFunction(previous=>window.preview.settingsSaves>previous,saves);
+                assert.equal(await presetPicker.locator('option').count(),3,'reimporting the same preset must not duplicate it');
+            }
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
             await page.evaluate(async tt=>{
                 const p=window.preview;
@@ -71,8 +97,8 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.equal(requests.length,1);
             assert.equal(requests[0].auth,'Bearer fixture-secondary-key');
             assert.equal(requests[0].body.model,'fixture-model');
-            assert.equal(requests[0].body.messages[0].content,'FIXTURE_DIRECTOR');
-            assert.equal(requests[0].body.messages.at(-1).content,'正文：猫跳上窗台。');
+            assert.equal(requests[0].body.messages[0].content,fixture.instructions);
+            assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n正文：猫跳上窗台。\n</剧情原文>'});
             assert.equal(await page.evaluate(()=>window.preview.chat.at(-1).mes),'<think>private reasoning</think>正文：猫跳上窗台。 image###inline main tag###');
             if(tt){
                 assert.equal(await page.evaluate(()=>window.preview.calls.length),0);

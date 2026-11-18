@@ -27,6 +27,7 @@ import {readGenerationMetadata,generationInfo} from './src/images/image-metadata
 import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './src/prompts/prompt-files.js';
 import {editedTag} from './src/prompts/tag-edit.js';
 import {secondaryEnabled,secondaryConnection,secondaryBody,requestSecondaryTags,secondaryPattern} from './src/prompts/secondary-tags.js';
+import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile} from './src/prompts/secondary-presets.js';
 import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks} from './src/chat/secondary-tags.js';
 import {exportPreview,previewPNG} from './src/prompts/prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
@@ -608,10 +609,11 @@ async function savePromptConfig(next,{useMainAPI=false}={}){
     finally{promptConfigSaving=false;}
 }
 let savingSecondarySettings=false;
-async function saveSecondarySettings(source,values){
+async function saveSecondarySettings(source,values,library){
     if(savingSecondarySettings)throw Error('副 API 设置正在保存');
     savingSecondarySettings=true;
     const previous=settings.tagSource,previousConnection=settings.secondaryTagAPI;
+    const previousLibrary=settings.secondaryTagPresets;
     let restoreKey;
     try{
         if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');
@@ -622,15 +624,17 @@ async function saveSecondarySettings(source,values){
             const {persistent}=await vault.status();
             await vault.set(key,next.remember);
             restoreKey=()=>vault.set(previousKey,persistent);
+            settings.secondaryTagPresets??=readSecondaryLibrary(settings);
             settings.secondaryTagAPI=next;
         }
+        if(library)settings.secondaryTagPresets=library;
         settings.tagSource=source;
         promptInjection.update();
         await persistSettings();
         autoSession=null;secondarySession=null;secondaryJob?.controller.abort();
         renderAll();
     }catch(error){
-        settings.tagSource=previous;settings.secondaryTagAPI=previousConnection;refreshPrompt();
+        settings.tagSource=previous;settings.secondaryTagAPI=previousConnection;settings.secondaryTagPresets=previousLibrary;refreshPrompt();
         await restoreKey?.().catch(()=>{});
         throw error;
     }finally{savingSecondarySettings=false;}
@@ -1000,6 +1004,8 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
         savePromptConfig,saveSecondarySettings,testImage,installDefaults,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
+        saveSecondaryPresets:library=>saveSecondarySettings('secondary',undefined,library),
+        exportSecondaryPreset:preset=>{const {blob,name}=secondaryPresetFile(preset);return prepareFileDownload(blob,name);},
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
@@ -1063,8 +1069,9 @@ async function runSecondaryTags(message,automatic){
     const body=secondaryBody(text,settings.pattern,reasoningFormat());
     const remaining=connection.maxTags-readSecondaryTags(message,swipe).length;
     if(!body||remaining<1)return;
+    const library=settings.secondaryTagPresets,preset=activeSecondaryPreset(readSecondaryLibrary(settings));
     const controller=new AbortController();
-    const current=()=>secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&getCurrentUserHandle()===directUser&&
+    const current=()=>secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&settings.secondaryTagPresets===library&&getCurrentUserHandle()===directUser&&
         chat===currentChat()&&message===latestImageMessage(ctx().chat)&&(message.swipe_id??0)===swipe&&message.mes===text;
     const job={controller,message,swipe,current};
     secondaryJob=job;
@@ -1076,7 +1083,7 @@ async function runSecondaryTags(message,automatic){
             const key=await secondaryVault(connection.url).get();
             if(!current()||controller.signal.aborted)return;
             if(!key)throw Error('请在「生图指令」页保存副 API Key');
-            return requestSecondaryTags({...connection,maxTags:remaining},key,body,{signal:controller.signal});
+            return requestSecondaryTags({...connection,maxTags:remaining,preset},key,body,{signal:controller.signal});
         };
         const tags=await Promise.race([request(),cancelled]);
         if(!tags||!current()||controller.signal.aborted)return;
