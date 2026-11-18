@@ -77,12 +77,11 @@ export function withTreeEnabled(config, id, enabled) {
     if (!treeById[id]?.toggleable || typeof enabled !== 'boolean') throw Error('该条目不可切换');
     return validateTreeSettings({...config, enabledById:{...config.enabledById, [id]:enabled}});
 }
-export function promptWarnings(config, startTag, endTag) {
+export function promptWarnings(config) {
     if (config.version !== 2) return [];
     const warnings = [];
     if (Object.values(config.params).some(value => /\{\{/.test(value)) || Object.values(config.textOverridesById || {}).some(slots => Object.values(slots).some(value => /\{\{/.test(value)))) warnings.push('内容含酒馆宏：插件按原文保留，不解析变量；最终行为取决于宿主与预设。');
     if (config.legacyBackup?.config?.fixed?.cot_xml) warnings.push('旧 cot_xml 已保存在兼容备份；新结构不注入该变量，依赖它的外部预设兼容性尚未验证。');
-    if (startTag !== 'image###' || endTag !== '###') warnings.push('当前捕捉标签与内置 image### / ### 格式不一致，可能无法识别图片；请核对捕捉标签和输出正文。');
-    if (config.textOverridesById?.['output.format']?.body !== undefined) warnings.push('图片标签结构已自定义，请核对实际输出与捕捉标签；插件不会自动改写正文。');
+    if (config.textOverridesById?.['output.format']?.body !== undefined) warnings.push('图片标签结构已自定义，请核对实际输出与捕捉标签。');
     return warnings;
 }

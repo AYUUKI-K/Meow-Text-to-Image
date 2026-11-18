@@ -2,6 +2,40 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {activeSecondaryPreset, addSecondaryPreset, listedSecondaryMacros, readSecondaryLibrary, readSecondaryPreset, secondaryPresetFile} from '../src/prompts/secondary-presets.js';
 import {buildSecondaryMessages, requestSecondaryTags} from '../src/prompts/secondary-tags.js';
+import {insertDrawingTags, numberedReply, roleList, expandRoleTags} from '../src/chat/secondary-placement.js';
+
+test('full Tavern presets retain ordered enabled messages, prefill and inactive entries', async()=>{
+    const source={prompts:[
+        {identifier:'body',name:'正文',role:'system',content:'原文\n{{正文}}'},
+        {identifier:'first',name:'场景',role:'system',content:'  包含正文之外的完整设置  '},
+        {identifier:'prefill',name:'示范',role:'assistant',content:'完整示范'},
+        {identifier:'marker',name:'未启用标记'},
+    ],prompt_order:[{character_id:100001,order:['first','body','prefill'].map(identifier=>({identifier,enabled:true}))}]};
+    const original=readSecondaryPreset(JSON.stringify(source),{fileName:'电子幽灵-本地测试.json'});
+    const library=addSecondaryPreset(readSecondaryLibrary({}),original);
+    const active=activeSecondaryPreset(library);
+    assert.equal(active.id,'electronic-ghost');
+    assert.deepEqual(active.entries.map(({name,enabled})=>[name,enabled]),[['场景',true],['正文',true],['示范',true],['未启用标记',false]]);
+    assert.deepEqual(buildSecondaryMessages({preset:active},'场景正文'),[
+        {role:'system',content:'  包含正文之外的完整设置  '},
+        {role:'system',content:'原文\n场景正文'},
+        {role:'assistant',content:'完整示范'},
+    ]);
+    assert.deepEqual(readSecondaryPreset(await secondaryPresetFile(active).blob.text()), original);
+});
+
+test('paragraph IDs are suffixes, map through regex changes, and write only wrapped tags', ()=>{
+    const original='甲段。\r\n\r\n旧描述。\r\n\r\n最后一段。';
+    const {text,anchors}=numberedReply('甲段。\n\n新描述。\n\n最后一段。',original);
+    assert.equal(text,'甲段。\n[P01]\n\n新描述。\n[P02]\n\n最后一段。\n[P03]');
+    const macro='$结城爱$';
+    const result=insertDrawingTags(original,anchors.paragraphs,[{anchor:'P02',tag:`OPEN${macro}, windowCLOSE`},{anchor:'P99',tag:'OPENflowerCLOSE'}],anchors.end);
+    assert.equal(result.text,'甲段。\r\n\r\n旧描述。\r\n\r\nOPEN$结城爱$, windowCLOSE\r\n\r\n最后一段。\r\n\r\nOPENflowerCLOSE');
+    assert.equal(result.atEnd,1);
+    assert.equal(expandRoleTags(macro,roleList('结城爱 = black hair, yellow eyes,')),'black hair, yellow eyes');
+    assert.equal(expandRoleTags('$结城爱￥',roleList('结城爱 = black hair')),'black hair');
+    assert.throws(()=>expandRoleTags(macro,roleList('其它角色 = glasses')),/未绑定/);
+});
 
 test('an existing secondary preset retains its current instructions and raw-body layout', ()=>{
     const legacy={name:'My previous preset',instructions:'Use visual tags.'};

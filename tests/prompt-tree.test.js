@@ -84,7 +84,7 @@ test('ordinary parameter saving, marker cache and warnings share the same values
  let c=defaultPromptSettings();const snap=fixedMacroSnapshot(c);assert.equal(snap.version,2);assert.equal(snap.macros.length,4);
  c=updateFixedMacros(c,snap,{persona:'{{user}}',eggMarker:'/fixture'});assert.ok(composePrompt(c).includes('绘图执行者：{{user}}'));assert.ok(!composePrompt(c).includes('{{setvar'));
  const cache=createEggMarkerCache({read:()=>fixedMacroSnapshot(c),key:()=>c.params.eggMarker});assert.equal(await cache.read(),'/fixture');c={...c,params:{...c.params,eggMarker:'/new'}};assert.equal(await cache.read(),'/new');
- assert.ok(promptWarnings(c,'custom','END').some(s=>s.includes('不一致')));assert.ok(promptWarnings(c,'image###','###').some(s=>s.includes('宏')));assert.deepEqual(promptWarnings(defaultPromptSettings(),'image###','###'),[]);
+ assert.ok(promptWarnings(c).some(s=>s.includes('宏')));assert.deepEqual(promptWarnings(defaultPromptSettings()),[]);
  const customFormat=withTreeText(defaultPromptSettings(),'output.format',{body:'CUSTOM_START\n[prompt]\nCUSTOM_END'});assert.ok(promptWarnings(customFormat,'image###','###').some(s=>s.includes('图片标签结构已自定义')));
 });
 

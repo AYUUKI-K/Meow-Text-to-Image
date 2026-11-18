@@ -30,7 +30,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  // Switching source must commit the pending capture fields, including on failure.
  await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('custom###');
  await source.selectOption('builtin');await page.waitForFunction(()=>window.preview.settings.promptConfig.mode==='builtin');await page.locator('.miao-prompt-tree').waitFor();
- assert.equal(await page.evaluate(()=>window.preview.settings.startTag),'custom###');await page.getByText('当前捕捉标签与内置 image### / ### 格式不一致，可能无法识别图片；请核对捕捉标签和输出正文。',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>window.preview.settings.startTag),'custom###');assert.match(await injection(),/custom###\s*\[图片tag\]\s*###/);
  await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('image###');
  assert.deepEqual(await page.locator('.miao-prompt-tree > .miao-tree-node').evaluateAll(nodes=>nodes.map(n=>n.dataset.displayId)),['00','01','02','03','04','05']);
  const branch=id=>page.locator(`[data-node-id="${id}"]`),button=(name)=>page.getByRole('button',{name,exact:true});

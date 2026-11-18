@@ -6,16 +6,20 @@ import {createRequire} from 'node:module';
 import {homedir} from 'node:os';
 const require=createRequire(import.meta.url);
 
+async function previewAddress(server){
+    return new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>reject(Error('预览启动超时')),10000);
+        server.stdout.on('data',data=>{const match=String(data).match(/http:\/\/[^\s]+/);if(match){clearTimeout(timer);resolve(match[0]);}});
+        server.on('exit',()=>{clearTimeout(timer);reject(Error('预览启动失败'));});
+    });
+}
+
 test('the secondary tag API sees only completed reply text and saves tags to the original swipe', {timeout:60000}, async()=>{
     const {chromium}=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
     const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
     let browser;
     try{
-        const base=await new Promise((resolve,reject)=>{
-            const timer=setTimeout(()=>reject(Error('预览启动超时')),10000);
-            server.stdout.on('data',data=>{const match=String(data).match(/http:\/\/[^\s]+/);if(match){clearTimeout(timer);resolve(match[0]);}});
-            server.on('exit',()=>{clearTimeout(timer);reject(Error('预览启动失败'));});
-        });
+        const base=await previewAddress(server);
         browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
         const meowRegex=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
         for(const tt of [false,true]){
@@ -39,14 +43,25 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
             await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');
             const presetPicker=page.getByRole('combobox',{name:'当前副 API 预设',exact:true});
-            await presetPicker.selectOption('electronic-ghost');
+            assert.equal(await presetPicker.inputValue(),'electronic-ghost');
+            assert.equal(await presetPicker.locator('option').count(),1);
+            const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
+            assert.equal(await exportButton.isDisabled(),true);
             const messages=page.locator('.miao-secondary-preset-messages');
             const bodyTemplate='<剧情原文>\n{{正文}}\n</剧情原文>';
-            const bodyEntry=messages.locator('details').nth(2);
-            await bodyEntry.locator('pre').waitFor();
-            await page.waitForFunction(expected=>document.querySelector('.miao-secondary-preset-messages details:nth-child(3) pre')?.textContent===expected,bodyTemplate);
-            await messages.getByText('预设指令 · system',{exact:true}).click();
-            await messages.locator('details[open] pre').getByText(/你是尤瑞/).waitFor();
+            const full={prompts:[
+                {identifier:'body',name:'正文条目',role:'system',content:bodyTemplate},
+                {identifier:'setting',name:'设定',role:'system',content:'完整的设定示例'},
+                {identifier:'example',name:'示范',role:'assistant',content:'示范回复'},
+                {identifier:'style',name:'风格',role:'system',content:'完整的风格示例'},
+                {identifier:'unlisted',name:'备用范例',role:'system',content:'备用内容'},
+            ],prompt_order:[{character_id:100001,order:['setting','style','body','example'].map(identifier=>({identifier,enabled:true}))}]};
+            const input=page.locator('#miao-nai-settings input[type=file]');
+            await input.setInputFiles({name:'电子幽灵-测试.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(full))});
+            await messages.locator('details').nth(4).waitFor();
+            assert.equal(await messages.locator('details:visible').count(),5);
+            assert.equal(await messages.locator('details[open] pre').textContent(),bodyTemplate);
+            assert.equal(await exportButton.isEnabled(),true);
             assert.equal(requests.length,0,'previewing a preset must not call the secondary API');
             await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://tag-fixture.invalid/v1');
             await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture-model');
@@ -60,7 +75,6 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.getByRole('button',{name:'保存副 API',exact:true}).click();
             await page.waitForFunction(()=>!!window.preview.settings.secondaryTagAPI);
             assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('fixture-secondary-key'));
-            const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
             if(tt){
                 await exportButton.tap();
                 await page.waitForFunction(()=>!!window.preview.nativeDownloads?.length);
@@ -73,7 +87,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 const saves=await page.evaluate(()=>window.preview.settingsSaves);
                 await page.locator('input[type=file]').setInputFiles({name:download.suggestedFilename(),mimeType:'application/json',buffer:data});
                 await page.waitForFunction(previous=>window.preview.settingsSaves>previous,saves);
-                assert.equal(await presetPicker.locator('option').count(),3,'reimporting the same preset must not duplicate it');
+                assert.equal(await presetPicker.locator('option').count(),2,'reimporting the same preset must not duplicate it');
             }
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
             const rawReply='<think>private reasoning</think>正文：猫跳上窗台。 ┈┈绘图标题┈┈ <easter_egg>彩蛋介绍</easter_egg> image###inline main tag###';
@@ -176,6 +190,95 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 assert.equal(requests.length,2,'ENDED before STOPPED must not send a partial reply');
             }
             assert.deepEqual(errors,[]);await page.close();
+        }
+    }finally{await browser?.close();server.kill();}
+});
+
+test('the configured drawing format writes into the active swipe and only expands role tags for NAI', {timeout:45000},async()=>{
+    const {chromium}=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
+    const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
+    let browser;
+    try{
+        const base=await previewAddress(server);
+        browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
+        for(const tt of [false,true]){
+            const page=await browser.newPage(tt?{viewport:{width:390,height:844},hasTouch:true,isMobile:true}:{});
+            page.setDefaultTimeout(6500);
+            const requests=[];
+            await page.route('https://draw-fixture.invalid/v1/chat/completions',async route=>{
+                if(route.request().method()==='POST')requests.push(route.request().postDataJSON());
+                await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
+                    json:{choices:[{message:{content:'<drawings><draw after="P02">START-FIG $试用人物$, sitting END-FIG</draw></drawings>'}}]}});
+            });
+            await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
+            await page.evaluate(()=>{
+                const p=window.preview;
+                Object.assign(p.context,{characterId:0,characters:[{avatar:'sample.png',name:'测试角色卡'}],chatMetadata:{},
+                    saveMetadata:async()=>{},updateMessageBlock(index,message){
+                        document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`).textContent=message.mes;
+                    }});
+                Object.assign(p.settings,{mode:'manual',cloudQueue:false,eggProfileEnabled:false});
+            });
+            await page.locator('#miao-nai-menu').click();
+            const nav=page.locator(tt?'.miao-overview':'.miao-tabs');
+            if(tt){
+                await nav.getByRole('button',{name:'生成',exact:true}).tap();
+                await page.getByLabel('API Key',{exact:true}).fill('inline-drawings-fixture-key');
+                await page.getByRole('button',{name:'保存密钥',exact:true}).tap();
+                await page.waitForFunction(()=>!!window.preview.settings.keyHash);
+                await page.getByRole('button',{name:'返回功能列表',exact:true}).tap();
+            }
+            await nav.getByRole('button',{name:'生图指令',exact:true}).click();
+            await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
+            const fixture={type:'miao-secondary-tag-preset',version:2,name:'电子幽灵-结构测试',entries:[
+                {name:'格式',role:'system',enabled:true,content:'<drawings><draw after="P02">{{miao_image_start}}tag{{miao_image_end}}</draw></drawings>'},
+                {name:'正文槽位',role:'system',enabled:true,content:'可用角色：\n{{角色启用列表}}\n\n{{正文}}'},
+            ]};
+            await page.locator('#miao-nai-settings input[type=file]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
+            await page.getByText('格式 · system',{exact:true}).waitFor();
+            await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://draw-fixture.invalid/v1');
+            await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture');
+            await page.getByLabel('副 API Key',{exact:true}).fill('fixture-key');
+            await page.getByRole('button',{name:'保存副 API',exact:true}).click();
+            await page.waitForFunction(()=>Boolean(window.preview.settings.secondaryTagAPI));
+            await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('START-FIG');
+            await page.getByRole('textbox',{name:'结束标签',exact:true}).fill('END-FIG');
+            await page.getByRole('button',{name:'保存捕捉标签',exact:true}).click();
+            const characters=page.getByRole('textbox',{name:'测试角色卡',exact:true});
+            await characters.fill('试用人物 = black hair, yellow eyes');
+            await page.getByRole('button',{name:'保存角色 tag',exact:true}).click();
+            await page.waitForFunction(()=>!!window.preview.context.chatMetadata.miao_nai_image_role_bindings);
+            await page.getByRole('button',{name:'关闭设置',exact:true}).click();
+            const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。';
+            await page.evaluate(async prose=>{
+                const p=window.preview;
+                p.chat.splice(0,p.chat.length,{name:'Reply',mes:prose,swipes:['另一条分支',prose],swipe_id:1});
+                document.getElementById('chat').innerHTML='<div class="mes" mesid="0"><div class="mes_text"></div></div>';
+                p.context.updateMessageBlock(0,p.chat[0]);
+                await p.emit('CHAT_CHANGED');
+            },prose);
+            await page.getByRole('button',{name:'提取绘图 tag',exact:true}).click();
+            await page.getByRole('button',{name:'生成插图',exact:true}).waitFor();
+            assert.equal(requests.length,1);
+            assert.match(requests[0].messages[0].content,/START-FIGtagEND-FIG/);
+            assert.match(requests[0].messages[1].content,/试用人物 = black hair, yellow eyes[\s\S]*走到门口。\n\[P01\][\s\S]*花店亮灯。\n\[P03\]$/);
+            const expected='走到门口。\n\n把窗推开。\n\nSTART-FIG$试用人物$, sittingEND-FIG\n\n花店亮灯。';
+            assert.deepEqual(await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]),
+                [expected,'另一条分支',expected]);
+            await page.getByRole('button',{name:'生成插图',exact:true}).click();
+            await page.waitForFunction(()=>window.preview.calls.length===1);
+            const nai=await page.evaluate(()=>window.preview.calls[0].prompt??window.preview.calls[0].input);
+            assert.match(nai,/black hair, yellow eyes, sitting/);
+            assert.doesNotMatch(nai,/试用人物/);
+            await page.evaluate(async()=>{
+                const p=window.preview;
+                p.chatId='another-archive';p.context.chatMetadata={};
+                await p.emit('CHAT_CHANGED');
+            });
+            await page.locator('#miao-nai-menu').click();
+            await nav.getByRole('button',{name:'生图指令',exact:true}).click();
+            assert.equal(await characters.inputValue(),'');
+            await page.close();
         }
     }finally{await browser?.close();server.kill();}
 });

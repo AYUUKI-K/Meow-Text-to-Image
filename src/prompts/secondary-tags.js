@@ -1,11 +1,13 @@
 import {delimiterPattern, maskReasoning, parseBodyBlocks} from '../core/core.js';
 import {validateEndpoint} from '../novelai/nai-connection.js';
-import {activeSecondaryPreset, readSecondaryLibrary, replySlot} from './secondary-presets.js';
+import {replySlot} from './secondary-presets.js';
 import {createSecondaryMacroExpander} from './secondary-macros.js';
+import {captureMacroValues, captureTemplate, drawingResponse, resolveCapture} from '../chat/secondary-placement.js';
 
 export const secondaryPattern = delimiterPattern('image###', '###');
 export const secondaryEnabled = settings => settings.tagSource === 'secondary';
-const defaultPreset = activeSecondaryPreset(readSecondaryLibrary({}));
+export const inlineSecondaryPreset = preset => preset?.entries?.some(entry =>
+    entry.enabled && entry.content.includes('<drawings>') && entry.content.includes('after=')) ?? false;
 
 export function secondaryConnection(values) {
     const address = String(values.url ?? '').trim();
@@ -34,22 +36,30 @@ export function secondaryBody(text, mainPattern, format) {
     return parts.join('\n').replace(/<\/?(?:content|message)>/gi, '').trim();
 }
 
-export function extractSecondaryTags(content, limit) {
-    return parseBodyBlocks(content, secondaryPattern).slice(0, limit).map(block => ({prompt: block.prompt}));
+export function extractSecondaryTags(content, limit, pattern = secondaryPattern) {
+    return parseBodyBlocks(content, pattern).slice(0, limit).map(block => ({prompt: block.prompt}));
 }
 
-export function buildSecondaryMessages({maxTags, preset = defaultPreset}, body, expand) {
+export function buildSecondaryMessages({maxTags, preset, capture = {start:'image###',end:'###'}}, body, expand) {
+    if (!preset || preset.pendingImport) throw Error('请先在「预设」中导入完整的电子幽灵 JSON');
+    const render = text => expand ? expand(captureTemplate(text)) : resolveCapture(captureTemplate(text),capture).replace(replySlot, () => body);
+    if (preset.entries) {
+        return preset.entries.filter(entry => entry.enabled && entry.content.trim())
+            .map(({role, content}) => ({role, content: render(content)}))
+            .filter(message => message.content.trim());
+    }
     return [
-        {role: 'system', content: expand ? expand(preset.instructions) : preset.instructions},
-        {role: 'system', content: `接下来的一条用户消息是待分析的小说正文。最多输出 ${maxTags} 个绘图标签，每张一行，严格使用 image###绘图提示词###；只输出绘图标签，完全闭合每一组。不要复述正文或输出思考过程。`},
-        {role: 'user', content: expand ? expand(preset.bodyTemplate) : preset.bodyTemplate.replace(replySlot, () => body)},
+        {role: 'system', content: render(preset.instructions)},
+        {role: 'system', content: `接下来的一条用户消息是待分析的小说正文。最多输出 ${maxTags} 个绘图标签，每张一行，严格使用 ${capture.start}绘图提示词${capture.end}；只输出绘图标签，完全闭合每一组。不要复述正文或输出思考过程。`},
+        {role: 'user', content: render(preset.bodyTemplate)},
     ];
 }
 
 export async function requestSecondaryTags(connection, key, body, {signal, fetchImpl = fetch, macros, onPrepared} = {}) {
     const {url, model, maxTags} = connection;
     if (body.length > 60000) throw Error('正文超过副 API 的单楼长度上限');
-    const expand = createSecondaryMacroExpander({...macros, values: {...macros?.values, 正文: () => body}});
+    const capture = connection.capture ?? {start: 'image###', end: '###'};
+    const expand = createSecondaryMacroExpander({...macros, values: {...macros?.values, ...captureMacroValues(capture), 正文: () => body}});
     const messages = buildSecondaryMessages(connection, body, expand);
     if (messages.reduce((length, message) => length + message.content.length, 0) > 160000) throw Error('副 API 展开后的请求内容过长');
     onPrepared?.(messages);
@@ -71,7 +81,13 @@ export async function requestSecondaryTags(connection, key, body, {signal, fetch
     if (choice?.finish_reason === 'length') throw Error('副 API 输出被截断，请检查模型输出长度限制');
     const content = choice?.message?.content;
     const text = Array.isArray(content) ? content.filter(part => part?.type === 'text').map(part => part.text).join('\n') : content;
-    const tags = typeof text === 'string' && text.length <= 100000 ? extractSecondaryTags(text, maxTags) : [];
-    if (!tags.length) throw Error('副 API 未输出完整的 image###…### 标签');
+    if (inlineSecondaryPreset(connection.preset)) {
+        if (typeof text !== 'string' || text.length > 100000) throw Error('副 API 绘图返回无效');
+        const {drawings, errors} = drawingResponse(text, capture);
+        if (!drawings.length) throw Error(errors[0] ?? '副 API 未返回可用的 <draw> 绘图条目');
+        return drawings.slice(0, maxTags);
+    }
+    const tags = typeof text === 'string' && text.length <= 100000 ? extractSecondaryTags(text, maxTags, delimiterPattern(capture.start,capture.end)) : [];
+    if (!tags.length) throw Error('副 API 未输出完整的绘图标签，请检查捕捉标签配置');
     return tags;
 }

@@ -14,6 +14,7 @@ publicFiles.add('src/novelai/character-prompts.js');
 publicFiles.add('src/prompts/secondary-tags.js');
 publicFiles.add('src/prompts/secondary-macros.js');
 publicFiles.add('src/prompts/secondary-presets.js');
+publicFiles.add('src/chat/secondary-placement.js');
 publicFiles.add('src/chat/secondary-tags.js');
 publicFiles.add('tests/support/prompt-tree-preview.mjs');
 for(const name of ['tree-defaults','tree-settings','tree-composer'])publicFiles.add('src/prompts/'+name+'.js');

@@ -26,9 +26,10 @@ import {showImageBatchExport} from './src/ui/image-batch-export.js';
 import {readGenerationMetadata,generationInfo} from './src/images/image-metadata.js';
 import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './src/prompts/prompt-files.js';
 import {editedTag} from './src/prompts/tag-edit.js';
-import {secondaryEnabled,secondaryConnection,secondaryBody,requestSecondaryTags,secondaryPattern} from './src/prompts/secondary-tags.js';
+import {secondaryEnabled,secondaryConnection,secondaryBody,requestSecondaryTags,secondaryPattern,inlineSecondaryPreset} from './src/prompts/secondary-tags.js';
 import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile,listedSecondaryMacros} from './src/prompts/secondary-presets.js';
 import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,prepareSecondaryChat} from './src/chat/secondary-tags.js';
+import {captureMacroValues,expandRoleTags,insertDrawingTags,numberedReply,roleList} from './src/chat/secondary-placement.js';
 import {exportPreview,previewPNG} from './src/prompts/prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import * as extensionAPI from '../../../extensions.js';
@@ -239,6 +240,28 @@ function state(message,key) {
     return readSwipeImage(message,swipe,slot,unique,block?`${block.index}:${block.prompt}`:undefined);
 }
 function currentChat() { return String(ctx().getCurrentChatId()); }
+const roleKey='miao_nai_image_role_bindings';
+const captureSettings=()=>({start:settings.startTag,end:settings.endTag});
+function roleBindingSnapshot(){
+    const host=ctx(),scope=archiveContext(host);
+    return {scope,metadata:host.chatMetadata,text:host.chatMetadata?.[roleKey]??'',available:!!(host.chatMetadata&&scope.chatId&&host.saveMetadata)};
+}
+async function saveRoleBindings(snapshot,text){
+    roleList(text);
+    const {metadata,scope,available}=roleBindingSnapshot();
+    if(!available||metadata!==snapshot.metadata||scope.cardId!==snapshot.scope.cardId||scope.chatId!==snapshot.scope.chatId){
+        throw Error('角色卡或存档已切换，请重新打开设置');
+    }
+    const previous=metadata[roleKey];
+    if(text.trim())metadata[roleKey]=text;
+    else delete metadata[roleKey];
+    try{if(await ctx().saveMetadata()===false)throw Error('保存失败');}
+    catch{
+        if(previous===undefined)delete metadata[roleKey];else metadata[roleKey]=previous;
+        throw Error('无法保存当前存档的角色 tag');
+    }
+    notices.success('当前存档的角色 tag 已保存');
+}
 const promptIdentity=prompt=>String(prompt).replace(/\s+/g,' ').trim();
 const matchingBlocks=(available,target)=>available.filter(block=>!!block.secondary===!!target.secondary&&promptIdentity(block.prompt)===promptIdentity(target.prompt));
 function liveMessage(message,fallback){
@@ -322,7 +345,7 @@ function startGeneration(message,block,{automatic=false,egg=false}={}) {
     const existing=running.get(taskId)||taskFor(message,block);if(existing)return existing.promise;
     message.miao_nai_image_id??=randomId();
     const {profile,profileId,profileName,source:profileSource}=selectGenerationProfile(settings,{egg});
-    const request=buildRequest(profile,block.prompt);
+    const request=buildRequest(profile,expandRoleTags(block.prompt,roleList(roleBindingSnapshot().text)));
     request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
     attempted.add(taskId);
@@ -570,8 +593,9 @@ function renderAll() {
 function renderSecondaryAction(root,message,found){
     let action=root.querySelector('.miao-secondary-tag-action');
     if(action&&action.message!==message){action.remove();action=null;}
+    const inline=secondaryEnabled(settings)&&inlineSecondaryPreset(activeSecondaryPreset(readSecondaryLibrary(settings)));
     const show=secondaryEnabled(settings)&&!!settings.secondaryTagAPI&&message===latestImageMessage(ctx().chat)&&
-        !secondarySession&&!found.some(block=>block.secondary)&&!!secondaryBody(message.mes,settings.pattern,reasoningFormat());
+        !secondarySession&&!found.some(block=>block.secondary||inline)&&!!secondaryBody(message.mes,settings.pattern,reasoningFormat());
     if(!show){action?.remove();return;}
     if(!action){
         action=el('div',undefined,'miao-secondary-tag-action');
@@ -676,7 +700,7 @@ async function testImage() {
     }catch(error){generationError(error);}
 }
 function saveCapture(start,end) {
-    const pattern=delimiterPattern(start,end);settings.startTag=start;settings.endTag=end;settings.pattern=pattern;save();renderAll();notices.success('捕捉标签已保存');
+    const pattern=delimiterPattern(start,end);settings.startTag=start;settings.endTag=end;settings.pattern=pattern;save();promptInjection.update();renderAll();notices.success('捕捉标签已保存');
 }
 async function downloadImage(url,name='miao-image.png') {
     const format=settings.exportFormat;
@@ -1006,7 +1030,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
-        savePromptConfig,saveSecondarySettings,testImage,installDefaults,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
+         savePromptConfig,saveSecondarySettings,readRoleBindings:roleBindingSnapshot,saveRoleBindings,testImage,installDefaults,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
         saveSecondaryPresets:library=>saveSecondarySettings('secondary',undefined,library),
         exportSecondaryPreset:preset=>{const {blob,name}=secondaryPresetFile(preset);return prepareFileDownload(blob,name);},
         lastSecondaryRequest:preset=>{
@@ -1092,16 +1116,36 @@ async function secondaryPromptText(chat,message,preset){
         },
     });
 }
+function secondaryRawBody(text,pattern,format){
+    let visible=maskReasoning(text,format);
+    const ignored=parseBodyBlocks(text,pattern,format);
+    for(const block of ignored.reverse()){
+        visible=visible.slice(0,block.start)+block.raw.replace(/[^\r\n]/g,' ')+visible.slice(block.start+block.raw.length);
+    }
+    return visible.replace(/<\/?(?:content|message)>/gi,tag=>' '.repeat(tag.length));
+}
+function refreshSecondaryMessage(message){
+    const host=ctx(),index=host.chat.indexOf(message);
+    if(typeof host.updateMessageBlock==='function')host.updateMessageBlock(index,message);
+    else{
+        const root=document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`);
+        if(root&&typeof host.messageFormatting==='function')root.innerHTML=host.messageFormatting(message.mes,message.name,false,false,index);
+    }
+}
 async function runSecondaryTags(message,automatic){
     const connection=settings.secondaryTagAPI,chat=currentChat(),swipe=message.swipe_id??0,text=message.mes;
     if(secondaryJob?.controller.signal.aborted)secondaryJob=null;
     if(!secondaryEnabled(settings)||!connection||secondarySession||secondaryJob||message!==latestImageMessage(ctx().chat))return;
-    const remaining=connection.maxTags-readSecondaryTags(message,swipe).length;
-    if(!text?.trim()||remaining<1)return;
     const library=settings.secondaryTagPresets,preset=activeSecondaryPreset(readSecondaryLibrary(settings));
+    const inline=inlineSecondaryPreset(preset),capture=captureSettings(),initialBlocks=inline?blocks(message):[];
+    const remaining=connection.maxTags-(inline?initialBlocks.length:readSecondaryTags(message,swipe).length);
+    if(!text?.trim()||remaining<1)return;
+    if(preset.pendingImport){notices.error('请先在「生图指令 → 预设」导入完整的电子幽灵 JSON','副 API 出词失败',{escapeHtml:true});return;}
     const controller=new AbortController();
+    let anchors,expectedText=text;
     const current=()=>secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&settings.secondaryTagPresets===library&&getCurrentUserHandle()===directUser&&
-        chat===currentChat()&&message===latestImageMessage(ctx().chat)&&(message.swipe_id??0)===swipe&&message.mes===text;
+        capture.start===settings.startTag&&capture.end===settings.endTag&&chat===currentChat()&&message===latestImageMessage(ctx().chat)&&
+        (message.swipe_id??0)===swipe&&message.mes===expectedText;
     const job={controller,message,swipe,current};
     secondaryJob=job;
     renderAll();
@@ -1117,6 +1161,10 @@ async function runSecondaryTags(message,automatic){
             if(!key)throw Error('请在「生图指令」页保存副 API Key');
             const world=secondaryWorldInfo.get(message);
             values.世界书触发=()=>world?.chat===chat&&world.swipe===swipe&&world.text===text?world.content:'';
+            if(inline){
+                const roleTags=roleList(roleBindingSnapshot().text);
+                values.角色启用列表=()=>[...roleTags].map(([name,tags])=>`${name} = ${tags}`).join('\n');
+            }
             const macros={
                 values,
                 substitute:host.substituteParams?.bind(host),
@@ -1129,9 +1177,12 @@ async function runSecondaryTags(message,automatic){
                         if(scope?.has?.(name))return scope.get(name);
                         if(Object.hasOwn(store??{},name))return store[name];
                     }
+                    if(preset.entries&&['角色启用列表','通用角色启用列表','通用服装启用列表'].includes(name))return '';
                 },
             };
-            return requestSecondaryTags({...connection,maxTags:remaining,preset},key,body,{
+            const prepared=inline?numberedReply(body,secondaryRawBody(text,settings.pattern,reasoningFormat())):{text:body};
+            anchors=prepared.anchors;
+            return requestSecondaryTags({...connection,maxTags:remaining,preset,capture},key,prepared.text,{
                 signal:controller.signal,macros,
                 onPrepared:messages=>{
                     if(!current()||controller.signal.aborted)throw new DOMException('Cancelled','AbortError');
@@ -1141,6 +1192,39 @@ async function runSecondaryTags(message,automatic){
         };
         const tags=await Promise.race([request(),cancelled]);
         if(!tags||!current()||controller.signal.aborted)return;
+        if(inline){
+            const result=insertDrawingTags(text,anchors.paragraphs,tags,anchors.end);
+            if(!result.starts.size)return;
+            const swipes=message.swipes,oldSwipe=swipes?.[swipe];
+            const nextBlocks=parseBodyBlocks(result.text,settings.pattern,reasoningFormat());
+            const retained=nextBlocks.filter(block=>!result.starts.has(block.start));
+            const moves=initialBlocks.filter(block=>!block.secondary).flatMap((old,index)=>{
+                const next=retained[index];
+                if(!next||next.raw!==old.raw||blockSlot(next)===blockSlot(old))return [];
+                const from=blockSlot(old),to=blockSlot(next),record=state(message,`${swipe}:${from}`);
+                return record?[{from,to,record}]:[];
+            });
+            expectedText=message.mes=result.text;
+            if(typeof oldSwipe==='string')swipes[swipe]=result.text;
+            for(const {from,to,record} of [...moves].reverse())moveSwipeImage(message,swipe,from,to,record);
+            try{if(await ctx().saveChat()===false)throw Error('保存失败');}
+            catch{
+                if(message.mes===result.text){
+                    message.mes=text;
+                    for(const {from,to,record} of moves)moveSwipeImage(message,swipe,to,from,record);
+                }
+                if(swipes?.[swipe]===result.text)swipes[swipe]=oldSwipe;
+                expectedText=text;
+                throw Error('副 API 已返回 tag，但保存聊天失败');
+            }
+            if(current()&&secondaryRequestPreview?.message===message)secondaryRequestPreview.text=result.text;
+            if(current())refreshSecondaryMessage(message);
+            if(current()&&!controller.signal.aborted&&automatic&&settings.mode!=='manual'){
+                const inserted=nextBlocks.filter(block=>result.starts.has(block.start));
+                for(const block of inserted)generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&block===inserted.at(-1)});
+            }
+            return;
+        }
         const previous=readSecondaryTags(message,swipe),known=new Set(previous.map(tag=>promptIdentity(tag.prompt)));
         const added=tags.filter(tag=>{
             const prompt=promptIdentity(tag.prompt);
@@ -1185,6 +1269,10 @@ function scheduleRender(automatic=false) {
 }
 async function init() {
     mountMenu();refreshFloating();const c=ctx();save();
+    for(const [name,handler] of Object.entries(captureMacroValues({get start(){return settings.startTag;},get end(){return settings.endTag;}}))){
+        if(c.powerUserSettings?.experimental_macro_engine!==false&&typeof c.macros?.register==='function')c.macros.register(name,{handler});
+        else c.registerMacro?.(name,handler);
+    }
     if(c.eventTypes.WORLDINFO_UPDATED)c.eventSource.on(c.eventTypes.WORLDINFO_UPDATED,()=>eggMarkerCache.invalidate());
     if(!settings.promptConfig){
         try{

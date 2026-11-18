@@ -1,4 +1,4 @@
-export const secondaryDataSlots = new Set(['正文', '上下文', '用户需求', '世界书触发']);
+export const secondaryDataSlots = new Set(['正文', '上下文', '用户需求', '世界书触发', '角色启用列表', 'miao_image_start', 'miao_image_end']);
 
 const macro = /\{\{([^{}\r\n]*)\}\}/g;
 const macroOpen = /\{\{|\{@/;
@@ -29,7 +29,7 @@ function expandLegacySetters(text, substitute) {
     return parts.join('') + text.slice(cursor);
 }
 
-export function createSecondaryMacroExpander({values, substitute, readVariable = () => undefined, legacy = false}) {
+export function createSecondaryMacroExpander({values = {}, substitute, readVariable = () => undefined, legacy = false}) {
     return source => {
         const template = source.replace(/\{@([^@\r\n]+)@\}/g, '{{$1}}');
         const literal = [];
@@ -47,7 +47,7 @@ export function createSecondaryMacroExpander({values, substitute, readVariable =
             }
             offset = index + raw.length;
             name = name.trim();
-            if (!secondaryDataSlots.has(name)) return raw;
+            if (!secondaryDataSlots.has(name) || (name === '角色启用列表' && !Object.hasOwn(values, name))) return raw;
             if (depth) throw Error(`副 API 的 {{${name}}} 请放在模板正文中，不能作为另一个宏的参数`);
             return hold(values[name]?.());
         });
