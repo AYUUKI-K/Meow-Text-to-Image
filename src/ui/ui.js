@@ -16,11 +16,12 @@ import {novelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {fontAwesomeElement} from './fontawesome-icons.js';
 import {onlineEncodingAvailable,resolveCustomEndpoints} from '../novelai/nai-connection.js';
 import {buildSecondaryMessages,secondaryEnabled} from '../prompts/secondary-tags.js';
+import {drawingOptions,drawingOrientations} from '../prompts/drawing-options.js';
 import {activeSecondaryPreset,addSecondaryPreset,listedSecondaryMacros,readSecondaryLibrary,readSecondaryPreset,replySlot,secondaryPresets,SECONDARY_PRESET_FILE_LIMIT} from '../prompts/secondary-presets.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const panelMemory=new WeakMap();
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,saveSecondaryPresets,exportSecondaryPreset,lastSecondaryRequest,readRoleBindings,saveRoleBindings,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,saveDrawingRules,saveSecondaryPresets,exportSecondaryPreset,lastSecondaryRequest,readRoleBindings,saveRoleBindings,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);memory.promptExpanded??=new Set();
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
@@ -114,7 +115,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             let entries=preset.entries;
             if(!entries&&!preset.pendingImport){
                 const labels=['预设指令','输出要求','正文槽位'];
-                entries=buildSecondaryMessages({maxTags:settings.secondaryTagAPI?.maxTags??3,preset},replySlot)
+                entries=buildSecondaryMessages({maxTags:drawingOptions(settings.promptConfig).count.max,preset},replySlot)
                     .map((entry,index)=>({...entry,name:labels[index],enabled:true}));
             }
             messages.replaceChildren(...(entries??[]).map(entry=>{
@@ -454,11 +455,14 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 try{return await run();}finally{for(const [control,disabled] of controls)control.disabled=disabled;}
             };
             const savePanelPrompt=next=>withPromptLock(()=>savePromptConfig(next));
+            let promptModules,savingRules;
+            const options=drawingOptions(settings.promptConfig),controls={};
             let switching=false;
             const selectedSource=()=>secondaryEnabled(settings)?'secondary':settings.promptConfig.mode;
             const source=field(resources,'来源',selectedSource(),async value=>{
                 if(switching)return;switching=true;source.disabled=true;
                 try{
+                    await commitRules();
                     if(!secondaryEnabled(settings))await commitPage();
                     if(value==='secondary')await withPromptLock(()=>saveSecondarySettings('secondary'));
                     else await withPromptLock(()=>savePromptConfig({...settings.promptConfig,mode:value},{useMainAPI:true}));
@@ -466,20 +470,47 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 }
                 catch(error){source.value=selectedSource();onError(error);}finally{switching=false;source.disabled=false;}
             },{options:[['builtin','主 API · 插件内置指令'],['external','主 API · 外部预设／世界书'],['secondary','副 API · 正文结束后出词']]});
+            const rules=section(body,'出图规则');
+            const count=field(rules,'出图张数',options.count.text,()=>{});
+            count.placeholder='例如 2 或 2~3';
+            const orientation=field(rules,'发送的性向',options.orientation,()=>{},{options:drawingOrientations});
+            const syncRules=()=>{
+                const current=drawingOptions(settings.promptConfig);
+                count.value=current.count.text;orientation.value=current.orientation;
+                for(const [key,control] of Object.entries(controls))control.checked=current[key];
+                promptModules?.refresh();
+            };
+            const commitRules=()=>{
+                if(savingRules)return savingRules;
+                const values={count:count.value,orientation:orientation.value};
+                const current=drawingOptions(settings.promptConfig);
+                for(const [key,control] of Object.entries(controls))values[key]=control.checked;
+                if(values.count===current.count.text&&values.orientation===current.orientation&&Object.keys(controls).every(key=>values[key]===current[key]))return;
+                savingRules=withPromptLock(()=>saveDrawingRules(values)).finally(()=>{savingRules=null;syncRules();});
+                return savingRules;
+            };
+            for(const [key,label] of [['title','小标题'],['egg','彩蛋任务'],['eggDescription','彩蛋解析'],['selfCheck','自检'],['nsfw','NSFW 扩展']]){
+                const wrap=node('label',undefined,'miao-switch-row'),toggle=node('input');
+                toggle.type='checkbox';toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','启用'+label);
+                toggle.checked=options[key];toggle.onchange=safe(commitRules);
+                wrap.append(node('span',label),toggle);rules.append(wrap);controls[key]=toggle;
+            }
+            count.onchange=safe(commitRules);orientation.onchange=safe(commitRules);
             if(secondaryEnabled(settings)){
                 const api=section(body,'副 API（OpenAI 兼容）'),connection=settings.secondaryTagAPI||{};
                 const url=field(api,'副 API 地址',connection.url,()=>{},{wide:true});
                 url.placeholder='https://example.com/v1/chat/completions';
                 const model=field(api,'副 API 模型',connection.model,()=>{});
                 const key=field(api,'副 API Key','',()=>{},{type:'password'});key.autocomplete='off';
-                const limit=field(api,'每楼图片上限',connection.maxTags??3,()=>{},{type:'number'});
-                limit.min='1';limit.max='8';limit.step='1';
                 const remember=field(api,'副 API Key 保存',connection.remember?'device':'page',()=>{},{options:[['page','当前页面'],['device','此设备']]});
                 const actions=node('div',undefined,'miao-actions');api.append(actions);
-                commitPage=async()=>withPromptLock(async()=>{
-                    await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,maxTags:limit.value,remember:remember.value==='device'});
-                    key.value='';
-                });
+                commitPage=async()=>{
+                    await commitRules();
+                    await withPromptLock(async()=>{
+                        await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,remember:remember.value==='device'});
+                        key.value='';
+                    });
+                };
                 action(actions,'保存副 API',async()=>{await commitPage();render();},true);
                 renderSecondaryPresets(body,withPromptLock);
                 const scope=readRoleBindings(),roles=section(body,'当前存档的角色 tag');
@@ -506,8 +537,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                         action(resources,'恢复旧版配置备份',async()=>{await commitPage();if(!window.confirm('恢复迁移前配置？当前树形设置将被替换。'))return;await savePanelPrompt(structuredClone(settings.promptConfig.legacyBackup.config));render();});
                     }
                     const saveTree=async next=>{await savePanelPrompt(next);paintWarnings();};
-                    macrosView=createResourceMacrosView({read:readResourceMacros,save:async(snapshot,values)=>{const result=await withPromptLock(()=>saveResourceMacros(snapshot,values));paintWarnings();return result;},onError});body.append(macrosView.element);
-                    body.append(createPromptModulesView({settings,save:saveTree,onError,parent:()=>root.closest('dialog')||root,expanded:memory.promptExpanded}));
+                    macrosView=createResourceMacrosView({read:()=>readResourceMacros({omitCount:true}),save:async(snapshot,values)=>{const result=await withPromptLock(()=>saveResourceMacros(snapshot,values));paintWarnings();return result;},onError});body.append(macrosView.element);
+                    promptModules=createPromptModulesView({settings,save:saveTree,onError,parent:()=>root.closest('dialog')||root,expanded:memory.promptExpanded});body.append(promptModules.element);
                     const tools=section(body,'工具'),file=node('input');file.type='file';file.accept='.json';file.hidden=true;file.onchange=safe(async()=>{if(file.files[0])await installRegex(JSON.parse(await file.files[0].text()));file.value='';});tools.append(file);action(tools,'导入正则',()=>file.click());
                 }
                 const capture=section(body,'捕捉标签');
@@ -517,7 +548,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 const sample=node('pre',undefined,'miao-capture-sample');
                 const updateSample=()=>{sample.textContent=start.value+'\nprompt\n'+end.value;if(settings.promptConfig.mode==='builtin')paintWarnings();};start.addEventListener('input',updateSample);end.addEventListener('input',updateSample);updateSample();capture.append(sample);
                 if(settings.promptConfig.mode==='builtin')capture.append(warnings);
-                commitPage=async()=>{await macrosView?.commit();if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);};
+                commitPage=async()=>{await commitRules();await macrosView?.commit();if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);};
             }
 
 

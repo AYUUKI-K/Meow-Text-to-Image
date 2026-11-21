@@ -47,7 +47,9 @@ export function roleList(text) {
   return roles;
 }
 
-export function drawingResponse(text, capture) {
+const escapeDecoration = text => text.replace(/[&<>]/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;'}[char]));
+
+export function drawingResponse(text, capture, options) {
   const xml = text.trim().replace(/^```(?:xml)?\s*([\s\S]*?)\s*```$/i, '$1');
   if (!xml) return {drawings: [], errors: []};
   if (/<!DOCTYPE/i.test(xml)) throw Error('请直接返回 <drawings> XML。');
@@ -57,8 +59,12 @@ export function drawingResponse(text, capture) {
   const drawings = [], errors = [];
   for (const draw of root.children) {
     const anchor = draw.getAttribute('after')?.trim().toUpperCase();
-    const raw = draw.textContent.trim();
-    if (draw.tagName !== 'draw' || draw.childElementCount || !raw.startsWith(capture.start) ||
+    const fields = new Map([...draw.children].map(child => [child.tagName,child]));
+    const plain = fields.size === 0;
+    const raw = (plain ? draw.textContent : fields.get('tags')?.textContent ?? '').trim();
+    const invalidFields = fields.size !== draw.childElementCount ||
+      [...fields].some(([name, child]) => !['tags','title','egg_description'].includes(name) || child.childElementCount);
+    if (draw.tagName !== 'draw' || invalidFields || !raw.startsWith(capture.start) ||
         !raw.endsWith(capture.end) || raw.length <= capture.start.length + capture.end.length) {
       errors.push('有一张图的返回格式或标签边界与当前配置不一致。');
       continue;
@@ -67,7 +73,16 @@ export function drawingResponse(text, capture) {
     if (!prompt || prompt.includes(capture.end) || prompt.includes(capture.start) || /<\/?[a-z][^>]*>/i.test(prompt)) {
       errors.push('有一张图的 tag 不完整或包含额外标记。');
     } else {
-      drawings.push({anchor, prompt, tag: capture.start + prompt + capture.end});
+      const drawing = {anchor, prompt, tag: capture.start + prompt + capture.end};
+      const title = fields.get('title')?.textContent.trim().replace(/[\r\n┈]+/g,' ');
+      if (options?.title && title) drawing.title = escapeDecoration(title);
+      if (options?.egg && draw.getAttribute('egg') === 'true') {
+        drawing.egg = true;
+        const description = fields.get('egg_description')?.textContent.trim();
+        if (options.eggDescription && description) drawing.eggDescription = escapeDecoration(description);
+        if (options.eggMarker) drawing.eggMarker = options.eggMarker;
+      }
+      drawings.push(drawing);
     }
   }
   return {drawings, errors};
@@ -82,32 +97,40 @@ export function expandRoleTags(prompt, roles) {
 
 export function insertDrawingTags(body, paragraphs, drawings, endOfBody = paragraphs.at(-1)?.end) {
   const positions = new Map(paragraphs.map(({id, end}) => [id, end]));
-  if (endOfBody === undefined) return {text: body, starts: new Set(), placed: 0, atEnd: 0};
+  if (endOfBody === undefined) return {text: body, starts: new Set(), eggStarts: new Set(), placed: 0, atEnd: 0};
   const newline = body.includes('\r\n') ? '\r\n' : '\n';
   const gap = newline.repeat(2);
   const byOffset = new Map();
   let atEnd = 0;
-  for (const {anchor, tag} of drawings) {
+  for (const drawing of drawings) {
+    const {anchor} = drawing;
     const position = positions.get(anchor);
     if (position === undefined) atEnd++;
     const offset = position ?? endOfBody;
     const tags = byOffset.get(offset) ?? [];
-    tags.push(tag);
+    tags.push(drawing);
     byOffset.set(offset, tags);
   }
   let text = '', cursor = 0;
   const starts = new Set();
+  const eggStarts = new Set();
   for (const [offset, tags] of [...byOffset].sort(([a], [b]) => a - b)) {
     text += body.slice(cursor, offset);
-    for (const tag of tags) {
+    for (const {tag, title, egg, eggMarker, eggDescription} of tags) {
       text += gap;
+      if (title) text += '┈┈' + title + '┈┈' + gap;
+      if (eggMarker) text += eggMarker + newline;
       starts.add(text.length);
+      if (egg) eggStarts.add(text.length);
       text += tag;
+      if (eggDescription) {
+        text += gap + '<easter_egg>' + newline + eggDescription.replace(/\r?\n/g,'<br>') + newline + '</easter_egg>';
+      }
     }
     cursor = offset;
   }
   text += body.slice(cursor);
-  return {text, starts, placed: drawings.length - atEnd, atEnd};
+  return {text, starts, eggStarts, placed: drawings.length - atEnd, atEnd};
 }
 
 // Outbound regex runs on the entire reply. Retain offsets into the unfiltered

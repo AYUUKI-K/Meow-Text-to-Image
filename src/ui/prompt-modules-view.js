@@ -2,26 +2,27 @@ import {promptTemplates} from '../prompts/prompt-templates.js';
 import {treeById, treeRoots} from '../prompts/tree-defaults.js';
 import {effectiveEnabled, savedEnabled, withTreeEnabled} from '../prompts/tree-settings.js';
 import {openPromptEditor} from './prompt-editor.js';
+import {drawingModules} from '../prompts/drawing-options.js';
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
+const sharedIds=new Set(Object.values(drawingModules).flat());
 
 export function createPromptModulesView({settings,save,onError,parent,expanded=new Set()}){
     const root=node('section',undefined,'miao-section miao-prompt-tree');
     root.append(node('h3',settings.promptConfig.version===2?'提示词条目':'旧版兼容编辑'));
-    if(settings.promptConfig.version!==2){paintLegacy();return root;}
+    if(settings.promptConfig.version!==2){paintLegacy();return {element:root,refresh(){}};}
     const states=[];
     let busy=false;
     async function commit(next){
         if(busy)return;
-        busy=true;for(const {toggle,select} of states){if(toggle)toggle.disabled=true;if(select)select.disabled=true;}
+        busy=true;for(const {toggle} of states)if(toggle)toggle.disabled=true;
         try{await save(next);}catch(error){onError(error);}finally{busy=false;paint();}
     }
     function paint(){
-        for(const {item,status,toggle,select} of states){
+        for(const {item,status,toggle} of states){
             const config=settings.promptConfig,active=effectiveEnabled(config,item.nodeId);
             status.textContent=(Object.keys(config.textOverridesById?.[item.nodeId]||{}).length?'已自定义':'默认')+' · '+(active?'生效':savedEnabled(config,item.nodeId)?'受父级、条件或选择限制':'已关闭');
             if(item.condition)status.textContent+='（依赖'+item.condition.map(id=>treeById[id].label).join('、')+'）';
             if(toggle){toggle.checked=savedEnabled(config,item.nodeId);toggle.disabled=busy;}
-            if(select){select.value=config.orientation;select.disabled=busy;}
         }
     }
     function append(id,container){
@@ -36,8 +37,8 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
         }
         row.append(node('strong',item.displayId+' '+item.label));
         const status=node('span','','miao-muted miao-tree-status');row.append(status);
-        let toggle,select;
-        if(item.toggleable){
+        let toggle;
+        if(item.toggleable&&!sharedIds.has(id)){
             const wrap=node('label',undefined,'miao-prompt-switch');toggle=node('input');toggle.type='checkbox';toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','启用'+item.label);wrap.append(toggle,node('span',undefined,'miao-prompt-switch-track'));row.append(wrap);
             toggle.onchange=()=>{void commit(withTreeEnabled(settings.promptConfig,id,toggle.checked));};
         }
@@ -45,28 +46,20 @@ export function createPromptModulesView({settings,save,onError,parent,expanded=n
             const edit=node('button',undefined,'miao-button miao-tree-edit');edit.type='button';edit.setAttribute('aria-label','编辑'+item.label);edit.title='编辑'+item.label;const icon=node('i',undefined,'fa-solid fa-pencil');icon.setAttribute('aria-hidden','true');edit.append(icon);
             edit.onclick=()=>openPromptEditor({parent:parent(),settings,key:id,label:item.label,save,onSaved:paint});row.append(edit);
         }
-        if(item.kind==='choice-group'){
-            const choice=node('label','发送的性向','miao-field');select=node('select');select.setAttribute('aria-label','发送的性向');
-            for(const [value,text] of [['','不指定'],['BG','BG'],['BL','BL'],['GL','GL'],['INTERSEX','双性']]){const option=node('option',text);option.value=value;select.append(option);}
-            select.onchange=()=>{void commit({...settings.promptConfig,orientation:select.value});};choice.append(select);row.append(choice);
-        }
-        states.push({item,status,toggle,select});
+        states.push({item,status,toggle});
     }
-    treeRoots.forEach(id=>append(id,root));paint();return root;
+    treeRoots.forEach(id=>append(id,root));paint();return {element:root,refresh:paint};
 
     function paintLegacy(){
         // The original whole-module editor is intentionally kept for unmappable v1 overrides.
         for(const [key,label] of Object.entries(promptTemplates).map(([key,t])=>[key,t.comment])){
             const row=node('div',undefined,'miao-prompt-module'),status=node('span',Object.hasOwn(settings.promptConfig.overrides||{},key)?'已自定义':'默认','miao-muted');row.append(node('strong',label),status);
-            if(Object.hasOwn(settings.promptConfig.modules,key)){
+            if(Object.hasOwn(settings.promptConfig.modules,key)&&!sharedIds.has(key)){
                 const toggle=node('input');toggle.type='checkbox';toggle.checked=settings.promptConfig.modules[key];toggle.setAttribute('aria-label','启用'+label);
                 toggle.onchange=async()=>{toggle.disabled=true;try{await save({...settings.promptConfig,modules:{...settings.promptConfig.modules,[key]:toggle.checked}});}catch(error){toggle.checked=settings.promptConfig.modules[key];onError(error);}finally{toggle.disabled=false;}};row.append(toggle);
             }
             const edit=node('button',undefined,'miao-button miao-tree-edit');edit.type='button';edit.setAttribute('aria-label','编辑'+label);edit.title='编辑'+label;edit.append(node('i',undefined,'fa-solid fa-pencil'));
             edit.onclick=()=>openPromptEditor({parent:parent(),settings,key,label,save,onSaved:()=>{status.textContent=Object.hasOwn(settings.promptConfig.overrides||{},key)?'已自定义':'默认';}});row.append(edit);root.append(row);
         }
-        const wrap=node('label','性向模块','miao-field'),select=node('select');select.setAttribute('aria-label','性向模块');
-        for(const [value,text] of [['','不指定'],['bg','BG'],['bl','BL'],['gl','GL'],['intersex','双性']]){const option=node('option',text);option.value=value;select.append(option);}select.value=settings.promptConfig.orientation;
-        select.onchange=async()=>{select.disabled=true;try{await save({...settings.promptConfig,orientation:select.value});}catch(error){select.value=settings.promptConfig.orientation;onError(error);}finally{select.disabled=false;}};wrap.append(select);root.append(wrap);
     }
 }

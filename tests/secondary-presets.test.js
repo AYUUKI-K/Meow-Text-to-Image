@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {activeSecondaryPreset, addSecondaryPreset, listedSecondaryMacros, readSecondaryLibrary, readSecondaryPreset, secondaryPresetFile} from '../src/prompts/secondary-presets.js';
 import {buildSecondaryMessages, requestSecondaryTags} from '../src/prompts/secondary-tags.js';
 import {insertDrawingTags, numberedReply, roleList, expandRoleTags} from '../src/chat/secondary-placement.js';
+import {drawingOptions, withDrawingOptions, worldDrawingPolicy} from '../src/prompts/drawing-options.js';
+import {defaultPromptSettings} from '../src/prompts/prompt-settings.js';
 
 test('full Tavern presets retain ordered enabled messages, prefill and inactive entries', async()=>{
     const source={prompts:[
@@ -44,6 +46,24 @@ test('an existing secondary preset retains its current instructions and raw-body
     const messages=buildSecondaryMessages({maxTags:3,preset},'一段正文');
     assert.equal(messages[0].content,legacy.instructions);
     assert.deepEqual(messages.at(-1),{role:'user',content:'一段正文'});
+});
+
+test('shared drawing options override inherited counts and suppress disabled format macros',()=>{
+    const original=defaultPromptSettings(),stored=drawingOptions(original);
+    const config=withDrawingOptions(original,{...stored,count:'4～6',egg:false,title:false,eggDescription:true,
+        selfCheck:false,nsfw:false,orientation:'BL'});
+    const output=drawingOptions(config);
+    const preset={entries:[
+        {name:'设置',enabled:true,role:'system',content:'{{setvar::张数::5~7}}{{setvar::彩蛋数量::(+1)}}'},
+        {name:'彩蛋',enabled:true,role:'system',content:'EGG_FIXTURE'},
+        {name:'绘画自检',enabled:true,role:'system',content:'SELF_CHECK_FIXTURE'},
+        {name:'正文',enabled:true,role:'system',content:'{{正文}}\n图数 {{getvar::张数}}{{getvar::彩蛋数量}}\n{{getglobalvar::彩蛋}}\n<drawings><draw after="P01"></draw></drawings>'},
+    ]};
+    const text=buildSecondaryMessages({maxTags:6,preset,output},'模拟正文').map(message=>message.content).join('\n');
+    assert.match(text,/图数 4~6[\s\S]*最多 6 张/);
+    assert.doesNotMatch(text,/5~7|\(\+1\)|EGG_FIXTURE|SELF_CHECK_FIXTURE|getglobalvar|<egg_description>|\[bl\]/);
+    assert.match(worldDrawingPolicy(config),/4~6 张/);
+    assert.doesNotMatch(worldDrawingPolicy(config),/┈┈|<easter_egg>/);
 });
 
 test('portable presets replace only the user body slot and can round trip without adding duplicates', async()=>{

@@ -5,9 +5,18 @@ import {promptTemplates} from '../src/prompts/prompt-templates.js';
 import {composePrompt} from '../src/prompts/prompt-composer.js';
 import {defaultLegacyPromptSettings as defaultPromptSettings,migratePromptSettings,fixedMacroSnapshot,updateFixedMacros} from '../src/prompts/prompt-settings.js';
 import {createPromptInjection,PROMPT_ID} from '../src/platform/prompt-injection.js';
-test('templates retain every source body exactly',()=>{
+test('bundled worldbook delegates shared rules while the legacy prompt snapshot remains readable',()=>{
  const book=JSON.parse(fs.readFileSync(new URL('../assets/worldbook.json',import.meta.url)));
- for(const t of Object.values(promptTemplates))assert.equal(t.content,Object.values(book.entries).find(e=>e.comment===t.comment).content);
+ const entries=Object.values(book.entries);
+ for(const t of Object.values(promptTemplates))assert.ok(entries.some(e=>e.comment===t.comment));
+ assert.ok(entries.find(e=>e.comment==='主体').content.includes('{{miao_drawing_policy}}'));
+ const retired=['自检[选开]','彩蛋[选开]','小标题[选开]','bg[选一]','bl[选一]','gl[选一]','双性[选一]','彩蛋解析[选开]','NSFW提示词'];
+ for(const name of retired){
+  const entry=entries.find(e=>e.comment===name);
+  assert.equal(entry.disable,true);
+  assert.equal(entry.content,'');
+ }
+ assert.equal(migratePromptSettings(book).params.count,'2~3');
 });
 test('all module combinations remove virtual references and preserve fixed macros',()=>{
  const keys=['selfCheck','easterEgg','subtitle','easterEggDescription','nsfw'];

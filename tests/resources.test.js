@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings,WORLD_NAME} from '../src/resources/resources.js';
+import {worldDrawingPolicy} from '../src/prompts/drawing-options.js';
+import {defaultPromptSettings} from '../src/prompts/prompt-settings.js';
 
 test('world updates replace matching titles, keep entry IDs, and retain unrelated user entries',()=>{
     const old={name:'user metadata',entries:{7:{uid:7,comment:'主体',content:'old',disable:true},3:{uid:3,comment:'用户追加',content:'keep'},9:{uid:9,comment:'主体',content:'duplicate'}}};
@@ -61,11 +63,13 @@ test('patch world upgrades cover old minor and patch versions without overwritin
     assert.equal(migrateWorldBindings({selected,chatMetadata},old,current),true);assert.deepEqual(selected,[current,'其他书']);assert.equal(chatMetadata.world_info,current);
 });
 
-test('bundled pack is exactly world 2.2.2 and the four supplied regex versions',async()=>{
+test('bundled worldbook uses the shared drawing rules and keeps the four supplied regex scripts',async()=>{
     const book=JSON.parse(await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8'));
     const rules=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
     assert.equal(Object.keys(book.entries).length,13);
-    assert.ok(book.entries[10].content.includes('easter_egg'));
+    assert.ok(book.entries[0].content.includes('{{miao_drawing_policy}}'));
+    assert.equal(book.entries[10].disable,true);
+    assert.ok(worldDrawingPolicy(defaultPromptSettings()).includes('<easter_egg>'));
     assert.deepEqual(rules.map(rule=>rule.scriptName),['喵喵文生图1-去标签-1024','喵喵文生图2-去imagethink-1024','喵喵文生图3-居中美化-0511','喵喵文生图4-彩蛋介绍美化-1024']);
     assert.deepEqual(mergeWorldEntries(mergeWorldEntries({entries:{}},book),book),mergeWorldEntries({entries:{}},book));
     assert.equal(mergeRegexRules(mergeRegexRules([],rules),rules).length,4);

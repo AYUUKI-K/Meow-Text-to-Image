@@ -208,7 +208,7 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.route('https://draw-fixture.invalid/v1/chat/completions',async route=>{
                 if(route.request().method()==='POST')requests.push(route.request().postDataJSON());
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
-                    json:{choices:[{message:{content:'<drawings><draw after="P02">START-FIG $试用人物$, sitting END-FIG</draw></drawings>'}}]}});
+                    json:{choices:[{message:{content:'<drawings><draw after="P02"><title>试用标题</title><tags>START-FIG $试用人物$, sitting END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>'}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(()=>{
@@ -230,8 +230,14 @@ test('the configured drawing format writes into the active swipe and only expand
             }
             await nav.getByRole('button',{name:'生图指令',exact:true}).click();
             await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
+            const count=page.getByRole('textbox',{name:'出图张数',exact:true});
+            await count.fill('1~2');await count.blur();
+            await page.waitForFunction(()=>window.preview.settings.promptConfig.params.count==='1~2');
+            await page.getByRole('switch',{name:'启用小标题',exact:true}).check();
+            await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).check();
+            await page.getByRole('combobox',{name:'发送的性向',exact:true}).selectOption('BL');
             const fixture={type:'miao-secondary-tag-preset',version:2,name:'电子幽灵-结构测试',entries:[
-                {name:'格式',role:'system',enabled:true,content:'<drawings><draw after="P02">{{miao_image_start}}tag{{miao_image_end}}</draw></drawings>'},
+                {name:'格式',role:'system',enabled:true,content:'{{setvar::张数::5~7}}<drawings><draw after="P02">{{miao_image_start}}tag{{miao_image_end}}</draw></drawings>'},
                 {name:'正文槽位',role:'system',enabled:true,content:'可用角色：\n{{角色启用列表}}\n\n{{正文}}'},
             ]};
             await page.locator('#miao-nai-settings input[type=file]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
@@ -258,14 +264,27 @@ test('the configured drawing format writes into the active swipe and only expand
                 await p.emit('CHAT_CHANGED');
             },prose);
             await page.getByRole('button',{name:'提取绘图 tag',exact:true}).click();
-            await page.getByRole('button',{name:'生成插图',exact:true}).waitFor();
+            const generate=page.getByRole('button',{name:'生成插图',exact:true});
+            await generate.first().waitFor();
             assert.equal(requests.length,1);
             assert.match(requests[0].messages[0].content,/START-FIGtagEND-FIG/);
-            assert.match(requests[0].messages[1].content,/试用人物 = black hair, yellow eyes[\s\S]*走到门口。\n\[P01\][\s\S]*花店亮灯。\n\[P03\]$/);
-            const expected='走到门口。\n\n把窗推开。\n\nSTART-FIG$试用人物$, sittingEND-FIG\n\n花店亮灯。';
+            const wire=requests[0].messages.map(message=>message.content).join('\n');
+            assert.match(wire,/试用人物 = black hair, yellow eyes[\s\S]*走到门口。\n\[P01\][\s\S]*花店亮灯。\n\[P03\]/);
+            assert.match(wire,/全部配图共 1~2 张[\s\S]*\[bl\]/);
+            assert.doesNotMatch(wire,/5~7|\[bg\]/);
+            const expected='走到门口。\n\n把窗推开。\n\n┈┈试用标题┈┈\n\nSTART-FIG$试用人物$, sittingEND-FIG\n\n花店亮灯。\n\n/meow_FM\nSTART-FIGteacupEND-FIG\n\n<easter_egg>\n彩蛋 &amp; 茶\n</easter_egg>';
             assert.deepEqual(await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]),
                 [expected,'另一条分支',expected]);
-            await page.getByRole('button',{name:'生成插图',exact:true}).click();
+            const disabled=await page.evaluate(async()=>{
+                const {drawingResponse}=await import('/scripts/extensions/third-party/test/src/chat/secondary-placement.js');
+                return drawingResponse('<drawings><draw after="P01" egg="true"><title>标题</title><tags>START-FIG cat END-FIG</tags><egg_description>解析</egg_description></draw></drawings>',
+                    {start:'START-FIG',end:'END-FIG'},{title:false,egg:true,eggDescription:false,eggMarker:'/meow_FM'}).drawings[0];
+            });
+            assert.equal(disabled.egg,true);
+            assert.equal(disabled.title,undefined);
+            assert.equal(disabled.eggDescription,undefined);
+            assert.equal(await generate.count(),2);
+            await generate.first().click();
             await page.waitForFunction(()=>window.preview.calls.length===1);
             const nai=await page.evaluate(()=>window.preview.calls[0].prompt??window.preview.calls[0].input);
             assert.match(nai,/black hair, yellow eyes, sitting/);

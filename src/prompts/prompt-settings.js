@@ -19,7 +19,13 @@ export function updateFixedMacros(config,snapshot,values){
 }
 export function migratePromptSettings(book){
     const config=defaultLegacyPromptSettings('external'),entries=Object.values(book?.entries||{});
-    for(const macro of worldMacros(book))if(macro.scope==='setvar'&&fixedNames.includes(macro.name))config.fixed[macro.name]=macro.value;
+    const shared=entries.some(entry=>entry.content?.includes('{{miao_drawing_policy}}'));
+    for(const macro of worldMacros(book))if(macro.scope==='setvar'&&fixedNames.includes(macro.name)&&(!shared||macro.name!=='张数'))config.fixed[macro.name]=macro.value;
+    if(shared){
+        const next=defaultTreeSettings('external');
+        for(const [key,name] of Object.entries(paramNames))next.params[key]=config.fixed[name];
+        return validateTreeSettings(next);
+    }
     const modified=[];
     for(const [key,template] of Object.entries(promptTemplates)){
         const entry=entries.find(e=>e.comment===template.comment);

@@ -15,6 +15,7 @@ publicFiles.add('src/prompts/secondary-tags.js');
 publicFiles.add('src/prompts/secondary-macros.js');
 publicFiles.add('src/prompts/secondary-presets.js');
 publicFiles.add('src/chat/secondary-placement.js');
+publicFiles.add('src/prompts/drawing-options.js');
 publicFiles.add('src/chat/secondary-tags.js');
 publicFiles.add('tests/support/prompt-tree-preview.mjs');
 for(const name of ['tree-defaults','tree-settings','tree-composer'])publicFiles.add('src/prompts/'+name+'.js');
@@ -59,6 +60,7 @@ const context={chat,messageFormatting:mes=>window.testMarkdown.makeHtml(mes),pow
 if(new URL(location.href).searchParams.has('resources'))Object.assign(context,{characters:[{avatar:'fixture.png',data:{extensions:{world:'[喵喵]文生图 2.0'}}}],chatMetadata:{world_info:'[喵喵]文生图 2.0'},saveMetadata:async()=>{if(window.preview.failMetadataSave)return false;window.preview.metadataSaves=(window.preview.metadataSaves||0)+1;},powerUserSettings:{reasoning:{prefix:'<star_cot>',suffix:'</star_cot>'},persona_description_lorebook:'[喵喵]文生图 2.0',persona_descriptions:{a:{lorebook:'[喵喵]文生图 2.0'}}}});
 if(new URL(location.href).searchParams.has('samples-archives'))Object.assign(context,{characterId:0,characters:[{name:'例图测试角色',avatar:'sample-card.png'}]});
 window.preview={context,chat,chatId:'preview',settings:extension_settings.miao_nai_image,async emit(n,...args){for(const fn of handlers.get(n)||[])await fn(...args);},calls:[],translations:[],files:[...Array.from({length:53},(_,i)=>'miao-'+(1792737847709-i*3600000)+'.png'),'unrelated.png']};
+context.registerMacro=(name,run)=>{(window.preview.runtimeMacros??={})[name]=run;};
 configurePromptTreeFixture({settings:extension_settings.miao_nai_image,preview:window.preview});
 if(new URL(location.href).searchParams.has('favorites'))window.preview.files=window.preview.files.slice(0,5);
 context.setExtensionPrompt=(id,text,position,depth,scan,role)=>{(window.preview.injections??={})[id]={text,position,depth,scan,role};};export const getContext=()=>context;

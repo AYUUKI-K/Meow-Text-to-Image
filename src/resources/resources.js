@@ -1,6 +1,6 @@
 import {preserveWorldMacros} from './world-macros.js';
 import {randomId} from '../platform/browser-crypto.js';
-export const BUNDLED_RESOURCES={"schema":1,"version":"2.2.2-1026","revision":2026102601,"worldName":"[喵喵]文生图 2.2.2","worldSHA256":"e95c4425122ac5d8bb4f6f4c7ed430e4ec30ba8777824c530d30272b0fb49cd7","regexSHA256":"d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"};
+export const BUNDLED_RESOURCES={"schema":1,"version":"2.2.2-1026","revision":2026102601,"worldName":"[喵喵]文生图 2.2.2","worldSHA256":"63ed43d74b00c05f2cf42db300cb83b15026c2cf7e58ae15f0ca9dd24af43e5a","regexSHA256":"d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"};
 export const RESOURCE_VERSION=BUNDLED_RESOURCES.version;
 export const WORLD_NAME=BUNDLED_RESOURCES.worldName;
 const validEntries=book=>book&&book.entries&&typeof book.entries==='object'&&!Array.isArray(book.entries)&&Object.values(book.entries).every(entry=>entry&&typeof entry==='object'&&!Array.isArray(entry));

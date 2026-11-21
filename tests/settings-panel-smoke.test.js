@@ -26,7 +26,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  await nav.getByRole('button',{name:'生图指令',exact:true}).click();
  const source=page.getByRole('combobox',{name:'来源',exact:true}),injection=()=>page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text);
  await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});
- assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','捕捉标签']);assert.equal(await page.locator('.miao-prompt-tree').count(),0);
+ assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签']);assert.equal(await page.locator('.miao-prompt-tree').count(),0);
  // Switching source must commit the pending capture fields, including on failure.
  await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('custom###');
  await source.selectOption('builtin');await page.waitForFunction(()=>window.preview.settings.promptConfig.mode==='builtin');await page.locator('.miao-prompt-tree').waitFor();
@@ -65,10 +65,16 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  // Editing an unselected candidate must not select it.
  await button('编辑BG').click();const bg=page.getByRole('dialog',{name:'编辑 · BG',exact:true});await bg.getByRole('textbox').fill('UNSELECTED_BG');await bg.getByRole('button',{name:'保存',exact:true}).click();await bg.waitFor({state:'detached'});assert.ok(!(await injection()).includes('UNSELECTED_BG'));
  await sw('NSFW 扩展').uncheck();assert.equal(await page.getByRole('combobox',{name:'发送的性向',exact:true}).inputValue(),'BL');assert.ok(!(await injection()).includes('[bl]'));
- await sw('小标题').click({trial:true});await button('编辑自检输出规则').focus();await page.keyboard.press('Tab');assert.equal(await sw('小标题').evaluate(n=>n===document.activeElement),true);await page.keyboard.press('Space');await sw('小标题').click({trial:true});assert.equal(await sw('小标题').isChecked(),true);assert.ok((await injection()).includes('胡里花哨'));
+ await sw('小标题').focus();await page.keyboard.press('Space');await sw('小标题').click({trial:true});assert.equal(await sw('小标题').isChecked(),true);assert.ok((await injection()).includes('胡里花哨'));
+ const drawingCount=page.getByRole('textbox',{name:'出图张数',exact:true});
+ await drawingCount.fill('4~6');await drawingCount.blur();
+ await page.waitForFunction(()=>window.preview.runtimeMacros?.miao_image_count()==='4~6');
+ assert.ok((await injection()).includes('全部配图共 4~6 张'));
  // Source save failure keeps the old UI and D0.
  await page.evaluate(()=>window.preview.failSettingsSave=true);await source.selectOption('external');await page.waitForFunction(()=>document.querySelectorAll('dialog[open]').length>1);assert.equal(await source.inputValue(),'builtin');assert.ok(await page.locator('.miao-prompt-tree').isVisible());await page.evaluate(()=>window.preview.failSettingsSave=false);await page.locator('dialog[open]:not(.miao-settings-dialog) .popup-controls button').click();
- await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections.miao_nai_image_instruction.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','捕捉标签']);
+ await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections.miao_nai_image_instruction.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签']);
+ assert.equal(await drawingCount.inputValue(),'4~6');
+ assert.match(await page.evaluate(()=>window.preview.runtimeMacros.miao_drawing_policy()),/4~6 张[\s\S]*┈┈/);
  await page.getByRole('textbox',{name:'结束标签',exact:true}).fill('END');await button('保存').click();await page.waitForFunction(()=>window.preview.settings.endTag==='END');
  await button('关闭设置').click();await page.locator('#miao-nai-menu').click();await page.locator('.miao-settings').waitFor();await nav.getByRole('button',{name:'生图指令',exact:true}).click();assert.equal(await page.getByRole('textbox',{name:'结束标签',exact:true}).inputValue(),'END');assert.equal(await page.locator('.miao-prompt-tree').count(),0);
  await source.selectOption('builtin');await page.locator('.miao-prompt-tree').waitFor();await button('编辑画面组成').click();assert.ok((await text.inputValue()).endsWith('RETRY_DRAFT'));
