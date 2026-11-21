@@ -1,10 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {activeSecondaryPreset, addSecondaryPreset, listedSecondaryMacros, readSecondaryLibrary, readSecondaryPreset, secondaryPresetFile} from '../src/prompts/secondary-presets.js';
-import {buildSecondaryMessages, requestSecondaryTags} from '../src/prompts/secondary-tags.js';
+import {buildSecondaryMessages, requestSecondaryModels, requestSecondaryTags} from '../src/prompts/secondary-tags.js';
 import {insertDrawingTags, numberedReply, roleList, expandRoleTags} from '../src/chat/secondary-placement.js';
 import {drawingOptions, withDrawingOptions, worldDrawingPolicy} from '../src/prompts/drawing-options.js';
 import {defaultPromptSettings} from '../src/prompts/prompt-settings.js';
+
+test('model discovery uses the sibling OpenAI-compatible endpoint and never follows redirects',async()=>{
+    for(const [address,expected] of [
+        ['https://fixture.invalid','https://fixture.invalid/v1/models'],
+        ['https://fixture.invalid/proxy/v1/','https://fixture.invalid/proxy/v1/models'],
+        ['https://fixture.invalid/proxy/v1/chat/completions','https://fixture.invalid/proxy/v1/models'],
+    ]){
+        const result=await requestSecondaryModels(address,'fixture-key',{fetchImpl:async (url,options)=>{
+            assert.equal(url,expected);
+            assert.equal(options.method,'GET');
+            assert.equal(options.redirect,'error');
+            assert.equal(options.credentials,'omit');
+            assert.equal(options.headers.Authorization,'Bearer fixture-key');
+            return Response.json({data:[{id:'provider/model-a'},{id:'provider/model-a'},null,{id:'provider/model-b'}]});
+        }});
+        assert.deepEqual(result,['provider/model-a','provider/model-b']);
+    }
+    await assert.rejects(requestSecondaryModels('https://fixture.invalid/custom','fixture-key'),/手动填写/);
+    await assert.rejects(requestSecondaryModels('https://fixture.invalid','fixture-key',{
+        fetchImpl:async()=>new Response('',{status:404}),
+    }),/手动填写/);
+});
 
 test('full Tavern presets retain ordered enabled messages, prefill and inactive entries', async()=>{
     const source={prompts:[

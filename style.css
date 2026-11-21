@@ -2165,28 +2165,28 @@
     white-space: normal;
     overflow-wrap: anywhere;
 }
-.miao-archive-picker-dialog {
+:is(.miao-archive-picker-dialog,.miao-model-picker-dialog) {
     width: min(520px,100%) !important;
     /* TT's popup minimum otherwise stretches long lists outside the panel. */
     min-height: 0;
     max-height: min(640px,100%);
 }
-.miao-archive-picker-dialog>.popup-content {
+:is(.miao-archive-picker-dialog,.miao-model-picker-dialog)>.popup-content {
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden !important;
 }
-.miao-archive-picker {
+:is(.miao-archive-picker,.miao-model-picker) {
     display: flex;
     flex-direction: column;
     gap: 12px;
     min-height: 0;
     text-align: left;
 }
-.miao-archive-picker h3 {margin: 0; font-size: 16px;}
-.miao-archive-picker input {
+:is(.miao-archive-picker,.miao-model-picker) h3 {margin: 0; font-size: 16px;}
+:is(.miao-archive-picker,.miao-model-picker) input {
     flex: none;
     width: 100%;
     min-height: 44px;
@@ -2199,7 +2199,7 @@
     font-size: 16px;
     box-sizing: border-box;
 }
-.miao-archive-options {
+:is(.miao-archive-options,.miao-model-options) {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -2209,7 +2209,7 @@
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
 }
-.miao-archive-option {
+:is(.miao-archive-option,.miao-model-option) {
     flex: none;
     display: flex;
     justify-content: space-between;
@@ -2218,9 +2218,9 @@
     text-align: left;
     white-space: normal;
 }
-.miao-archive-option span {min-width: 0; overflow-wrap: anywhere;}
+:is(.miao-archive-option,.miao-model-option) span {min-width: 0; overflow-wrap: anywhere;}
 .miao-archive-option small {flex: none; color: var(--mi-muted);}
-.miao-archive-option[aria-pressed=true] {border-color: var(--mi-blue); background: var(--mi-soft);}
+:is(.miao-archive-option,.miao-model-option)[aria-pressed=true] {border-color: var(--mi-blue); background: var(--mi-soft);}
 
 /* Scene favorites extend the shared 2.2 components. */
 .miao-favorites,.miao-favorite-editor {

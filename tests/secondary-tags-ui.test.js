@@ -23,7 +23,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
         browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
         const meowRegex=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
         for(const tt of [false,true]){
-            const endpoint='https://tag-fixture.invalid/v1/chat/completions',requests=[],errors=[];
+            const endpoint='https://tag-fixture.invalid/v1/chat/completions',requests=[],modelRequests=[],errors=[];
             const page=await browser.newPage(tt?{viewport:{width:390,height:844},hasTouch:true,isMobile:true}:{});
             page.setDefaultTimeout(6500);
             page.on('pageerror',error=>errors.push(error.message));
@@ -35,6 +35,11 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 }
                 await route.fulfill({status:200,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization, content-type'},
                     json:{choices:[{message:{content:'<thinking>image###draft tag###</thinking>image###cat, bright window###'},finish_reason:'stop'}]}}).catch(()=>{});
+            });
+            await page.route('https://tag-fixture.invalid/v1/models',async route=>{
+                if(route.request().method()==='GET')modelRequests.push(route.request().headers().authorization);
+                await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization'},
+                    json:{data:[{id:'fixture-other'},{id:'fixture-model'}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.locator('#miao-nai-menu').click();
@@ -64,8 +69,20 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.equal(await exportButton.isEnabled(),true);
             assert.equal(requests.length,0,'previewing a preset must not call the secondary API');
             await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://tag-fixture.invalid/v1');
-            await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture-model');
-            await page.getByLabel('副 API Key',{exact:true}).fill('fixture-secondary-key');
+            const modelInput=page.getByRole('textbox',{name:'副 API 模型',exact:true});
+            const keyInput=page.getByRole('textbox',{name:'副 API Key',exact:true});
+            await keyInput.fill('fixture-secondary-key');
+            assert.equal(await keyInput.getAttribute('type'),'text');
+            assert.equal(await modelInput.inputValue(),'');
+            const chooser=page.getByRole('dialog',{name:'选择副 API 模型',exact:true});
+            await page.getByRole('button',{name:'获取模型',exact:true}).click();
+            await chooser.getByRole('searchbox',{name:'搜索模型',exact:true}).fill('fixture-model');
+            assert.equal(await chooser.getByRole('button',{name:'fixture-other',exact:true}).count(),0);
+            const picked=chooser.getByRole('button',{name:'fixture-model',exact:true});
+            if(tt)await picked.tap();else await picked.click();
+            assert.equal(await modelInput.inputValue(),'fixture-model');
+            assert.deepEqual(modelRequests,['Bearer fixture-secondary-key']);
+            assert.equal(requests.length,0);
             const fixture={type:'miao-secondary-tag-preset',version:1,name:'Fixture preset',
                 instructions:'{{setvar::对象::猫}}{{setglobalvar::标题::{{getvar::对象}}和花}}FIXTURE_DIRECTOR {{getvar::对象}}',
                 bodyTemplate:bodyTemplate+'\n{{getglobalvar::标题}}\n{{角色启用列表}}\n{{上下文}}\n{{用户需求}}\n{{世界书触发}}'};
@@ -75,6 +92,11 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.getByRole('button',{name:'保存副 API',exact:true}).click();
             await page.waitForFunction(()=>!!window.preview.settings.secondaryTagAPI);
             assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('fixture-secondary-key'));
+            assert.equal(await keyInput.inputValue(),'');
+            await page.getByRole('button',{name:'获取模型',exact:true}).click();
+            await chooser.getByRole('button',{name:'取消选择',exact:true}).click();
+            assert.deepEqual(modelRequests,['Bearer fixture-secondary-key','Bearer fixture-secondary-key']);
+            assert.equal(await modelInput.inputValue(),'fixture-model');
             if(tt){
                 await exportButton.tap();
                 await page.waitForFunction(()=>!!window.preview.nativeDownloads?.length);

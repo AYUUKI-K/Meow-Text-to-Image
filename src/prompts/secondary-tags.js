@@ -5,24 +5,63 @@ import {createSecondaryMacroExpander} from './secondary-macros.js';
 import {captureMacroValues, captureTemplate, drawingResponse, resolveCapture} from '../chat/secondary-placement.js';
 import {drawingOutputRule} from './drawing-options.js';
 import {parseHeaderMacros} from '../resources/world-macros.js';
+import {hostFetch} from '../platform/host-fetch.js';
 
 export const secondaryPattern = delimiterPattern('image###', '###');
 export const secondaryEnabled = settings => settings.tagSource === 'secondary';
 export const inlineSecondaryPreset = preset => preset?.entries?.some(entry =>
     entry.enabled && entry.content.includes('<drawings>') && entry.content.includes('after=')) ?? false;
 
-export function secondaryConnection(values) {
-    const address = String(values.url ?? '').trim();
+export function secondaryChatURL(value) {
+    const address = String(value ?? '').trim();
     validateEndpoint(address, {label: '副 API 地址'});
     const url = new URL(address);
     if (url.hash || url.search) throw Error('副 API 地址请使用不带查询参数或片段的 API 地址');
     const path = url.pathname.replace(/\/+$/, '');
     url.pathname = !path ? '/v1/chat/completions' : path.endsWith('/v1') ? path + '/chat/completions' : path;
+    return url;
+}
+
+export function secondaryConnection(values) {
+    const url = secondaryChatURL(values.url);
     const model = String(values.model ?? '').trim();
     if (!model || model.length > 200) throw Error('请填写副 API 模型名');
     const maxTags = Number(values.maxTags ?? 3);
     if (!Number.isInteger(maxTags) || maxTags < 1 || maxTags > 8) throw Error('每楼图片上限须为 1～8 张');
     return {url: url.href, model, maxTags, remember: values.remember === true};
+}
+
+export async function requestSecondaryModels(chatURL, key, {fetchImpl = fetch} = {}) {
+    const url = secondaryChatURL(chatURL);
+    const suffix = '/chat/completions';
+    if (!url.pathname.endsWith(suffix)) throw Error('当前副 API 路径无法推导模型列表地址，请手动填写模型名');
+    if (!key) throw Error('请先填写副 API Key');
+    url.pathname = url.pathname.slice(0, -suffix.length) + '/models';
+    let result;
+    try {
+        result = await hostFetch(url.href, {
+            method: 'GET', headers: {Authorization: 'Bearer ' + key},
+            credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
+        }, {
+            timeoutMs: 12000,
+            fetchImpl: async (address, options) => {
+                const response = await fetchImpl(address, options);
+                return {status: response.status, ok: response.ok, data: response.ok ? await response.json().catch(() => null) : null};
+            },
+        });
+    } catch { throw Error('副 API 模型列表连接失败或超时，请检查地址、网络和跨域设置'); }
+    const {status, ok, data} = result;
+    if (status === 401 || status === 403) throw Error(`副 API 拒绝读取模型列表（HTTP ${status}），请检查 Key 和权限`);
+    if (status === 404 || status === 405) throw Error(`副 API 未提供模型列表（HTTP ${status}），可以手动填写模型名`);
+    if (!ok) throw Error(`获取副 API 模型失败（HTTP ${status}）`);
+    if (!Array.isArray(data?.data)) throw Error('副 API 返回的模型列表格式无法识别，可以手动填写模型名');
+    const models = new Set();
+    for (const item of data.data) {
+        const id = typeof item?.id === 'string' ? item.id.trim() : '';
+        if (id && id.length <= 200) models.add(id);
+    }
+    if (!models.size) throw Error('副 API 没有返回可用的模型，请检查账号权限或手动填写模型名');
+    return [...models];
 }
 
 export function secondaryBody(text, mainPattern, format) {

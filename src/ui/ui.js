@@ -8,6 +8,7 @@ import {readPromptFiles} from '../prompts/prompt-files.js';
 import {ensureProfileIds,moveProfile,planProfileRemoval} from '../profiles/profile-previews.js';
 import {browseArchive} from '../images/image-archives.js';
 import {showArchivePicker} from './archive-picker.js';
+import {showPagePopup} from './page-popup.js';
 import {sizePresets,pageItems,defaults,compareImagesNewest,supportsVarietyBoost} from '../core/core.js';
 import {vibeModelKeys} from '../vibe/vibe.js';
 import {createFavoritesView} from './favorites-view.js';
@@ -21,7 +22,7 @@ import {activeSecondaryPreset,addSecondaryPreset,listedSecondaryMacros,readSecon
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const panelMemory=new WeakMap();
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,saveDrawingRules,saveSecondaryPresets,exportSecondaryPreset,lastSecondaryRequest,readRoleBindings,saveRoleBindings,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installRegex,readResourceMacros,saveResourceMacros,savePromptConfig,saveSecondarySettings,listSecondaryModels,saveDrawingRules,saveSecondaryPresets,exportSecondaryPreset,lastSecondaryRequest,readRoleBindings,saveRoleBindings,listImages,deleteImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
     const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);memory.promptExpanded??=new Set();
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
@@ -75,6 +76,35 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         const actions=node('div',undefined,'miao-actions');parent.append(actions);
         if(result.share)action(actions,'分享文件',result.share,true);
         action(actions,'保存文件',result.save);action(actions,'复制文件名',result.copy);parent.scrollIntoView({block:'nearest'});
+    }
+    async function chooseSecondaryModel(models,selected){
+        const title='选择副 API 模型',picker=node('section',undefined,'miao-model-picker');
+        const search=node('input'),list=node('div',undefined,'miao-model-options');
+        search.type='search';search.placeholder='搜索模型';search.setAttribute('aria-label','搜索模型');search.autocomplete='off';
+        picker.append(node('h3',title),search,list);
+        let close,choice;
+        const paint=()=>{
+            const query=search.value.trim().toLowerCase();
+            const matches=models.filter(name=>name.toLowerCase().includes(query));
+            list.replaceChildren();
+            for(const name of matches){
+                const button=node('button',undefined,'miao-button miao-model-option');
+                button.type='button';
+                button.setAttribute('aria-pressed',String(name===selected));
+                button.append(node('span',name));
+                bindButtonPress(button,()=>{choice=name;close();});
+                list.append(button);
+            }
+            if(!matches.length){
+                const empty=node('p','没有匹配的模型','miao-muted');empty.setAttribute('role','status');list.append(empty);
+            }
+            list.scrollTop=0;
+        };
+        paint();search.oninput=paint;
+        await showPagePopup(picker,{parent:root.closest('dialog'),closeLabel:'取消',onOpen:popup=>{
+            close=popup.completeAffirmative;popup.dlg.classList.add('miao-model-picker-dialog');
+        }});
+        return choice;
     }
     function renderSecondaryPresets(body,withPromptLock){
         const presets=section(body,'预设');
@@ -501,9 +531,24 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 const url=field(api,'副 API 地址',connection.url,()=>{},{wide:true});
                 url.placeholder='https://example.com/v1/chat/completions';
                 const model=field(api,'副 API 模型',connection.model,()=>{});
-                const key=field(api,'副 API Key','',()=>{},{type:'password'});key.autocomplete='off';
+                const key=field(api,'副 API Key','',()=>{},{wide:true});
+                key.autocomplete='off';key.autocapitalize='none';key.spellcheck=false;
                 const remember=field(api,'副 API Key 保存',connection.remember?'device':'page',()=>{},{options:[['page','当前页面'],['device','此设备']]});
                 const actions=node('div',undefined,'miao-actions');api.append(actions);
+                const fetchModels=action(actions,'获取模型',async()=>{
+                    const draft={url:url.value.trim(),key:key.value.trim()};
+                    const current=()=>api.isConnected&&url.value.trim()===draft.url&&key.value.trim()===draft.key;
+                    fetchModels.textContent='获取中…';
+                    try{
+                        const models=await listSecondaryModels(draft);
+                        if(!current())return;
+                        fetchModels.textContent='获取模型';
+                        const choice=await chooseSecondaryModel(models,model.value.trim());
+                        if(choice&&current())model.value=choice;
+                    }catch(error){if(current())throw error;}
+                    finally{fetchModels.textContent='获取模型';}
+                });
+                fetchModels.setAttribute('aria-haspopup','dialog');
                 commitPage=async()=>{
                     await commitRules();
                     await withPromptLock(async()=>{
