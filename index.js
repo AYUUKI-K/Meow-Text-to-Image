@@ -105,6 +105,7 @@ let settingsPopup=null,pendingSettingsConfirm=null,autoSession=null,floatingDisp
 let secondarySession=null,secondaryJob=null;
 let secondaryRequestPreview=null;
 const secondaryWorldInfo=new WeakMap();
+const knownSecondaryFloors=new WeakSet();
 const promptInjection=createPromptInjection({context:ctx,settings,onError:()=>notices.error('D0 提示词注入失败，请检查宿主兼容性','提示词')});
 const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
 const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
@@ -1254,16 +1255,67 @@ async function runSecondaryTags(message,automatic){
     }
 }
 
-function finishSecondarySession(){
-    const session=secondarySession;
-    secondarySession=null;
-    const message=latestImageMessage(ctx().chat);
-    if(!session||session.chat!==currentChat()||session.signal?.aborted||!message)return;
-    const sameMessage=message===session.message;
-    if(sameMessage&&session.type!=='swipe'&&session.type!=='continue')return;
-    if(sameMessage&&message.mes===session.text&&(message.swipe_id??0)===session.swipe)return;
-    secondaryWorldInfo.set(message,{chat:session.chat,text:message.mes,swipe:message.swipe_id??0,content:session.worldInfo??''});
-    void runSecondaryTags(message,settings.mode!=='manual');
+function secondaryReady(){
+    return settings.enabled&&secondaryEnabled(settings)&&!!settings.secondaryTagAPI&&
+        !activeSecondaryPreset(readSecondaryLibrary(settings)).pendingImport;
+}
+function stoppedSecondaryStream(host,messageId){
+    const processor=host.streamingProcessor;
+    return processor?.messageId===messageId&&(processor.isStopped||processor.abortController?.signal?.aborted);
+}
+function isNewSecondaryReply(session,message){
+    if(message!==session.message)return true;
+    return ['swipe','continue'].includes(session.type)&&
+        (message.mes!==session.text||(message.swipe_id??0)!==session.swipe);
+}
+function scheduleSecondaryFinish(session){
+    if(!session||session.scheduled)return;
+    session.scheduled=true;
+    // Give a stop event from the same host turn a chance to cancel this reply.
+    setTimeout(()=>{
+        session.scheduled=false;
+        if(secondarySession!==session)return;
+        const host=ctx(),message=latestImageMessage(host.chat);
+        if(session.chat!==currentChat()||session.signal?.aborted||stoppedSecondaryStream(host,host.chat.length-1)){
+            secondarySession=null;return;
+        }
+        const text=message?.mes?.trim();
+        if(!message||message.role==='tool'||!text||text==='...')return;
+        if(session.finalReply&&session.finalReply!==message)return;
+        if(!isNewSecondaryReply(session,message))return;
+        // ENDED may happen while the host is still publishing the new floor.
+        // Keep the session available until a valid reply is present.
+        secondarySession=null;
+        knownSecondaryFloors.add(message);
+        secondaryWorldInfo.set(message,{chat:session.chat,text:message.mes,swipe:message.swipe_id??0,content:session.worldInfo??''});
+        void runSecondaryTags(message,settings.mode!=='manual');
+    },0);
+}
+function receiveSecondaryReply(event,messageId,type){
+    const host=ctx(),index=Number(messageId);
+    const message=host.chat[index];
+    if(!message||message!==latestImageMessage(host.chat)||message.role==='tool')return;
+    const stopped=stoppedSecondaryStream(host,index);
+    if(['first_message','quiet','impersonate'].includes(type)||stopped){
+        knownSecondaryFloors.add(message);
+        if(stopped)secondarySession=null;
+        return;
+    }
+    if(!secondarySession){
+        const finalRender=event==='CHARACTER_MESSAGE_RENDERED'&&['normal','regenerate','reply','swipe','continue','appendFinal'].includes(type);
+        if(event!=='MESSAGE_RECEIVED'&&!finalRender)return;
+        const known=knownSecondaryFloors.has(message);
+        knownSecondaryFloors.add(message);
+        if(known||!secondaryReady())return;
+        secondaryJob?.controller.abort();
+        secondarySession={chat:currentChat(),type};
+    }
+    if(secondarySession.chat!==currentChat()||!isNewSecondaryReply(secondarySession,message))return;
+    // Untyped render events also occur during streaming and swipe navigation.
+    if(event==='CHARACTER_MESSAGE_RENDERED'&&!type&&secondarySession.finalReply!==message)return;
+    secondarySession.finalReply=message;
+    knownSecondaryFloors.add(message);
+    scheduleSecondaryFinish(secondarySession);
 }
 function scanStream() {
     if(!settings.enabled||settings.mode!=='stream'||!streamActive||generationChat!==currentChat())return;
@@ -1275,6 +1327,7 @@ function scheduleRender(automatic=false) {
 }
 async function init() {
     mountMenu();refreshFloating();const c=ctx();save();
+    for(const message of c.chat)knownSecondaryFloors.add(message);
     if(c.eventTypes.WORLDINFO_ENTRIES_LOADED)c.eventSource.on(c.eventTypes.WORLDINFO_ENTRIES_LOADED,groups=>{
         if(!settings.enabled||!secondaryEnabled(settings)||!groups)return;
         const lists=[groups.globalLore,groups.characterLore,groups.chatLore,groups.personaLore];
@@ -1341,7 +1394,9 @@ async function init() {
         document.querySelectorAll('.miao-image-tools').forEach(tools=>{if(tools.closest('.miao-image-card')?.querySelector('img'))tools.hidden=true;});
         document.querySelectorAll('.miao-image-card').forEach(card=>card._cancelGesture?.());
     });
-    for(const name of ['CHAT_LOADED','MORE_MESSAGES_LOADED','USER_MESSAGE_RENDERED','MESSAGE_RECEIVED','CHARACTER_MESSAGE_RENDERED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_EDITED'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],messageId=>{
+    for(const name of ['CHAT_LOADED','MORE_MESSAGES_LOADED','USER_MESSAGE_RENDERED','MESSAGE_RECEIVED','CHARACTER_MESSAGE_RENDERED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_EDITED'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],(messageId,type)=>{
+        if(name==='CHAT_LOADED'||name==='MORE_MESSAGES_LOADED')for(const message of ctx().chat)knownSecondaryFloors.add(message);
+        if(name==='MESSAGE_RECEIVED'||name==='CHARACTER_MESSAGE_RENDERED')receiveSecondaryReply(name,messageId,type);
         // Final rendering and swipe navigation must release any stale stream lock.
         if(name==='MESSAGE_SWIPED'||name==='CHARACTER_MESSAGE_RENDERED'&&Number(messageId)===ctx().chat.length-1){streamActive=false;generationChat=null;}
         if(name==='CHARACTER_MESSAGE_RENDERED'&&Number(messageId)===ctx().chat.length-1){const session=autoSession;void autoLatest().finally(()=>{if(autoSession===session&&!generationChat)autoSession=null;});}
@@ -1356,6 +1411,7 @@ async function init() {
         removeSwipeImages(message,swipeId);await ctx().saveChat();scheduleRender(false);
     });
     c.eventSource.on(c.eventTypes.CHAT_CHANGED,()=>{
+        for(const message of ctx().chat)knownSecondaryFloors.add(message);
         streamActive=false;generationChat=null;autoSession=null;secondarySession=null;secondaryRequestPreview=null;secondaryJob?.controller.abort();
         scheduleRender(false);setTimeout(()=>guard(indexChatImages)(),0);
     });
@@ -1366,8 +1422,7 @@ async function init() {
         if(dryRun||type==='quiet'||type==='impersonate')return;
         secondaryJob?.controller.abort();
         secondarySession=null;
-        if(settings.enabled&&secondaryEnabled(settings)&&settings.secondaryTagAPI&&
-            !activeSecondaryPreset(readSecondaryLibrary(settings)).pendingImport){
+        if(secondaryReady()){
             const message=latestImageMessage(ctx().chat);
             secondarySession={chat:currentChat(),type,message,text:message?.mes,swipe:message?.swipe_id??0,signal:options?.signal};
         }
@@ -1376,13 +1431,16 @@ async function init() {
     });
     c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{
         const same=generationChat===currentChat();streamActive=false;generationChat=null;
-        const session=secondarySession;
-        // Some hosts emit ENDED first when the user stops an unfinished reply.
-        if(session)setTimeout(()=>{if(secondarySession===session){finishSecondarySession();renderAll();}},0);
+        const host=ctx();
+        if(stoppedSecondaryStream(host,host.chat.length-1)){
+            const message=latestImageMessage(host.chat);if(message)knownSecondaryFloors.add(message);
+            secondarySession=null;
+        }else scheduleSecondaryFinish(secondarySession);
         renderAll();if(same)autoLatest();
     });
     if(c.eventTypes.GENERATION_STOPPED)c.eventSource.on(c.eventTypes.GENERATION_STOPPED,()=>{
         const same=generationChat===currentChat();streamActive=false;generationChat=null;secondarySession=null;
+        const message=latestImageMessage(ctx().chat);if(message)knownSecondaryFloors.add(message);
         scheduleRender(false);if(same&&settings.eggProfileEnabled)void autoLatest();
     });
     c.eventSource.on(c.eventTypes.STREAM_TOKEN_RECEIVED,()=>{if(generationChat===currentChat())streamActive=true;setTimeout(()=>guard(()=>{scanStream();renderAll();})(),0);});

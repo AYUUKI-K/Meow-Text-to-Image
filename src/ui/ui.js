@@ -119,7 +119,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         const file=node('input');file.type='file';file.accept='.json,application/json';file.hidden=true;
         const ready=node('div');ready.hidden=true;
         const messages=node('div',undefined,'miao-secondary-preset-messages');
-        const missing=node('p','导入「电子幽灵1.6.json」即可查看全文并作为默认预设使用。','miao-notice');
+        const missing=node('p','副 API 还未就绪。请导入电子幽灵预设，之后的新回复会自动出词。','miao-notice');
         const macros=node('p',undefined,'miao-notice');macros.hidden=true;
         const sent=node('details'),sentLabel=node('summary','最近发送 · 宏展开后'),sentContent=node('pre',undefined,'miao-capture-sample');
         sent.hidden=true;sent.append(sentLabel,sentContent);
@@ -136,7 +136,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         function paint(){
             const library=readSecondaryLibrary(settings),preset=activeSecondaryPreset(library);
             picker.replaceChildren(...secondaryPresets(library).map(item=>{
-                const name=item.id==='electronic-ghost'?item.name+'（默认）':item.name;
+                const name=item.id==='electronic-ghost'?item.name+(item.pendingImport?'（待导入）':'（默认）'):item.name;
                 const option=node('option',name);option.value=item.id;return option;
             }));
             picker.value=preset.id;

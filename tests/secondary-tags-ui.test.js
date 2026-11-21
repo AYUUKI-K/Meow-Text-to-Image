@@ -50,6 +50,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             const presetPicker=page.getByRole('combobox',{name:'当前副 API 预设',exact:true});
             assert.equal(await presetPicker.inputValue(),'electronic-ghost');
             assert.equal(await presetPicker.locator('option').count(),1);
+            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵（待导入）');
             const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
             assert.equal(await exportButton.isDisabled(),true);
             await page.evaluate(async endpoint=>{
@@ -242,6 +243,42 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 });
                 await page.waitForTimeout(160);
                 assert.equal(requests.length,2,'ENDED before STOPPED must not send a partial reply');
+                await page.evaluate(async()=>{
+                    const p=window.preview;
+                    await p.emit('GENERATION_STARTED','normal',{},false);
+                    p.chat.push({name:'Connection failed',mes:'This draft was never completed'});
+                    const id=p.chat.length-1;
+                    p.context.streamingProcessor={messageId:id,isStopped:true};
+                    window.drawSecondaryFixture();
+                    await p.emit('GENERATION_ENDED',p.chat.length);
+                    await p.emit('MESSAGE_RECEIVED',id,'normal');
+                    await p.emit('CHARACTER_MESSAGE_RENDERED',id,'normal');
+                    delete p.context.streamingProcessor;
+                });
+                await page.waitForTimeout(120);
+                assert.equal(requests.length,2,'an errored stream must not send a draft even if Tavern emits reply events');
+                release=null;
+                await page.evaluate(async()=>{
+                    const p=window.preview;
+                    p.settings.mode='manual';
+                    window.completeSecondaryFixtureReply=async text=>{
+                        p.chat.push({name:'Reply',mes:text});
+                        window.drawSecondaryFixture();
+                        await p.emit('MESSAGE_RECEIVED',p.chat.length-1,'normal');
+                    };
+                    await window.completeSecondaryFixtureReply('Earlier completed reply');
+                });
+                for(let i=0;i<60&&!release;i++)await new Promise(resolve=>setTimeout(resolve,50));
+                assert.ok(release);
+                assert.equal(requests.length,3);
+                hold=false;
+                try{
+                    await page.evaluate(()=>window.completeSecondaryFixtureReply('Newer completed reply'));
+                    await page.waitForFunction(()=>!!window.preview.chat.at(-1).miao_nai_image_secondary_tags);
+                    assert.equal(requests.length,4,'an older request must not block a newly finished floor');
+                    assert.match(requests[3].body.messages.at(-1).content,/Newer completed reply/);
+                    assert.equal(await page.evaluate(()=>window.preview.chat.at(-2).miao_nai_image_secondary_tags),undefined);
+                }finally{release();}
             }
             assert.deepEqual(errors,[]);await page.close();
         }
@@ -310,16 +347,21 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.waitForFunction(()=>!!window.preview.context.chatMetadata.miao_nai_image_role_bindings);
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
             const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。';
-            await page.evaluate(async prose=>{
+            await page.evaluate(async ({prose,tt})=>{
                 const p=window.preview;
                 p.chat.splice(0,p.chat.length);
                 await p.emit('CHAT_CHANGED');
                 await p.emit('GENERATION_STARTED','normal',{},false);
+                if(tt){
+                    await p.emit('GENERATION_ENDED',0);
+                    await new Promise(resolve=>setTimeout(resolve,50));
+                }
                 p.chat.push({name:'Reply',mes:prose,swipes:['另一条分支',prose],swipe_id:1});
                 document.getElementById('chat').innerHTML='<div class="mes" mesid="0"><div class="mes_text"></div></div>';
                 p.context.updateMessageBlock(0,p.chat[0]);
-                await p.emit('GENERATION_ENDED',p.chat.length);
-            },prose);
+                await p.emit('MESSAGE_RECEIVED',0,'normal');
+                await p.emit('CHARACTER_MESSAGE_RENDERED',0,'normal');
+            },{prose,tt});
             const generate=page.getByRole('button',{name:'生成插图',exact:true});
             await generate.first().waitFor();
             assert.equal(requests.length,1);
@@ -350,10 +392,28 @@ test('the configured drawing format writes into the active swipe and only expand
                 const p=window.preview;
                 p.chatId='another-archive';p.context.chatMetadata={};
                 await p.emit('CHAT_CHANGED');
+                await p.emit('MESSAGE_RECEIVED',0,'first_message');
+                await p.emit('CHARACTER_MESSAGE_RENDERED',0,'normal');
             });
+            await page.waitForTimeout(120);
+            assert.equal(requests.length,1,'opening an archive must not process its existing last floor');
             await page.locator('#miao-nai-menu').click();
             await nav.getByRole('button',{name:'生图指令',exact:true}).click();
             assert.equal(await characters.inputValue(),'');
+            await page.getByRole('button',{name:'关闭设置',exact:true}).click();
+            await page.evaluate(async()=>{
+                const p=window.preview;
+                p.chat.push({name:'Reply',mes:'另一个 RP 回复。\n\n炉边有一杯茶。\n\n结束。'});
+                const id=p.chat.length-1;
+                document.getElementById('chat').insertAdjacentHTML('beforeend',`<div class="mes" mesid="${id}"><div class="mes_text"></div></div>`);
+                p.context.updateMessageBlock(id,p.chat[id]);
+                await p.emit('MESSAGE_RECEIVED',id,'normal');
+                await p.emit('CHARACTER_MESSAGE_RENDERED',id,'normal');
+                await p.emit('GENERATION_ENDED',p.chat.length);
+            });
+            await page.waitForFunction(()=>window.preview.chat.at(-1).mes.includes('START-FIG'));
+            assert.equal(requests.length,2,'one finished reply may be published without a start event');
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
             await page.close();
         }
     }finally{await browser?.close();server.kill();}
