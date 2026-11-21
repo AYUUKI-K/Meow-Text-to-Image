@@ -52,6 +52,20 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.equal(await presetPicker.locator('option').count(),1);
             const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
             assert.equal(await exportButton.isDisabled(),true);
+            await page.evaluate(async endpoint=>{
+                const p=window.preview;
+                const previous=p.settings.secondaryTagAPI;
+                p.settings.secondaryTagAPI={url:endpoint,model:'fixture-model'};
+                await p.emit('GENERATION_STARTED','normal',{},false);
+                p.chat.push({name:'Reply',mes:'There is no imported preset yet.'});
+                document.getElementById('chat').insertAdjacentHTML('beforeend',`<div class="mes" mesid="${p.chat.length-1}"><div class="mes_text">There is no imported preset yet.</div></div>`);
+                await p.emit('GENERATION_ENDED',p.chat.length);
+                await new Promise(resolve=>setTimeout(resolve,150));
+                p.settings.secondaryTagAPI=previous;
+            },endpoint);
+            assert.equal(await page.getByRole('button',{name:'提取绘图 tag',exact:true}).count(),0);
+            assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(item=>item.type==='error'&&item.message.includes('电子幽灵'))),false);
+            assert.equal(requests.length,0,'a missing default preset must not trigger a request');
             const messages=page.locator('.miao-secondary-preset-messages');
             const bodyTemplate='<剧情原文>\n{{正文}}\n</剧情原文>';
             const full={prompts:[
@@ -139,7 +153,19 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 window.drawSecondaryFixture=()=>{document.getElementById('chat').innerHTML=p.chat.map((message,index)=>`<div class="mes" mesid="${index}"><div class="mes_text">${message.mes}</div></div>`).join('');};
                 window.drawSecondaryFixture();await p.emit('CHAT_CHANGED');
                 await p.emit('GENERATION_STARTED','normal',{},false);
-                await p.emit('WORLD_INFO_ACTIVATED',[{content:'Garden lore'}]);
+                const named={world:'[喵喵]文生图-标签跟随配置',comment:'主体',content:'draw using this plugin book'};
+                const header={world:'renamed drawing world',comment:'tag头',content:'<imageTag>{{setvar::张数::3}}{{setvar::彩蛋标签::/fixture}}'};
+                const sibling={world:'renamed drawing world',comment:'主体',content:'draw using a renamed book'};
+                const garden={world:'Story world',comment:'主体',content:'Garden lore'};
+                const createLore=()=>({globalLore:[named],characterLore:[header,sibling],chatLore:[garden],
+                    personaLore:[{world:'[喵喵]文生图 2.2.3',comment:'彩蛋[选开]',content:'old optional instruction'}]});
+                const main=createLore(),secondary=createLore();
+                p.settings.tagSource='main';
+                await p.emit('WORLDINFO_ENTRIES_LOADED',main);
+                p.settings.tagSource='secondary';
+                await p.emit('WORLDINFO_ENTRIES_LOADED',secondary);
+                p.worldEntryCounts=[Object.values(main).map(group=>group.length),Object.values(secondary).map(group=>group.length)];
+                await p.emit('WORLD_INFO_ACTIVATED',[...Object.values(secondary).flat(),named]);
                 p.chat.push({name:'Reply',mes:rawReply});
                 window.drawSecondaryFixture();
                 await p.emit('STREAM_TOKEN_RECEIVED');await p.emit('CHARACTER_MESSAGE_RENDERED',3);
@@ -147,14 +173,12 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.waitForTimeout(180);
             assert.equal(requests.length,0);
             assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
-            await page.evaluate(async()=>{await window.preview.emit('GENERATION_ENDED',2);await window.preview.emit('GENERATION_ENDED',2);});
-            if(tt){
-                assert.equal(requests.length,0);
-                await page.getByRole('button',{name:'提取绘图 tag',exact:true}).tap();
-            }
+            assert.deepEqual(await page.evaluate(()=>window.preview.worldEntryCounts),[[1,2,1,1],[0,0,1,0]]);
+            await page.evaluate(async()=>{await window.preview.emit('GENERATION_ENDED',4);await window.preview.emit('GENERATION_ENDED',4);});
             const secondary=page.locator('[data-miao-source=secondary]');
             await secondary.waitFor();
             assert.equal(await secondary.count(),1);
+            assert.equal(await page.getByRole('button',{name:'提取绘图 tag',exact:true}).count(),0);
             assert.equal(requests.length,1);
             assert.equal(requests[0].auth,'Bearer fixture-secondary-key');
             assert.equal(requests[0].body.model,'fixture-model');
@@ -189,7 +213,6 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                     const message=p.chat.at(-1);message.swipe_id=1;message.mes='Second swipe text';
                     window.drawSecondaryFixture();await p.emit('GENERATION_ENDED',2);
                 });
-                await page.waitForFunction(()=>document.querySelector('.miao-secondary-tag-action button')?.disabled);
                 for(let i=0;i<60&&!release;i++)await new Promise(resolve=>setTimeout(resolve,50));
                 assert.equal(requests.length,2);assert.ok(release);
                 await page.evaluate(async()=>{
@@ -198,9 +221,18 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                     window.drawSecondaryFixture();await p.emit('MESSAGE_SWIPED',1);
                 });
                 release();
-                await page.getByRole('button',{name:'提取绘图 tag',exact:true}).waitFor();
+                await page.waitForTimeout(120);
                 assert.deepEqual(await page.evaluate(()=>Object.keys(window.preview.chat.at(-1).miao_nai_image_secondary_tags)),['0']);
                 assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
+                await page.evaluate(async()=>{
+                    const p=window.preview;
+                    await p.emit('GENERATION_STARTED','normal',{},false);
+                    Object.assign(p.chat.at(-1),{swipe_id:3,mes:'Navigation to an existing swipe'});
+                    window.drawSecondaryFixture();
+                    await p.emit('MESSAGE_SWIPED',p.chat.length-1);await p.emit('GENERATION_ENDED',p.chat.length);
+                });
+                await page.waitForTimeout(120);
+                assert.equal(requests.length,2,'navigation alone must not be sent to the secondary API');
                 await page.evaluate(async()=>{
                     const p=window.preview;
                     await p.emit('GENERATION_STARTED','normal',{},false);
@@ -280,12 +312,14 @@ test('the configured drawing format writes into the active swipe and only expand
             const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。';
             await page.evaluate(async prose=>{
                 const p=window.preview;
-                p.chat.splice(0,p.chat.length,{name:'Reply',mes:prose,swipes:['另一条分支',prose],swipe_id:1});
+                p.chat.splice(0,p.chat.length);
+                await p.emit('CHAT_CHANGED');
+                await p.emit('GENERATION_STARTED','normal',{},false);
+                p.chat.push({name:'Reply',mes:prose,swipes:['另一条分支',prose],swipe_id:1});
                 document.getElementById('chat').innerHTML='<div class="mes" mesid="0"><div class="mes_text"></div></div>';
                 p.context.updateMessageBlock(0,p.chat[0]);
-                await p.emit('CHAT_CHANGED');
+                await p.emit('GENERATION_ENDED',p.chat.length);
             },prose);
-            await page.getByRole('button',{name:'提取绘图 tag',exact:true}).click();
             const generate=page.getByRole('button',{name:'生成插图',exact:true});
             await generate.first().waitFor();
             assert.equal(requests.length,1);
@@ -306,6 +340,7 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.equal(disabled.title,undefined);
             assert.equal(disabled.eggDescription,undefined);
             assert.equal(await generate.count(),2);
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),0,'manual mode extracts tags without generating an image');
             await generate.first().click();
             await page.waitForFunction(()=>window.preview.calls.length===1);
             const nai=await page.evaluate(()=>window.preview.calls[0].prompt??window.preview.calls[0].input);

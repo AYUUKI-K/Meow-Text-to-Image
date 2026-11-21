@@ -107,7 +107,7 @@
 }
 
 /* Shared theme tokens and settings shell */
-.miao-settings,.miao-settings-dialog,.miao-confirm-dialog,.miao-image-card,.miao-secondary-tag-action,.miao-image-viewer,.miao-prompt-view,.miao-content-dialog {
+.miao-settings,.miao-settings-dialog,.miao-confirm-dialog,.miao-image-card,.miao-image-viewer,.miao-prompt-view,.miao-content-dialog {
     --mi-bg: var(--SmartThemeBlurTintColor,Canvas);
     --mi-surface: var(--mi-bg);
     --mi-ink: var(--SmartThemeBodyColor,CanvasText);
@@ -931,12 +931,6 @@
 .miao-image-tools[hidden] {
     display: none !important;
 }
-.miao-secondary-tag-action {
-    display: flex;
-    justify-content: center;
-    margin: 8px auto;
-}
-
 .miao-image-tools {
     display: flex;
     flex-direction: column;

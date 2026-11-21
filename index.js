@@ -39,7 +39,7 @@ import * as hostUtils from '../../../utils.js';
 import {bindImageGesture,createFloatingEntry,bindImageZoom} from './src/ui/interactions.js';
 import {persistHostSettings} from './src/platform/settings-save.js';
 import {createPromptTranslator} from './src/prompts/translation.js';
-import {WORLD_NAME,mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings} from './src/resources/resources.js';
+import {WORLD_NAME,mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings,filterDrawingWorldEntries} from './src/resources/resources.js';
 import { writeSecret, SECRET_KEYS } from '../../../secrets.js';
 import { getCurrentUserHandle } from '../../../user.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
@@ -569,7 +569,7 @@ function renderAll() {
         if(!message||!root)return;
         // The host replaces .mes_text with its editor. Never insert cards into it.
         if(mes.querySelector('textarea.edit_textarea,#curEditTextarea')){
-            mes.querySelectorAll('.miao-image-card,.miao-secondary-tag-action').forEach(card=>{card._cancelGesture?.();card.remove();});return;
+            mes.querySelectorAll('.miao-image-card').forEach(card=>{card._cancelGesture?.();card.remove();});return;
         }
         // Streaming markdown is continually rebuilt by ST. Generate in the
         // background and insert cards only after its final message render.
@@ -594,26 +594,8 @@ function renderAll() {
             else replaceLiteral(root,block.raw,card,message,block);
         }
         for(const old of existing)if(!used.has(old))old.remove();
-        renderSecondaryAction(root,message,found);
     });
     }finally{observeChat();}
-}
-function renderSecondaryAction(root,message,found){
-    let action=root.querySelector('.miao-secondary-tag-action');
-    if(action&&action.message!==message){action.remove();action=null;}
-    const inline=secondaryEnabled(settings)&&inlineSecondaryPreset(activeSecondaryPreset(readSecondaryLibrary(settings)));
-    const show=secondaryEnabled(settings)&&!!settings.secondaryTagAPI&&message===latestImageMessage(ctx().chat)&&
-        !secondarySession&&!found.some(block=>block.secondary||inline)&&!!secondaryBody(message.mes,settings.pattern,reasoningFormat());
-    if(!show){action?.remove();return;}
-    if(!action){
-        action=el('div',undefined,'miao-secondary-tag-action');
-        action.message=message;
-        const button=el('button','提取绘图 tag','miao-button');button.type='button';
-        bindButtonPress(button,()=>{void runSecondaryTags(message,settings.mode!=='manual');});
-        action.append(button);root.append(action);
-    }
-    const button=action.querySelector('button'),busy=!!secondaryJob;
-    button.disabled=busy;button.textContent=busy?'副 API 出词中…':'提取绘图 tag';
 }
 function observeChat(){
     // Some hosts replace #chat or mount it after extensions have initialized.
@@ -1153,16 +1135,16 @@ function refreshSecondaryMessage(message){
 async function runSecondaryTags(message,automatic){
     const connection=settings.secondaryTagAPI,chat=currentChat(),swipe=message.swipe_id??0,text=message.mes;
     if(secondaryJob?.controller.signal.aborted)secondaryJob=null;
-    if(!secondaryEnabled(settings)||!connection||secondarySession||secondaryJob||message!==latestImageMessage(ctx().chat))return;
+    if(!settings.enabled||!secondaryEnabled(settings)||!connection||secondarySession||secondaryJob||message!==latestImageMessage(ctx().chat))return;
     const library=settings.secondaryTagPresets,preset=activeSecondaryPreset(readSecondaryLibrary(settings));
+    if(preset.pendingImport)return;
     const inline=inlineSecondaryPreset(preset),capture=captureSettings(),initialBlocks=inline?blocks(message):[];
     const promptConfig=settings.promptConfig,output=drawingOptions(promptConfig);
     const remaining=output.count.max-(inline?initialBlocks.length:readSecondaryTags(message,swipe).length);
     if(!text?.trim()||remaining<1)return;
-    if(preset.pendingImport){notices.error('请先在「生图指令 → 预设」导入完整的电子幽灵 JSON','副 API 出词失败',{escapeHtml:true});return;}
     const controller=new AbortController();
     let anchors,expectedText=text;
-    const current=()=>secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&settings.secondaryTagPresets===library&&getCurrentUserHandle()===directUser&&
+    const current=()=>settings.enabled&&secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&settings.secondaryTagPresets===library&&getCurrentUserHandle()===directUser&&
         settings.promptConfig===promptConfig&&capture.start===settings.startTag&&capture.end===settings.endTag&&chat===currentChat()&&message===latestImageMessage(ctx().chat)&&
         (message.swipe_id??0)===swipe&&message.mes===expectedText;
     const job={controller,message,swipe,current};
@@ -1276,10 +1258,12 @@ function finishSecondarySession(){
     const session=secondarySession;
     secondarySession=null;
     const message=latestImageMessage(ctx().chat);
-    if(!session||session.chat!==currentChat()||!message)return;
-    if(message===session.message&&message.mes===session.text&&(message.swipe_id??0)===session.swipe)return;
+    if(!session||session.chat!==currentChat()||session.signal?.aborted||!message)return;
+    const sameMessage=message===session.message;
+    if(sameMessage&&session.type!=='swipe'&&session.type!=='continue')return;
+    if(sameMessage&&message.mes===session.text&&(message.swipe_id??0)===session.swipe)return;
     secondaryWorldInfo.set(message,{chat:session.chat,text:message.mes,swipe:message.swipe_id??0,content:session.worldInfo??''});
-    if(settings.mode!=='manual')void runSecondaryTags(message,true);
+    void runSecondaryTags(message,settings.mode!=='manual');
 }
 function scanStream() {
     if(!settings.enabled||settings.mode!=='stream'||!streamActive||generationChat!==currentChat())return;
@@ -1291,6 +1275,18 @@ function scheduleRender(automatic=false) {
 }
 async function init() {
     mountMenu();refreshFloating();const c=ctx();save();
+    if(c.eventTypes.WORLDINFO_ENTRIES_LOADED)c.eventSource.on(c.eventTypes.WORLDINFO_ENTRIES_LOADED,groups=>{
+        if(!settings.enabled||!secondaryEnabled(settings)||!groups)return;
+        const lists=[groups.globalLore,groups.characterLore,groups.chatLore,groups.personaLore];
+        const filtered=filterDrawingWorldEntries(lists,settings.world);
+        // The host keeps the original arrays after emitting the event.
+        for(const [index,entries] of lists.entries()){
+            if(!Array.isArray(entries)||entries.length===filtered[index].length)continue;
+            const remaining=filtered[index];
+            entries.length=remaining.length;
+            for(let i=0;i<remaining.length;i++)entries[i]=remaining[i];
+        }
+    });
     const sharedMacros={
         ...captureMacroValues({get start(){return settings.startTag;},get end(){return settings.endTag;}}),
         miao_image_count:()=>drawingOptions(settings.promptConfig).count.text,
@@ -1334,7 +1330,8 @@ async function init() {
     for(const name of ['CHAT_LOADED','CHAT_CHANGED','GENERATION_AFTER_COMMANDS'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],refreshPrompt);
     if(c.eventTypes.WORLD_INFO_ACTIVATED)c.eventSource.on(c.eventTypes.WORLD_INFO_ACTIVATED,entries=>{
         if(secondarySession?.chat!==currentChat()||!Array.isArray(entries))return;
-        secondarySession.worldInfo=entries.filter(entry=>typeof entry?.content==='string').map(entry=>entry.content).join('\n\n').slice(0,12000);
+        const [lore]=filterDrawingWorldEntries([entries],settings.world);
+        secondarySession.worldInfo=lore.filter(entry=>typeof entry?.content==='string').map(entry=>entry.content).join('\n\n').slice(0,12000);
     });
 
     let migrated=false;for(const message of c.chat)migrated=migrateSwipeImages(message)||migrated;if(migrated)await c.saveChat();
@@ -1368,10 +1365,11 @@ async function init() {
         // never emit GENERATION_ENDED. They must not hide the last floor's cards.
         if(dryRun||type==='quiet'||type==='impersonate')return;
         secondaryJob?.controller.abort();
-        if(secondaryEnabled(settings)){
+        secondarySession=null;
+        if(settings.enabled&&secondaryEnabled(settings)&&settings.secondaryTagAPI&&
+            !activeSecondaryPreset(readSecondaryLibrary(settings)).pendingImport){
             const message=latestImageMessage(ctx().chat);
-            secondarySession={chat:currentChat(),message,text:message?.mes,swipe:message?.swipe_id??0};
-            scheduleRender(false);
+            secondarySession={chat:currentChat(),type,message,text:message?.mes,swipe:message?.swipe_id??0,signal:options?.signal};
         }
         streamActive=false;generationChat=currentChat();
         autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',marker:settings.eggProfileEnabled?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
