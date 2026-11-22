@@ -27,10 +27,55 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  const source=page.getByRole('combobox',{name:'来源',exact:true}),injection=()=>page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text);
  await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});
  assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签','世界书与正则']);assert.equal(await page.locator('.miao-prompt-tree').count(),0);
+ const previousWorld='[喵喵]文生图 2.2.2',currentWorld='[喵喵]文生图 2.2.3';
+ await page.evaluate(async previousWorld=>{
+  const p=window.preview;
+  p.worlds[previousWorld]={entries:{
+   1:{uid:1,comment:'tag头',content:'{{setvar::人格::PRESERVED_FIXTURE}}'},
+   4:{uid:4,comment:'彩蛋[选开]',content:'old',disable:true,constant:false},
+  }};
+  p.selectedWorlds.push(previousWorld);
+  p.context.chatMetadata={world_info:previousWorld};
+  p.context.saveMetadata=async()=>{p.resourceMetadataSaves=(p.resourceMetadataSaves||0)+1;return !p.failResourceMetadataSave;};
+  const {updateWorldInfoList}=await import('/scripts/world-info.js');
+  await updateWorldInfoList();
+ },previousWorld);
  await page.getByRole('button',{name:'检查资源更新',exact:true}).click();
  await page.getByRole('button',{name:'更新资源',exact:true}).click();
  await page.waitForFunction(()=>window.preview.settings.resourceRevision===2026110703);
- assert.equal(await page.evaluate(()=>window.preview.worldWrites.at(-1).name),'[喵喵]文生图 2.2.3');
+ const migrated=await page.evaluate(()=>{
+  const p=window.preview,write=p.worldWrites.at(-1),entries=Object.values(write.data.entries);
+  return {name:write.name,selection:p.displayedWorldSelection,savedSelection:p.worldInfo.globalSelect,
+   chatWorld:p.context.chatMetadata.world_info,header:entries.find(entry=>entry.comment==='tag头').content,
+   eggDisabled:entries.find(entry=>entry.comment==='彩蛋[选开]').disable};
+ });
+ assert.equal(migrated.name,currentWorld);
+ assert.deepEqual(migrated.selection,[currentWorld]);
+ assert.deepEqual(migrated.savedSelection,[currentWorld]);
+ assert.equal(migrated.chatWorld,currentWorld);
+ assert.match(migrated.header,/\{\{setvar::人格::PRESERVED_FIXTURE\}\}/);
+ assert.equal(migrated.eggDisabled,true);
+ const danglingAlias=await page.evaluate(async previousWorld=>{
+  const p=window.preview,before=p.resourceMetadataSaves;
+  p.settings.worldAliases[previousWorld]='Missing fixture world';
+  p.context.chatMetadata.world_info=previousWorld;
+  await p.emit('CHAT_CHANGED');
+  await new Promise(resolve=>setTimeout(resolve,40));
+  return {world:p.context.chatMetadata.world_info,saves:p.resourceMetadataSaves-before};
+ },previousWorld);
+ assert.deepEqual(danglingAlias,{world:previousWorld,saves:0});
+ const indexedImage='/user/images/miao-nai/miao-1792737847716.png';
+ await page.evaluate(async({previousWorld,currentWorld,indexedImage})=>{
+  const p=window.preview;
+  p.settings.worldAliases[previousWorld]=currentWorld;
+  p.failResourceMetadataSave=true;
+  const {writeSwipeImage}=await import('/scripts/extensions/third-party/test/src/chat/swipe-history.js');
+  writeSwipeImage(p.chat[0],0,'resource-fixture',{url:indexedImage,archive:{cardId:'card:resource-fixture.png',cardName:'Resource fixture'}});
+  await p.emit('CHAT_CHANGED');
+ },{previousWorld,currentWorld,indexedImage});
+ await page.waitForFunction(url=>window.preview.settings.imageArchive[url],indexedImage);
+ assert.equal(await page.evaluate(()=>window.preview.context.chatMetadata.world_info),previousWorld);
+ await page.locator('dialog[open]:not(.miao-settings-dialog) .popup-controls button').click();
  // Switching source must commit the pending capture fields, including on failure.
  await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('custom###');
  await source.selectOption('builtin');await page.waitForFunction(()=>window.preview.settings.promptConfig.mode==='builtin');await page.locator('.miao-prompt-tree').waitFor();

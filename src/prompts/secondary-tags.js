@@ -128,7 +128,8 @@ export function buildSecondaryMessages({maxTags, preset, output, capture = {star
     };
     if (preset.entries) {
         const messages = preset.entries.filter(entry => entry.enabled && entry.content.trim() &&
-            (entry.name !== '彩蛋' || output?.egg !== false) && (entry.name !== '绘画自检' || output?.selfCheck !== false))
+            (entry.content.includes(replySlot) ||
+                (entry.name !== '彩蛋' || output?.egg !== false) && (entry.name !== '绘画自检' || output?.selfCheck !== false)))
             .map(({role, content}) => ({role, content: render(content)}))
             .filter(message => message.content.trim());
         if (output) {
@@ -179,11 +180,7 @@ export async function requestSecondaryTags(connection, key, body, {signal, fetch
         const {drawings, errors} = drawingResponse(maskReasoning(text), capture, connection.output);
         if (!drawings.length) throw Error(errors[0] ?? '副 API 未返回可用的 <draw> 绘图条目');
         const egg = drawings.findLast(drawing=>drawing.egg);
-        for (const drawing of drawings) {
-            if(!drawing.egg||drawing===egg)continue;
-            delete drawing.egg;delete drawing.eggMarker;delete drawing.eggDescription;
-        }
-        return limitReturnedDrawings(drawings,maxTags);
+        return limitReturnedDrawings(drawings.filter(drawing=>!drawing.egg||drawing===egg),maxTags);
     }
     const tags = typeof text === 'string' && text.length <= 100000 ? extractSecondaryTags(text, maxTags, delimiterPattern(capture.start,capture.end)) : [];
     if (!tags.length) throw Error('副 API 未输出完整的绘图标签，请检查捕捉标签配置');
@@ -194,10 +191,10 @@ function limitReturnedDrawings(drawings, maxTags) {
     if (drawings.length <= maxTags) return drawings;
     const selected = new Set(), anchors = new Set();
     const egg = drawings.findLast(drawing => drawing.egg);
-    if (egg) {selected.add(egg);anchors.add(egg.anchor);}
+    if (egg) selected.add(egg);
     for (const drawing of drawings) {
         if (selected.size >= maxTags) break;
-        if (/^P\d+$/.test(drawing.anchor) && !anchors.has(drawing.anchor)) {
+        if (!drawing.egg && /^P\d+$/.test(drawing.anchor) && !anchors.has(drawing.anchor)) {
             selected.add(drawing);
             anchors.add(drawing.anchor);
         }

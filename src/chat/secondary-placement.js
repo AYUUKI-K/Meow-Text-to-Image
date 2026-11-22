@@ -34,14 +34,14 @@ export function paragraphsOf(body) {
 }
 
 export function eggBoundary(body, marker = '') {
-  const xml = [...body.matchAll(/<(meow_?fm)\b(?:\s[^<>]*?)?\s*(?:\/>|>[\s\S]*?<\/\1\s*>)|<\/meow_?fm\s*>/gi)].at(-1);
+  const xml = /<(meow_?fm)\b(?:\s[^<>]*?)?\s*(?:\/>|>[\s\S]*?<\/\1\s*>)/i.exec(body)
+    ?? /<\/meow_?fm\s*>/i.exec(body);
   if (xml) return {start: xml.index, end: xml.index + xml[0].length};
-  let offset = 0, boundary;
+  let offset = 0;
   for (const line of body.split('\n')) {
-    if (marker && line.trim() === marker) boundary = {start: offset, end: offset + line.trimEnd().length};
+    if (marker && line.trim() === marker) return {start: offset, end: offset + line.trimEnd().length};
     offset += line.length + 1;
   }
-  return boundary;
 }
 
 export function roleList(text) {
@@ -157,6 +157,7 @@ export function insertDrawingTags(body, paragraphs, drawings, endOfBody = paragr
         text += gap + '<easter_egg>' + newline + eggDescription.replace(/\r?\n/g,'<br>') + newline + '</easter_egg>';
       }
     }
+    if (!/^[ \t]*(?:\r?\n|$)/.test(body.slice(offset))) text += gap;
     cursor = offset;
   }
   text += body.slice(cursor);
@@ -191,7 +192,7 @@ export function numberedReply(prose, rawVisible, marker) {
     return end == null ? [] : [{id, end}];
   });
   const numbered = outgoing.map(({id, text}) => `${text}\n[${id}]`).join('\n\n');
-  const eggText = filteredEgg ? prose.slice(filteredEgg.start, filteredEgg.end) : '';
+  const eggText = filteredEgg ? prose.slice(filteredEgg.start) : '';
   return {
     text: [numbered, eggText].filter(Boolean).join('\n\n'),
     anchors: {paragraphs, end: original.at(-1)?.end, egg, available: original.map(({end}) => end)},

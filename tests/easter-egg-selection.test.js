@@ -4,13 +4,22 @@ import {delimiterPattern} from '../src/core/core.js';
 import {parseGenerationBody,generationCandidates,createEggMarkerCache} from '../src/profiles/easter-egg-selection.js';
 const pattern=delimiterPattern('image###','###');
 const parse=(text,marker='/content',format={})=>parseGenerationBody(text,pattern,format,marker);
-test('literal standalone dynamic markers associate only with a complete final body tag',()=>{
+test('literal standalone dynamic markers associate with an adjacent complete body tag',()=>{
     for(const marker of ['/meow_FM','/content','/[x].*']){
         const parsed=parse(`image###normal###\n${marker}\nimage###tail###`,marker);
         assert.equal(parsed.marked.prompt,'tail');assert.equal(generationCandidates(parsed,{eggEnabled:true}).at(-1).egg,true);
     }
     for(const text of ['narration /content\nimage###tail###','/content\n/content\nimage###tail###','image###/content###','/content\nother text\nimage###tail###'])assert.equal(parse(text).marked,null);
     for(const marker of ['',null])assert.equal(parse('image###one###',marker).marked,null);
+});
+test('an adjacent XML bonus remains the bonus when another body tag follows',()=>{
+    const parsed=parse('image###ordinary###\n<meowfm>彩蛋正文</meowfm>\n\n┈┈彩蛋标题┈┈\n\nimage###bonus###\n\nimage###tail###');
+    assert.equal(parsed.marked.prompt,'bonus');
+    const candidates=options=>generationCandidates(parsed,{eggEnabled:true,...options}).map(({block,egg})=>[block.prompt,egg]);
+    assert.deepEqual(candidates({implicitEgg:false}),[['ordinary',false],['bonus',true],['tail',false]]);
+    assert.deepEqual(candidates({implicitEgg:false,streaming:true}),[['ordinary',false],['tail',false]]);
+    assert.deepEqual(candidates({implicitEgg:true}),[['ordinary',false],['bonus',false],['tail',true]]);
+    assert.equal(parse('image###quoted <meowfm> sample </meowfm>###\nimage###tail###').marked,null);
 });
 test('all reasoning types, comments and custom formats share body filtering and offsets',()=>{
     for(const [prefix,suffix] of [['<think>','</think>'],['<analysis>','</analysis>'],['<imgthink>','</imgthink>'],['<imagethink>','</imagethink>'],['<!--','-->'],['<star_cot>','</star_cot>']]){

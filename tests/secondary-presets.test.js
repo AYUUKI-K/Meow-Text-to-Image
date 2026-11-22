@@ -73,6 +73,15 @@ test('normal figures stay in distinct prose paragraphs and the bonus reuses the 
     assert.equal(insertDrawingTags('单段。',[{id:'P01',end:3}],drawings.slice(-1)).starts.size,0);
 });
 
+test('secondary API sees the entire tail while only prose before the first egg markup gets positions',()=>{
+    const raw='开头。\n\n第二段。\n\n<meowfm>彩蛋正文</meowfm>同行尾注。\n\n<Meow_FM>第二处标记</Meow_FM>\n\n收尾。';
+    const {text,anchors}=numberedReply(raw,raw);
+    assert.equal(text,'开头。\n[P01]\n\n第二段。\n[P02]\n\n<meowfm>彩蛋正文</meowfm>同行尾注。\n\n<Meow_FM>第二处标记</Meow_FM>\n\n收尾。');
+    const drawings=[{anchor:'P99',tag:'[BODY]'},{tag:'[EGG]',egg:true}];
+    const placed=insertDrawingTags(raw,anchors.paragraphs,drawings,anchors.end,anchors.egg,anchors.available);
+    assert.match(placed.text,/第二段。\n\n\[BODY\]\n\n<meowfm>彩蛋正文<\/meowfm>\n\n\[EGG\]\n\n同行尾注。/);
+});
+
 test('Electronic Ghost is available by default and assembles a complete non-streaming request',async()=>{
     const preset=activeSecondaryPreset(readSecondaryLibrary({}));
     assert.equal(preset.id,'electronic-ghost');
@@ -116,6 +125,15 @@ test('shared drawing options override inherited counts and suppress disabled for
     assert.doesNotMatch(text,/5~7|\(\+1\)|EGG_FIXTURE|SELF_CHECK_FIXTURE|getglobalvar|<egg_description>|\[bl\]/);
     assert.match(worldDrawingPolicy(config),/4~6 张/);
     assert.doesNotMatch(worldDrawingPolicy(config),/┈┈|<easter_egg>/);
+});
+
+test('a disabled optional instruction cannot remove the required body from a custom preset',()=>{
+    for(const name of ['彩蛋','绘画自检']){
+        const preset={entries:[{name,role:'user',enabled:true,content:'本楼正文\n{{正文}}'}]};
+        const output={...drawingOptions(defaultPromptSettings()),egg:false,selfCheck:false};
+        const messages=buildSecondaryMessages({maxTags:3,preset,output},'完整正文');
+        assert.deepEqual(messages.filter(message=>message.role==='user'),[{role:'user',content:'本楼正文\n完整正文'}]);
+    }
 });
 
 test('portable presets replace only the user body slot and can round trip without adding duplicates', async()=>{

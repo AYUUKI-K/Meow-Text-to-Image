@@ -275,6 +275,7 @@ async function saveRoleBindings(snapshot,text){
 }
 const promptIdentity=prompt=>String(prompt).replace(/\s+/g,' ').trim();
 const matchingBlocks=(available,target)=>available.filter(block=>!!block.secondary===!!target.secondary&&promptIdentity(block.prompt)===promptIdentity(target.prompt));
+const usesExplicitEggMarker=()=>secondaryEnabled(settings)||settings.promptConfig?.mode==='builtin';
 function liveMessage(message,fallback){
     if(ctx().chat.includes(message))return message;
     const byId=message.miao_nai_image_id&&ctx().chat.find(m=>m.miao_nai_image_id===message.miao_nai_image_id);
@@ -292,7 +293,7 @@ function taskTarget(task,inactive=false){
     const available=blocks(message,task.swipe).filter(b=>!!b.secondary===!!task.secondary);
     const block=matchingBlocks(available,task)[task.occurrence];
     if(!block||block.start!==task.blockStart||block.raw!==task.blockRaw)return null;
-    if(task.profileSource==='egg'&&available.at(-1)?.start!==block.start)return null;
+    if(task.requiresFinalEggTag&&available.at(-1)?.start!==block.start)return null;
     return {message,block};
 }
 function taskFor(message,block){
@@ -311,7 +312,7 @@ function generate(message,block,{automatic=false,egg}={}) {
     if(egg!==undefined||!settings.eggProfileEnabled){try{return start();}catch(error){generationError(error);return;}}
     return eggMarkerCache.read().then(marker=>{
         const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
-        const explicit=secondaryEnabled(settings)||settings.promptConfig?.mode==='builtin';
+        const explicit=usesExplicitEggMarker();
         egg=(explicit?parsed.marked:parsed.blocks.at(-1))?.start===block.start;return start();
     }).catch(generationError);
 }
@@ -357,11 +358,12 @@ function startGeneration(message,block,{automatic=false,egg=false}={}) {
     const existing=running.get(taskId)||taskFor(message,block);if(existing)return existing.promise;
     message.miao_nai_image_id??=randomId();
     const {profile,profileId,profileName,source:profileSource}=selectGenerationProfile(settings,{egg});
+    const requiresFinalEggTag=profileSource==='egg'&&(block.secondary||!usesExplicitEggMarker());
     const request=buildRequest(profile,expandRoleTags(block.prompt,roleList(roleBindingSnapshot().text)));
     request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
     attempted.add(taskId);
-    const task={profileId,profileName,profileSource,profile,request,blockStart:block.start,blockRaw:block.raw,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),secondary:!!block.secondary,occurrence:matchingBlocks(blocks(message),block).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
+    const task={profileId,profileName,profileSource,requiresFinalEggTag,profile,request,blockStart:block.start,blockRaw:block.raw,status:'排队中',...generationOptions(settings),message,key,chat,messageIndex:ctx().chat.indexOf(message),name:message.name,is_user:!!message.is_user,is_system:!!message.is_system,swipe:message.swipe_id??0,prompt:promptIdentity(block.prompt),secondary:!!block.secondary,occurrence:matchingBlocks(blocks(message),block).findIndex(b=>b.start===block.start),previousRecord:state(message,key),toolsEpoch:imageToolsEpoch};
     const waiting=running.size>0||settings.cloudQueue;running.set(taskId,task);renderAll();
     if(waiting)notices.info('已加入生图队列','喵喵文生图');
     queue=queue.then(async()=>{
@@ -705,13 +707,17 @@ async function installRegex(rules) {
     const existing=getScriptsByType(SCRIPT_TYPES.GLOBAL,{allowedOnly:false});
     await saveScriptsByType(mergeRegexRules(existing,rules),SCRIPT_TYPES.GLOBAL);
 }
+async function saveChatWorldBinding(context,name,next){
+    const metadata=context.chatMetadata;
+    if(!context.saveMetadata)throw Error('酒馆不支持保存聊天世界书绑定');
+    metadata.world_info=next;
+    try{if(await context.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}
+    catch(error){if(metadata.world_info===next)metadata.world_info=name;throw error;}
+}
 async function restoreResourceChatBinding(){
-    const c=ctx(),name=c.chatMetadata?.world_info,next=settings.worldAliases?.[name];
-    if(!next||next===name)return;
-    if(!c.saveMetadata)throw Error('酒馆不支持保存聊天世界书绑定');
-    c.chatMetadata.world_info=next;
-    try{if(await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}
-    catch(error){c.chatMetadata.world_info=name;throw error;}
+    const context=ctx(),name=context.chatMetadata?.world_info,next=settings.worldAliases?.[name];
+    if(!next||next===name||!wi.world_names.includes(next))return;
+    await saveChatWorldBinding(context,name,next);
 }
 let resourceInstallPromise=null;
 function installDefaults(){
@@ -736,9 +742,13 @@ async function installResourcePack(){
     const characterWorld=document.getElementById('character_world');
     if(characterWorld&&oldNames.includes(characterWorld.value))characterWorld.value=worldName;
     const oldChatWorld=c.chatMetadata?.world_info;
-    const changed=migrateWorldBindings({selected:wi.selected_world_info,worldInfo:wi.world_info,powerUser:c.powerUserSettings,chatMetadata:c.chatMetadata},oldNames,worldName);
-    if(changed){try{if(!c.saveMetadata||await c.saveMetadata()===false)throw Error('聊天世界书绑定保存失败');}catch(error){c.chatMetadata.world_info=oldChatWorld;throw error;}}
-    if(!installed.length&&!wi.selected_world_info.includes(worldName))wi.onWorldInfoChange({state:'on',silent:'true'},worldName);
+    if(oldNames.includes(oldChatWorld))await saveChatWorldBinding(c,oldChatWorld,worldName);
+    migrateWorldBindings({selected:wi.selected_world_info,worldInfo:wi.world_info,powerUser:c.powerUserSettings},oldNames,worldName);
+    if(oldNames.length)await wi.updateWorldInfoList();
+    if(!installed.length&&!wi.selected_world_info.includes(worldName)){
+        wi.onWorldInfoChange({state:'on',silent:'true'},worldName);
+        wi.world_info.globalSelect=[...wi.selected_world_info];
+    }
     const previous={world:settings.world,worldAliases:settings.worldAliases,installed:settings.installed,resourceVersion:settings.resourceVersion,resourceRevision:settings.resourceRevision};
     settings.world=worldName;settings.worldAliases={...Object.fromEntries(Object.entries(settings.worldAliases||{}).map(([name,next])=>[name,oldNames.includes(next)?worldName:next])),...Object.fromEntries(oldNames.map(name=>[name,worldName]))};settings.installed=true;settings.resourceVersion=manifest.version;settings.resourceRevision=manifest.revision;
     try{await persistSettings();}catch(error){Object.assign(settings,previous);throw error;}
@@ -1213,7 +1223,7 @@ async function runSecondaryTags(message,automatic){
     const job={controller,message,swipe,current};
     secondaryJob=job;
     renderAll();
-    const timeout=setTimeout(()=>controller.abort(Error('副 API 出词超时，请稍后手动重试')),90000);
+    const timeout=setTimeout(()=>controller.abort(Error('副 API 出词超时')),90000);
     const cancelled=new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true}));
     try{
         notices.info('正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
@@ -1281,11 +1291,11 @@ async function runSecondaryTags(message,automatic){
             for(const {from,to,record} of [...moves].reverse())moveSwipeImage(message,swipe,from,to,record);
             try{if(await ctx().saveChat()===false)throw Error('保存失败');}
             catch{
-                if(message.mes===result.text){
-                    message.mes=text;
-                    for(const {from,to,record} of moves)moveSwipeImage(message,swipe,to,from,record);
-                }
-                if(swipes?.[swipe]===result.text)swipes[swipe]=oldSwipe;
+                const active=(message.swipe_id??0)===swipe&&message.mes===result.text;
+                const ownsSwipe=message.swipes===swipes&&swipes?.[swipe]===result.text;
+                if(active)message.mes=text;
+                if(ownsSwipe)swipes[swipe]=oldSwipe;
+                if(active||ownsSwipe)for(const {from,to,record} of moves)moveSwipeImage(message,swipe,to,from,record);
                 expectedText=text;
                 throw Error('副 API 已返回 tag，但保存聊天失败');
             }
@@ -1309,7 +1319,7 @@ async function runSecondaryTags(message,automatic){
         if(!added.length)return;
         const next=[...previous,...added.slice(0,Math.max(0,output.count.max-previous.length))];
         writeSecondaryTags(message,swipe,next);
-        try{await ctx().saveChat();}
+        try{if(await ctx().saveChat()===false)throw Error('保存失败');}
         catch{if(readSecondaryTags(message,swipe)===next)writeSecondaryTags(message,swipe,previous);throw Error('副 API 已返回 tag，但保存聊天失败');}
         if(current())notices.success(`已生成 ${added.length} 个绘图 tag`,'喵喵文生图');
         if(current()&&!controller.signal.aborted&&automatic&&imageGenerationMode(settings)!=='manual'){
@@ -1486,7 +1496,10 @@ async function init() {
     c.eventSource.on(c.eventTypes.CHAT_CHANGED,()=>{
         for(const message of ctx().chat)knownSecondaryFloors.add(message);
         streamActive=false;generationChat=null;autoSession=null;secondarySession=null;secondaryRequestPreview=null;secondaryJob?.controller.abort();
-        scheduleRender(false);setTimeout(()=>guard(async()=>{await restoreResourceChatBinding();await indexChatImages();})(),0);
+        scheduleRender(false);setTimeout(()=>{
+            void guard(restoreResourceChatBinding)();
+            void guard(indexChatImages)();
+        },0);
     });
     for(const name of ['CHAT_LOADED','MORE_MESSAGES_LOADED'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],()=>setTimeout(()=>guard(indexChatImages)(),0));
     c.eventSource.on(c.eventTypes.GENERATION_STARTED,(type,options,dryRun)=>{
@@ -1523,7 +1536,7 @@ async function init() {
     });
     for(const event of ['SECRET_WRITTEN','SECRET_DELETED','SECRET_ROTATED'])if(c.eventTypes[event])c.eventSource.on(c.eventTypes[event],key=>{if(key===SECRET_KEYS.NOVEL){settings.keyHash='';save();settingsHost?.dispatchEvent(new Event('miao-key-changed'));}});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
-    await restoreResourceChatBinding();
+    void guard(restoreResourceChatBinding)();
     if(settings.enabled&&!settings.installed)await installDefaults();indexChatImages();renderAll();autoLatest();
     resourceUpdater.check().catch(()=>{});
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)resourceUpdater.check().catch(()=>{});});

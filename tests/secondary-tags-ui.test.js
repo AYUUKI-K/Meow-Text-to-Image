@@ -95,10 +95,25 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await input.setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
             await page.getByText(/发送前展开：.*\{\{getvar::对象\}\}/).waitFor();
             assert.equal(await presetPicker.inputValue(),'import-0');
-            await page.getByRole('button',{name:'保存副 API',exact:true}).click();
+            if(tt)await page.getByRole('button',{name:'保存副 API',exact:true}).click();
+            else await page.getByRole('button',{name:'保存',exact:true}).click();
             await page.waitForFunction(()=>!!window.preview.settings.secondaryTagAPI);
+            await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
             assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('fixture-secondary-key'));
             assert.equal(await keyInput.inputValue(),'');
+            if(!tt){
+                const save=page.locator('.miao-save-button');
+                await page.getByRole('button',{name:'已保存',exact:true}).waitFor();
+                assert.equal(await page.getByRole('textbox',{name:'副 API 地址',exact:true}).inputValue(),endpoint);
+                const saved=await page.evaluateHandle(()=>window.preview.settings.secondaryTagAPI);
+                const saves=await page.evaluate(()=>window.preview.settingsSaves);
+                await save.click();
+                await page.waitForFunction(before=>window.preview.settingsSaves>before,saves);
+                await page.getByRole('button',{name:'已保存',exact:true}).waitFor();
+                assert.equal(await page.evaluate(connection=>window.preview.settings.secondaryTagAPI===connection,saved),true,
+                    'saving unchanged connection fields must not restart secondary API state');
+                await saved.dispose();
+            }
             await page.getByRole('button',{name:'获取模型',exact:true}).click();
             await chooser.getByRole('button',{name:'取消选择',exact:true}).click();
             assert.deepEqual(modelRequests,['Bearer fixture-secondary-key','Bearer fixture-secondary-key']);
@@ -282,6 +297,15 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                     assert.match(requests[3].body.messages.at(-1).content,/Newer completed reply/);
                     assert.equal(await page.evaluate(()=>window.preview.chat.at(-2).miao_nai_image_secondary_tags),undefined);
                 }finally{release();}
+                await page.evaluate(async()=>{
+                    const p=window.preview;
+                    p.settings.mode='auto';
+                    p.context.saveChat=async()=>false;
+                    await window.completeSecondaryFixtureReply('Reply with an unsuccessful save');
+                });
+                await page.waitForFunction(()=>window.miaoTestToasts.some(t=>t.type==='error'&&t.message.includes('保存聊天失败')));
+                assert.equal(requests.length,5);
+                assert.deepEqual(await page.evaluate(()=>[Object.keys(window.preview.chat.at(-1).miao_nai_image_secondary_tags??{}),window.preview.calls.length]),[[],1]);
             }
             assert.deepEqual(errors,[]);await page.close();
         }
@@ -302,7 +326,7 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.route('https://draw-fixture.invalid/v1/chat/completions',async route=>{
                 if(route.request().method()==='POST')requests.push(route.request().postDataJSON());
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
-                    json:{choices:[{message:{content:'<drawings><draw after="P02"><title>试用标题</title><tags>START-FIG $试用人物$, sitting END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>'}}]}});
+                    json:{choices:[{message:{content:'<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P02"><title>试用标题</title><tags>START-FIG $试用人物$, sitting END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>'}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(()=>{
@@ -380,6 +404,7 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+START-FIGteacupEND-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
             assert.equal(placed.match(/<meowfm>/g).length,1);
             assert.doesNotMatch(placed,/\/meow_FM/i);
+            assert.doesNotMatch(placed,/extra bonus/);
             assert.deepEqual([original,updated],['另一条分支',placed]);
             const disabled=await page.evaluate(async()=>{
                 const {drawingResponse}=await import('/scripts/extensions/third-party/test/src/chat/secondary-placement.js');
@@ -422,6 +447,35 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.waitForFunction(()=>window.preview.chat.at(-1).mes.includes('START-FIG'));
             assert.equal(requests.length,2,'one finished reply may be published without a start event');
             assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
+
+            const beforeSave='第一段。\n\n第二段。\n\n第三段 START-FIGexisting viewEND-FIG';
+            await page.evaluate(async beforeSave=>{
+                const p=window.preview,{writeSwipeImage}=await import('/scripts/extensions/third-party/test/src/chat/swipe-history.js');
+                p.context.saveChat=()=>new Promise(resolve=>{p.failSecondarySave=()=>resolve(false);});
+                p.settings.mode='manual';
+                const message={name:'Reply',mes:beforeSave,swipes:['另一分支',beforeSave],swipe_id:1};
+                writeSwipeImage(message,1,'body:0:existing view',{url:'/user/images/miao-nai/miao-1792737847709.png'});
+                p.chat.push(message);
+                const id=p.chat.length-1;
+                document.getElementById('chat').insertAdjacentHTML('beforeend',`<div class="mes" mesid="${id}"><div class="mes_text"></div></div>`);
+                p.context.updateMessageBlock(id,message);
+                await p.emit('MESSAGE_RECEIVED',id,'normal');
+            },beforeSave);
+            await page.waitForFunction(()=>typeof window.preview.failSecondarySave==='function');
+            assert.deepEqual(await page.evaluate(()=>Object.keys(window.preview.chat.at(-1).miao_nai_image_swipes[1])),['body:2:existing view']);
+            await page.evaluate(async()=>{
+                const p=window.preview,message=p.chat.at(-1);
+                message.swipe_id=0;message.mes=message.swipes[0];
+                await p.emit('MESSAGE_SWIPED',p.chat.length-1);
+                p.failSecondarySave();
+            });
+            await page.waitForFunction(original=>window.preview.chat.at(-1).swipes[1]===original,beforeSave);
+            const rolledBack=await page.evaluate(()=>{
+                const message=window.preview.chat.at(-1);
+                return {active:message.mes,slots:Object.keys(message.miao_nai_image_swipes[1]),
+                    mirror:Object.keys(message.swipe_info[1].extra.miao_nai_image)};
+            });
+            assert.deepEqual(rolledBack,{active:'另一分支',slots:['body:0:existing view'],mirror:['1:body:0:existing view']});
             await page.close();
         }
     }finally{await browser?.close();server.kill();}

@@ -535,9 +535,16 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 key.autocomplete='off';key.autocapitalize='none';key.spellcheck=false;
                 const remember=field(api,'副 API Key 保存',connection.remember?'device':'page',()=>{},{options:[['page','当前页面'],['device','此设备']]});
                 const status=node('p',undefined,'miao-notice');status.setAttribute('role','status');api.append(status);
-                Promise.resolve().then(secondaryKeyAvailable).then(available=>{
-                    status.textContent=available?'连接已配置 · 全文结束后出词':connection.url?'当前浏览器缺少副 API Key，请重新填写并保存。':'请填写地址、模型和 Key 后保存。';
-                }).catch(()=>{status.textContent='无法读取此设备保存的副 API Key。';});
+                const refreshKeyStatus=async()=>{
+                    const saved=settings.secondaryTagAPI;
+                    let message;
+                    try{
+                        const available=await secondaryKeyAvailable();
+                        message=available?'连接已配置 · 全文结束后出词':saved?.url?'当前浏览器缺少副 API Key，请重新填写并保存。':'请填写地址、模型和 Key 后保存。';
+                    }catch{message='无法读取此设备保存的副 API Key。';}
+                    if(settings.secondaryTagAPI===saved)status.textContent=message;
+                };
+                void refreshKeyStatus();
                 const actions=node('div',undefined,'miao-actions');api.append(actions);
                 const fetchModels=action(actions,'获取模型',async()=>{
                     const draft={url:url.value.trim(),key:key.value.trim()};
@@ -556,7 +563,10 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 const saveAPI=async()=>{
                     await withPromptLock(async()=>{
                         await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,remember:remember.value==='device'});
+                        url.value=settings.secondaryTagAPI.url;
+                        model.value=settings.secondaryTagAPI.model;
                         key.value='';
+                        await refreshKeyStatus();
                     });
                 };
                 action(actions,'保存副 API',async()=>{await commitRules();await saveAPI();render();},true);
@@ -573,8 +583,9 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 action(capture,'保存捕捉标签',()=>withPromptLock(()=>saveCapture(start.value,end.value)));
                 commitPage=async()=>{
                     await commitRules();
-                    if(url.value.trim()!==(connection.url??'')||model.value.trim()!==(connection.model??'')||
-                        key.value.trim()||(remember.value==='device')!==Boolean(connection.remember))await saveAPI();
+                    const saved=settings.secondaryTagAPI;
+                    if(url.value.trim()!==(saved?.url??'')||model.value.trim()!==(saved?.model??'')||
+                        key.value.trim()||(remember.value==='device')!==Boolean(saved?.remember))await saveAPI();
                     if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);
                 };
             }else{
