@@ -88,11 +88,7 @@ export function drawingResponse(text, capture, options) {
     } else {
       const drawing = {anchor, prompt, tag: capture.start + prompt + capture.end};
       const title = fields.get('title')?.textContent.trim().replace(/[\r\n]+/g,' ').replace(/^┈{2,}|┈{2,}$/g,'').trim();
-      if (options?.title && title) {
-        const plainTitle = !/[\p{S}()（）]/u.test(title);
-        const decorated = plainTitle && options.titleStyle?.includes('颜文字') ? '✦·'+title+'·(｡•ᴗ•｡)·✦' : title;
-        drawing.title = escapeDecoration(decorated);
-      }
+      if (options?.title && title) drawing.title = escapeDecoration(title);
       if (draw.getAttribute('egg') === 'true') {
         if (!options?.egg) continue;
         drawing.egg = true;

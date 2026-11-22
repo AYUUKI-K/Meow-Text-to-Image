@@ -202,7 +202,8 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(item=>item.type==='info'&&item.message.includes('正在生成绘图 tag'))),true);
             assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(item=>item.type==='success'&&item.message.includes('已生成 1 个绘图 tag'))),true);
             assert.equal(requests[0].body.messages[0].content,'FIXTURE_DIRECTOR 猫');
-            assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n画面：猫跳上窗台。\n</剧情原文>\n猫和花\ncats\n角色：历史素材。\n\n用户：Earlier filtered text\nEarlier filtered text\nGarden lore'});
+            assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n画面：猫跳上窗台。\n</剧情原文>\n猫和花\n\n角色：历史素材。\n\n用户：Earlier filtered text\nEarlier filtered text\nGarden lore'});
+            assert.doesNotMatch(requests[0].body.messages.map(message=>message.content).join('\n'),/\$角色名\$|当前存档的角色绑定表/);
             assert.equal(await page.evaluate(()=>window.preview.chat.at(-1).mes),rawReply);
             const calls=await page.evaluate(()=>window.preview.promptRegexCalls);
             assert.deepEqual(calls.map(({placement,depth,isPrompt})=>[placement,depth,isPrompt]),[[2,2,true],[1,1,true],[2,0,true]]);
@@ -338,9 +339,11 @@ test('the configured drawing format writes into the active swipe and only expand
             page.setDefaultTimeout(6500);
             const requests=[];
             await page.route('https://draw-fixture.invalid/v1/chat/completions',async route=>{
-                if(route.request().method()==='POST')requests.push(route.request().postDataJSON());
+                const request=route.request().method()==='POST'?route.request().postDataJSON():null;
+                if(request)requests.push(request);
+                const role=request?.messages.some(message=>message.content.includes('试用人物 = black hair, yellow eyes'))?'$试用人物$':'short hair';
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
-                    json:{choices:[{message:{content:'<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P02"><title>试用标题</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:$试用人物$, sitting|centers:B3;Character 1 UC: outdoors; END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>'}}]}});
+                    json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><title>简单彩蛋</title><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(()=>{
@@ -409,14 +412,16 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.match(requests[0].messages[0].content,/START-FIGtagEND-FIG/);
             const wire=requests[0].messages.map(message=>message.content).join('\n');
             assert.match(wire,/试用人物 = black hair, yellow eyes[\s\S]*走到门口。\n\[P01\][\s\S]*花店亮灯。\n\[P03\]/);
+            assert.match(wire,/只对绑定表中确实出镜的角色使用 \$角色名\$[\s\S]*其他出镜角色由你根据正文直接写英文外貌和动作 tag/);
+            assert.match(wire,/由你根据这张图创作标题、装饰符号和颜文字/);
             assert.match(wire,/正文图 2 张[\s\S]*额外生成 1 张彩蛋图[\s\S]*\[bl\]/);
             assert.doesNotMatch(wire,/5~7|\[bg\]/);
             const [placed,original,updated]=await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]);
             const boundary=placed.indexOf('<meowfm>');
-            assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈✦·试用标题·\(｡•ᴗ•｡\)·✦┈┈\s+START-FIGwarm light, \(\$试用人物\$, sitting\)END-FIG/);
+            assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈✧·试用标题·\(≧▽≦\)·✧┈┈\s+START-FIGwarm light, \(\$试用人物\$, sitting\), \(red hair, holding a book\)END-FIG/);
             assert.doesNotMatch(placed,/Scene Composition|Character 1|centers|outdoors/);
             assert.match(placed.slice(0,boundary),/START-FIGextra shotEND-FIG/);
-            assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+START-FIGteacupEND-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
+            assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+┈┈简单彩蛋┈┈\s+START-FIGteacupEND-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
             assert.equal(placed.match(/<meowfm>/g).length,1);
             assert.doesNotMatch(placed,/\/meow_FM/i);
             assert.doesNotMatch(placed,/extra bonus/);
@@ -434,7 +439,7 @@ test('the configured drawing format writes into the active swipe and only expand
             await generate.nth(placed.indexOf('START-FIGextra shot')<placed.indexOf('START-FIGwarm light')?1:0).click();
             await page.waitForFunction(()=>window.preview.calls.length===1);
             const nai=await page.evaluate(()=>window.preview.calls[0].prompt??window.preview.calls[0].input);
-            assert.match(nai,/black hair, yellow eyes, sitting/);
+            assert.match(nai,/\(black hair, yellow eyes, sitting\), \(red hair, holding a book\)/);
             assert.doesNotMatch(nai,/试用人物/);
             assert.equal(await page.evaluate(()=>window.preview.calls[0].characters),undefined);
             await page.evaluate(async()=>{
@@ -462,6 +467,8 @@ test('the configured drawing format writes into the active swipe and only expand
             });
             await page.waitForFunction(()=>window.preview.chat.at(-1).mes.includes('START-FIG'));
             assert.equal(requests.length,2,'one finished reply may be published without a start event');
+            assert.doesNotMatch(requests[1].messages.map(message=>message.content).join('\n'),/\$角色名\$|试用人物 =/);
+            assert.match(await page.evaluate(()=>window.preview.chat.at(-1).mes),/\(short hair, sitting\)/);
             assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
 
             const beforeSave='第一段。\n\n第二段。\n\n第三段 START-FIGexisting viewEND-FIG';

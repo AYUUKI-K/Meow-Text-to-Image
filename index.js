@@ -1242,10 +1242,7 @@ async function runSecondaryTags(message,automatic){
             if(!key)throw Error('请在「生图指令」页保存副 API Key');
             const world=secondaryWorldInfo.get(message);
             values.世界书触发=()=>world?.chat===chat&&world.swipe===swipe&&world.text===text?world.content:'';
-            if(inline){
-                const roleTags=roleList(roleBindingSnapshot().text);
-                values.角色启用列表=()=>[...roleTags].map(([name,tags])=>`${name} = ${tags}`).join('\n');
-            }
+            const roleTags=roleList(roleBindingSnapshot().text);
             const macros={
                 values,
                 substitute:host.substituteParams?.bind(host),
@@ -1272,7 +1269,7 @@ async function runSecondaryTags(message,automatic){
             if(!requestedBodyCount.max&&!requestOutput.egg)return;
             notices.info('正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
             return requestSecondaryTags({...connection,maxTags:requestedBodyCount.max,preset,capture,output:requestOutput},key,prepared.text,{
-                signal:controller.signal,macros,
+                signal:controller.signal,macros,roleTags,
                 onPrepared:messages=>{
                     if(!current()||controller.signal.aborted)throw new DOMException('Cancelled','AbortError');
                     secondaryRequestPreview={chat,message,text,swipe,preset:preset.id,messages};

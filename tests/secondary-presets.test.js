@@ -95,6 +95,7 @@ test('Electronic Ghost is available by default and assembles a complete non-stre
             assert.equal(payload.stream,false);
             assert.match(messages,/猫走到窗前。\n\[P01\]/);
             assert.match(messages,/本楼不输出彩蛋条目/);
+            assert.doesNotMatch(messages,/\$角色名\$|\$xiao|\{\{角色启用列表\}\}/);
             return new Response(null,{status:503});
         },
     }),/HTTP 503/);

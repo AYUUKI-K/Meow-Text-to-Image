@@ -93,7 +93,7 @@ const flatTagExample = 'sfw, 1boy, 1girl, close-up, warm light, (1.2::name A(ser
 
 // Adapt older Electronic Ghost imports at request time, leaving their stored instructions intact.
 export function secondaryTagTemplate(text) {
-    return text.replace(/Scene Composition:\s*morning light, windowsill;Character 1 Prompt:\$角色名\$, looking outside\|centers:B3;/g,flatTagExample)
+    return removeLegacyRoleDirections(text.replace(/Scene Composition:\s*morning light, windowsill;Character 1 Prompt:\$角色名\$, looking outside\|centers:B3;/g,flatTagExample)
         .replace(/Scene Composition:\.\.\.;Character X Prompt:\.\.\.\|centers:坐标;Character X UC:\.\.\.;/g,flatTagExample)
         .replace(/^ *- 每个角色必须有坐标[^\n]*$/gm,'   - 每个角色的词放在各自的括号内，场景与角色组用逗号连接。')
         .replace('## 1.Scene Composition','## 1.公共场景词')
@@ -103,7 +103,22 @@ export function secondaryTagTemplate(text) {
         .replace('且必须分别输出 Character 1~Character 4','且每个角色分别使用自己的括号组')
         .replace('总张数按插件设置的 {{miao_image_count}} 执行，彩蛋占其中一张','正文图按插件设置的 {{miao_image_count}} 执行，彩蛋独立加一张')
         .replace('本次全部出图数量为 {{miao_image_count}} 张，彩蛋计入其中','本次正文图为 {{miao_image_count}} 张，彩蛋额外生成一张')
-        .replace('如启用了彩蛋，使用最后一段的编号作为落图位置。','彩蛋使用 egg="true"，插件跟随正文已有彩蛋位置放置。');
+        .replace('如启用了彩蛋，使用最后一段的编号作为落图位置。','彩蛋使用 egg="true"，插件跟随正文已有彩蛋位置放置。'));
+}
+
+function removeLegacyRoleDirections(text) {
+    return text
+        .replace(/<绑定角色>\s*\{\{角色启用列表\}\}\s*<\/绑定角色>\s*/g,'')
+        .replaceAll('2. 画面出现已绑定角色时，使用 $角色名$ 调用其外貌 tag。','2. 按正文为每位出镜角色写对应的外貌、动作和表情。')
+        .replaceAll('**第二层：角色调用**','**第二层：角色描述**')
+        .replaceAll('画面有已绑定角色时，在对应角色的提示词中写 $角色名$。其余角色可根据正文描述外貌，按需要补充动作和表情。','根据正文分别描写出镜角色的外貌，并补充当下的动作和表情。')
+        .replace(/^.*\{\$xiao ya.*$/gm,'- 示例：(white hair, school uniform, closed eyes), (dark hair, suit, looking at another)')
+        .replaceAll('绑定角色的提示词保留 $角色名$，由插件在发给 NAI 前展开。','')
+        .replaceAll('出镜的绑定角色必须在该角色的提示词中写 $角色名$，保留名字原样。保持 $角色名$ 到返回结果。插件会在发送给 NAI 前把它替换成对应的固定 tag。','')
+        .replaceAll('绑定角色用 $角色名$，动作、表情、姿势可单独加 tag。','每位角色的动作、表情、姿势分别写入各自的括号组。')
+        .replace(/^.*- 出镜的已绑定角色使用对应的 \$角色名\$[ \t]*$/gm,'')
+        .replace(/^.*- 画面中的绑定角色在其对应提示词内用 \$角色名\$ 调用。[ \t]*$/gm,'')
+        .replaceAll('已绑定角色出镜时，使用 $角色名$。','');
 }
 
 function sharedTemplate(text, options) {
@@ -126,18 +141,22 @@ function sharedTemplate(text, options) {
         .replace(/\{\{\s*miao_image_count\s*\}\}/g,options.count.text);
 }
 
-function secondaryOutputRule(options, inline, capture, specializationInPreset) {
+function secondaryOutputRule(options, inline, capture, {specializationInPreset = false, roleText = '', roleSlot = false} = {}) {
     const rule = [drawingOutputRule(options),'插图尽量分布在不同段落。',
-        '每张图使用一段逗号分隔的 NovelAI tag。公共场景词在前，每个角色的特征和动作各放进一组括号，最后接共享动作或氛围。保留用户配置的 $角色名$ 和有效权重。省略字段名、独立负面词、坐标和分号分栏。',
+        '每张图使用一段逗号分隔的 NovelAI tag。公共场景词在前，每个角色的特征和动作各放进一组括号，最后接共享动作或氛围。保留有效权重。省略字段名、独立负面词、坐标和分号分栏。',
         `格式示例：${flatTagExample}`];
-    if (options.selfCheck) rule.push('返回前检查位置编号、张数、角色宏和标签边界。');
+    if (roleText) {
+        rule.push('只对绑定表中确实出镜的角色使用 $角色名$，名字必须与绑定表完全一致；动作、表情、姿势等现场信息继续写在该角色的括号内。其他出镜角色由你根据正文直接写英文外貌和动作 tag。');
+        if(!roleSlot)rule.push('当前存档的角色绑定表\n'+roleText);
+    } else rule.push('每个出镜角色都由你根据正文直接写英文外貌和动作 tag。');
+    if (options.selfCheck) rule.push('返回前检查位置编号、张数、角色描述和标签边界。');
     if (options.nsfwRules) rule.push(options.nsfwRules);
     if (options.specialization&&!specializationInPreset) rule.push(options.specialization);
     if (inline) {
         const escaped = value => value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         rule.push(`仅返回 <drawings> XML。普通图的 <draw after="P02"> 必须从剧情原文中选择实际存在的段尾编号，每张普通图优先匹配不同的剧情段落。绘图提示词放在 <tags>${escaped(capture.start)}tag${escaped(capture.end)}</tags> 内。`);
         rule.push('普通图只能放在正文段落，避开 meowfm 彩蛋区。不要复述正文，也不要返回 meowfm 标记。');
-        if (options.title) rule.push(`每张图在 <draw> 内加一个 <title>，按此风格写标题：${options.titleStyle}。默认标题包含装饰符号、当张图的主题和可爱颜文字。插件会加外层分隔线。`);
+        if (options.title) rule.push(`每张图在 <draw> 内加一个 <title>，由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。只写分隔线内的内容。`);
         if (options.egg) rule.push('正文已有彩蛋位置。仅一张彩蛋图使用 egg="true"，插件会将它放到原有彩蛋标记之后。');
         else rule.push('本楼不输出彩蛋条目。');
         if (options.egg && options.eggDescription) rule.push('彩蛋的 <draw> 用 <egg_description> 返回解析，其他插图不加。');
@@ -146,7 +165,7 @@ function secondaryOutputRule(options, inline, capture, specializationInPreset) {
     return rule.join('\n');
 }
 
-export function buildSecondaryMessages({maxTags, preset, output, capture = {start:'image###',end:'###'}}, body, expand) {
+export function buildSecondaryMessages({maxTags, preset, output, roleText = '', capture = {start:'image###',end:'###'}}, body, expand) {
     if (!preset) throw Error('副 API 预设无效');
     const render = source => {
         const text = captureTemplate(sharedTemplate(source,output));
@@ -160,7 +179,8 @@ export function buildSecondaryMessages({maxTags, preset, output, capture = {star
             .filter(message => message.content.trim());
         if (output) {
             const hasSpecializationSlot=preset.entries.some(entry=>entry.enabled&&entry.content.includes('{{miao_image_specialization}}'));
-            const rule = secondaryOutputRule(output,inlineSecondaryPreset(preset),capture,hasSpecializationSlot);
+            const roleSlot=preset.entries.some(entry=>entry.enabled&&/\{\{\s*角色启用列表\s*\}\}/.test(removeLegacyRoleDirections(entry.content)));
+            const rule = secondaryOutputRule(output,inlineSecondaryPreset(preset),capture,{specializationInPreset:hasSpecializationSlot,roleText,roleSlot});
             const lastSystem = messages.findLast(message => message.role === 'system');
             if (lastSystem) lastSystem.content += '\n\n' + rule;
             else messages.unshift({role:'system',content:rule});
@@ -169,18 +189,20 @@ export function buildSecondaryMessages({maxTags, preset, output, capture = {star
     }
     return [
         {role: 'system', content: render(preset.instructions)},
-        {role: 'system', content: `接下来的一条用户消息是待分析的小说正文。最多输出 ${maxTags} 个绘图标签，每张一行，严格使用 ${capture.start}绘图提示词${capture.end}；只输出绘图标签，完全闭合每一组。不要复述正文或输出思考过程。${output?'\n'+secondaryOutputRule(output,false,capture,false):''}`},
+        {role: 'system', content: `接下来的一条用户消息是待分析的小说正文。最多输出 ${maxTags} 个绘图标签，每张一行，严格使用 ${capture.start}绘图提示词${capture.end}；只输出绘图标签，完全闭合每一组。不要复述正文或输出思考过程。${output?'\n'+secondaryOutputRule(output,false,capture,{roleText,roleSlot:/\{\{\s*角色启用列表\s*\}\}/.test(preset.instructions+'\n'+preset.bodyTemplate)}):''}`},
         {role: 'user', content: render(preset.bodyTemplate)},
     ];
 }
 
-export async function requestSecondaryTags(connection, key, body, {signal, fetchImpl = fetch, macros, onPrepared} = {}) {
+export async function requestSecondaryTags(connection, key, body, {signal, fetchImpl = fetch, macros, roleTags, onPrepared} = {}) {
     const {url, model, maxTags} = connection;
     if (body.length > 60000) throw Error('正文超过副 API 的单楼长度上限');
     const capture = connection.capture ?? {start: 'image###', end: '###'};
-    const expand = createSecondaryMacroExpander({...macros, values: {...macros?.values, ...captureMacroValues(capture), 正文: () => body,
+    const roleText=roleTags?[...roleTags].map(([name,tags])=>`${name} = ${tags}`).join('\n'):'';
+    const expand = createSecondaryMacroExpander({...macros, values: {...macros?.values,
+        ...(roleTags?{角色启用列表:()=>roleText}:{}), ...captureMacroValues(capture), 正文: () => body,
         miao_image_specialization:()=>connection.output?.specialization??''}});
-    const messages = buildSecondaryMessages(connection, body, expand);
+    const messages = buildSecondaryMessages({...connection,roleText}, body, expand);
     if (messages.reduce((length, message) => length + message.content.length, 0) > 160000) throw Error('副 API 展开后的请求内容过长');
     onPrepared?.(messages);
     let response, result;
