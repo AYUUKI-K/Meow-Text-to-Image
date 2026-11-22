@@ -501,7 +501,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 catch(error){source.value=selectedSource();onError(error);}finally{switching=false;source.disabled=false;}
             },{options:[['builtin','主 API · 插件内置指令'],['external','主 API · 外部预设／世界书'],['secondary','副 API · 正文结束后出词']]});
             const rules=section(body,'出图规则');
-            const count=field(rules,'出图张数',options.count.text,()=>{});
+            const count=field(rules,'正文图张数',options.count.text,()=>{});
             count.placeholder='例如 2 或 2~3';
             const orientation=field(rules,'发送的性向',options.orientation,()=>{},{options:drawingOrientations});
             const syncRules=()=>{

@@ -464,9 +464,7 @@ function makeCard(message,block) {
         const operations=el('div',undefined,'miao-image-operations');actions.append(operations);
         button('提示词',()=>showPrompt(current.tagPrompt??block.prompt,current.request?.vibes,current.profileName,false,true,tagEditor(message,block)),operations).setAttribute('aria-label','查看提示词');
         if(favoritesEnabled(settings))button('收藏提示词',()=>openSettings('favorites',draftFromImage(current.url,current.tagPrompt??block.prompt,current.profileName)),operations).setAttribute('aria-label','收藏提示词与例图');
-        operations.dataset.favorites=String(favoritesEnabled(settings));
         button('下载',()=>downloadImage(current.url),operations).setAttribute('aria-label','下载图片');button('放大',()=>openChatImage(message,block,current.url),operations).setAttribute('aria-label','放大查看');
-        operations.dataset.hasDelete='true';
         const remove=button('删除',async()=>{
             if(remove.disabled)return;remove.disabled=true;
             try{
@@ -1157,15 +1155,18 @@ async function autoLatest() {
     const message=latestImageMessage(ctx().chat),swipe=message?.swipe_id??0;
     if(!message||!canAutoGenerate(ctx().chat,message,settings.mode,generationChat===currentChat()))return;
     const output=drawingOptions(settings.promptConfig);
-    const eggEnabled=settings.eggProfileEnabled&&output.egg;
-    const marker=eggEnabled?await session.marker:'';
+    const marker=output.egg?await session.marker:'';
     if(autoSession!==session||session.chat!==currentChat()||latestImageMessage(ctx().chat)!==message||(message.swipe_id??0)!==swipe)return;
     // Re-read live text after waiting for macros; never enqueue stale candidates.
     const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
-    for(const {block,egg} of generationCandidates(parsed,{streaming:generationChat===currentChat(),eggEnabled,
-        implicitEgg:settings.promptConfig?.mode!=='builtin'}).slice(0,output.count.max)) {
+    const streaming=generationChat===currentChat();
+    const eggEnabled=output.egg&&(!streaming||settings.eggProfileEnabled||!!parsed.marked);
+    let ordinaryCount=0;
+    for(const {block,egg} of generationCandidates(parsed,{streaming,eggEnabled,
+        implicitEgg:settings.promptConfig?.mode!=='builtin'&&settings.eggProfileEnabled})) {
+        if(!egg&&ordinaryCount++>=output.count.max)continue;
         const id=`${currentChat()}:${ctx().chat.indexOf(message)}:${identity(message,block)}`;
-        if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg});
+        if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&egg});
     }
 }
 async function secondaryPromptText(chat,message,preset){
@@ -1213,10 +1214,9 @@ async function runSecondaryTags(message,automatic){
     const library=settings.secondaryTagPresets,preset=activeSecondaryPreset(readSecondaryLibrary(settings));
     const inline=inlineSecondaryPreset(preset),capture=captureSettings(),initialBlocks=inline?blocks(message):[];
     const promptConfig=settings.promptConfig,output=drawingOptions(promptConfig);
-    const remaining=output.count.max-(inline?initialBlocks.length:readSecondaryTags(message,swipe).length);
-    if(!text?.trim()||remaining<1)return;
+    if(!text?.trim())return;
     const controller=new AbortController();
-    let anchors,expectedText=text;
+    let anchors,requestedBodyCount,expectedText=text;
     const current=()=>settings.enabled&&secondaryEnabled(settings)&&settings.secondaryTagAPI===connection&&settings.secondaryTagPresets===library&&getCurrentUserHandle()===directUser&&
         settings.promptConfig===promptConfig&&capture.start===settings.startTag&&capture.end===settings.endTag&&chat===currentChat()&&message===latestImageMessage(ctx().chat)&&
         (message.swipe_id??0)===swipe&&message.mes===expectedText;
@@ -1226,9 +1226,14 @@ async function runSecondaryTags(message,automatic){
     const timeout=setTimeout(()=>controller.abort(Error('副 API 出词超时')),90000);
     const cancelled=new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true}));
     try{
-        notices.info('正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
         const request=async()=>{
             const host=ctx();
+            const marker=inline?await eggMarkerCache.read():'';
+            if(!current()||controller.signal.aborted)return;
+            const existingEgg=inline?parseGenerationBody(text,settings.pattern,reasoningFormat(),marker).marked:null;
+            const existingOrdinary=inline?initialBlocks.length-Number(!!existingEgg):readSecondaryTags(message,swipe).length;
+            const remaining=output.count.max-existingOrdinary;
+            if(remaining<1&&(!inline||!output.egg||existingEgg))return;
             const {body,values}=await secondaryPromptText(host.chat,message,preset);
             if(!current()||controller.signal.aborted)return;
             if(!body)throw Error('应用酒馆正则后没有可用正文，请检查出站正则');
@@ -1256,15 +1261,17 @@ async function runSecondaryTags(message,automatic){
                     if(preset.entries&&['角色启用列表','通用角色启用列表','通用服装启用列表'].includes(name))return '';
                 },
             };
-            const marker=inline?await eggMarkerCache.read():'';
             const prepared=inline?numberedReply(body,secondaryRawBody(text,settings.pattern,reasoningFormat()),marker):{text:body};
             anchors=prepared.anchors;
             if(inline&&!prepared.text)throw Error('没有可定位的正文段落');
-            const requestOutput={...output,count:limitDrawingCount(output.count,remaining),
-                egg:output.egg&&(!inline||!!anchors.egg),
+            requestedBodyCount=limitDrawingCount({min:Math.max(0,output.count.min-existingOrdinary),max:output.count.max},remaining);
+            const requestOutput={...output,count:requestedBodyCount,
+                egg:inline&&output.egg&&!!anchors.egg&&!existingEgg,
                 specialization:drawingSpecialization(promptConfig,output),nsfwRules:drawingNsfwRules(promptConfig,output)};
             if(!current()||controller.signal.aborted)return;
-            return requestSecondaryTags({...connection,maxTags:remaining,preset,capture,output:requestOutput},key,prepared.text,{
+            if(!requestedBodyCount.max&&!requestOutput.egg)return;
+            notices.info('正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
+            return requestSecondaryTags({...connection,maxTags:requestedBodyCount.max,preset,capture,output:requestOutput},key,prepared.text,{
                 signal:controller.signal,macros,
                 onPrepared:messages=>{
                     if(!current()||controller.signal.aborted)throw new DOMException('Cancelled','AbortError');
@@ -1303,6 +1310,8 @@ async function runSecondaryTags(message,automatic){
             if(current()){
                 refreshSecondaryMessage(message);
                 notices.success(`已写入 ${result.starts.size} 个绘图 tag`,'喵喵文生图');
+                const ordinary=result.starts.size-result.eggStarts.size;
+                if(ordinary<requestedBodyCount.min)notices.warning(`副 API 只返回了 ${ordinary} 张正文图，本轮至少请求了 ${requestedBodyCount.min} 张。`,'副 API 出词');
             }
             if(current()&&!controller.signal.aborted&&automatic&&imageGenerationMode(settings)!=='manual'){
                 const inserted=nextBlocks.filter(block=>result.starts.has(block.start));
@@ -1513,7 +1522,7 @@ async function init() {
             secondarySession={chat:currentChat(),type,message,text:message?.mes,swipe:message?.swipe_id??0,signal:options?.signal};
         }
         streamActive=false;generationChat=currentChat();
-        autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',marker:settings.eggProfileEnabled?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
+        autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',marker:drawingOptions(settings.promptConfig).egg?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
     });
     c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{
         const same=generationChat===currentChat();streamActive=false;generationChat=null;

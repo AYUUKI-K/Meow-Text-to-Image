@@ -87,8 +87,12 @@ export function drawingResponse(text, capture, options) {
       errors.push('有一张图的 tag 不完整或包含额外标记。');
     } else {
       const drawing = {anchor, prompt, tag: capture.start + prompt + capture.end};
-      const title = fields.get('title')?.textContent.trim().replace(/[\r\n┈]+/g,' ');
-      if (options?.title && title) drawing.title = escapeDecoration(title);
+      const title = fields.get('title')?.textContent.trim().replace(/[\r\n]+/g,' ').replace(/^┈{2,}|┈{2,}$/g,'').trim();
+      if (options?.title && title) {
+        const plainTitle = !/[\p{S}()（）]/u.test(title);
+        const decorated = plainTitle && options.titleStyle?.includes('颜文字') ? '✦·'+title+'·(｡•ᴗ•｡)·✦' : title;
+        drawing.title = escapeDecoration(decorated);
+      }
       if (draw.getAttribute('egg') === 'true') {
         if (!options?.egg) continue;
         drawing.egg = true;

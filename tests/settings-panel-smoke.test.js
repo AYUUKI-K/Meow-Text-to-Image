@@ -116,10 +116,10 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  await button('编辑BG').click();const bg=page.getByRole('dialog',{name:'编辑 · BG',exact:true});await bg.getByRole('textbox').fill('UNSELECTED_BG');await bg.getByRole('button',{name:'保存',exact:true}).click();await bg.waitFor({state:'detached'});assert.ok(!(await injection()).includes('UNSELECTED_BG'));
  await sw('NSFW 扩展').uncheck();assert.equal(await page.getByRole('combobox',{name:'发送的性向',exact:true}).inputValue(),'BL');assert.ok(!(await injection()).includes('[bl]'));
  await sw('小标题').focus();await page.keyboard.press('Space');await sw('小标题').click({trial:true});assert.equal(await sw('小标题').isChecked(),true);assert.ok((await injection()).includes('胡里花哨'));
- const drawingCount=page.getByRole('textbox',{name:'出图张数',exact:true});
+ const drawingCount=page.getByRole('textbox',{name:'正文图张数',exact:true});
  await drawingCount.fill('4~6');await drawingCount.blur();
  await page.waitForFunction(()=>window.preview.runtimeMacros?.miao_image_count()==='4~6');
- assert.ok((await injection()).includes('全部配图共 4~6 张'));
+ assert.ok((await injection()).includes('正文图 4~6 张'));
  // Source save failure keeps the old UI and D0.
  await page.evaluate(()=>window.preview.failSettingsSave=true);await source.selectOption('external');await page.waitForFunction(()=>document.querySelectorAll('dialog[open]').length>1);assert.equal(await source.inputValue(),'builtin');assert.ok(await page.locator('.miao-prompt-tree').isVisible());await page.evaluate(()=>window.preview.failSettingsSave=false);await page.locator('dialog[open]:not(.miao-settings-dialog) .popup-controls button').click();
  await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections.miao_nai_image_instruction.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签','世界书与正则']);

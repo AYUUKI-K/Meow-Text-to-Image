@@ -969,14 +969,17 @@
 
 .miao-image-operations {
     display: grid;
-    grid-template-columns: repeat(3,minmax(0,1fr));
-    gap: 8px;
+    grid-template-columns: repeat(4,minmax(0,1fr));
+    gap: 6px;
     width: 100%;
 }
 
 .miao-image-operations .miao-button {
+    min-width: 0;
     padding: 8px 4px;
     font-size: 13px;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .miao-image-progress {
@@ -1329,10 +1332,6 @@
     background: transparent;
 }
 
-.miao-image-operations[data-has-delete=true] {
-    grid-template-columns: repeat(4,minmax(0,1fr));
-}
-.miao-image-operations[data-has-delete=true][data-favorites=true] {grid-template-columns:repeat(3,minmax(0,1fr));}
 #miao-nai-settings[data-favorites-enabled=true]>.miao-tabs {grid-template-columns:repeat(6,minmax(0,1fr))!important;}
 
 .miao-image-viewer {

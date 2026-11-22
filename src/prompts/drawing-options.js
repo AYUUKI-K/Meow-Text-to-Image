@@ -31,7 +31,9 @@ export function drawingOptions(config) {
     const modules = Object.fromEntries(Object.entries(drawingModules).map(([key,[id, legacy]]) => [
         key, config?.version === 2 ? savedEnabled(config,id) : Boolean(config?.modules?.[legacy]),
     ]));
-    return {count, ...modules, orientation: String(config?.orientation ?? '').toUpperCase()};
+    const titleStyle = config?.version === 2 ? treeText(config,'output.subtitle') :
+        '┈┈[装饰符号 + 绘画主题 + 可爱颜文字]┈┈';
+    return {count, ...modules, titleStyle, orientation: String(config?.orientation ?? '').toUpperCase()};
 }
 
 export function withDrawingOptions(config, values) {
@@ -49,7 +51,9 @@ export function withDrawingOptions(config, values) {
 
 export function limitDrawingCount(count, max) {
     const limit = Math.min(count.max,max);
-    return drawingCount(`${Math.min(count.min,limit)}~${limit}`);
+    if (limit <= 0) return {min:0,max:0,text:'0'};
+    const min = Math.min(count.min,limit);
+    return {min,max:limit,text:min===limit?String(limit):`${min}~${limit}`};
 }
 
 export function drawingSpecialization(config, options) {
@@ -70,23 +74,15 @@ export function drawingNsfwRules(config, options) {
 export function drawingOutputRule(options, {existingEggMarker = false} = {}) {
     const {count, egg, title, eggDescription} = options;
     return [
-        `本楼全部配图共 ${count.text} 张，最多 ${count.max} 张。彩蛋计入总数。`,
-        egg ? `彩蛋开启，${existingEggMarker?'正文已有彩蛋标记时才':''}在总数内预留一张彩蛋。` : '彩蛋关闭，不添加彩蛋。',
+        `本轮正文图 ${count.text} 张，普通图最多 ${count.max} 张。彩蛋不占正文图名额。`,
+        egg ? `彩蛋开启，${existingEggMarker?'正文已有彩蛋标记时才':''}额外生成 1 张彩蛋图。` : '本轮不生成彩蛋图。',
         title ? '小标题开启，为每张图写小标题。' : '小标题关闭，省略小标题。',
         egg && eggDescription ? '彩蛋解析开启，只为彩蛋附上一段解析。' : '彩蛋解析关闭，省略彩蛋解析。',
     ].join('\n');
 }
 
 export function sharedDrawingText(text) {
-    return text.replace('正文目标张数','总出图张数')
-        .replace('在本轮基础配置指定的彩蛋标记后输出彩蛋；彩蛋标记必须独占一行。','只有正文已经出现彩蛋标记时，才在该标记之后输出彩蛋图。保持原有标记。')
-        .replace('在本次正文图片完成后，额外构思一个小彩蛋图片','在本次出图总数内预留一个小彩蛋')
-        .replace('- 正文仍须满足本轮配置的原定张数。\n- 彩蛋不计入正文的原定张数。\n- 全部输出数量为「正文图片数 + 1 张」。','- 彩蛋计入本轮出图总数。')
-        .replace('画面的数量为本轮任务配置的正文图片数；如果彩蛋开启，则另外加一张。','画面的总数以本轮插件出图张数为准，包含彩蛋。')
-        .replace('本次全部输出数量是否为「正文原定张数 + 1 张」？','本次全部输出张数是否符合配置，且已计入彩蛋？')
-        .replace('本次输出是否满足配置的正文图片数，并在开启彩蛋时额外输出一张？','本次总出图数是否符合配置，且已计入彩蛋？')
-        .replaceAll('{{getvar::张数}}+1张','{{getvar::张数}}张')
-        .replaceAll('{{getvar::张数}}(+1)','{{getvar::张数}}');
+    return text.replace('在本轮基础配置指定的彩蛋标记后输出彩蛋；彩蛋标记必须独占一行。','只有正文已经出现彩蛋标记时，才在该标记之后输出彩蛋图。保持原有标记。');
 }
 
 export function worldDrawingPolicy(config) {

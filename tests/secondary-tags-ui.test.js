@@ -220,9 +220,23 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 assert.equal(requests.length,1,'the last-request preview must not send a request');
                 await page.getByRole('button',{name:'关闭设置',exact:true}).tap();
             }else{
-                await secondary.locator(':scope>img').waitFor();
+                const picture=secondary.locator(':scope>img');
+                await picture.waitFor();
                 assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
                 assert.match(await page.evaluate(()=>window.preview.calls[0].prompt),/cat, bright window/);
+                await page.setViewportSize({width:390,height:844});
+                await page.evaluate(async()=>{
+                    window.preview.settings.promptFavoritesEnabled=true;
+                    await window.preview.emit('MESSAGE_UPDATED',3);
+                });
+                await secondary.getByRole('button',{name:'收藏提示词与例图',exact:true,includeHidden:true}).waitFor({state:'attached'});
+                await picture.press('Enter');
+                const operations=secondary.locator('.miao-image-operations');
+                await operations.waitFor();
+                assert.deepEqual(await operations.evaluate(grid=>{
+                    const top=grid.firstElementChild.getBoundingClientRect().top;
+                    return [...grid.children].filter(button=>button.getBoundingClientRect().top===top).map(button=>button.textContent);
+                }),['提示词','收藏提示词','下载','放大']);
 
                 // Switching to another swipe while a request is in flight discards the old response.
                 hold=true;
@@ -326,7 +340,7 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.route('https://draw-fixture.invalid/v1/chat/completions',async route=>{
                 if(route.request().method()==='POST')requests.push(route.request().postDataJSON());
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
-                    json:{choices:[{message:{content:'<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P02"><title>试用标题</title><tags>START-FIG $试用人物$, sitting END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>'}}]}});
+                    json:{choices:[{message:{content:'<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P02"><title>试用标题</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:$试用人物$, sitting|centers:B3;Character 1 UC: outdoors; END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>'}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(()=>{
@@ -348,9 +362,9 @@ test('the configured drawing format writes into the active swipe and only expand
             }
             await nav.getByRole('button',{name:'生图指令',exact:true}).click();
             await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
-            const count=page.getByRole('textbox',{name:'出图张数',exact:true});
-            await count.fill('3');await count.blur();
-            await page.waitForFunction(()=>window.preview.settings.promptConfig.params.count==='3');
+            const count=page.getByRole('textbox',{name:'正文图张数',exact:true});
+            await count.fill('2');await count.blur();
+            await page.waitForFunction(()=>window.preview.settings.promptConfig.params.count==='2');
             await page.getByRole('switch',{name:'启用小标题',exact:true}).check();
             await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).check();
             await page.getByRole('combobox',{name:'发送的性向',exact:true}).selectOption('BL');
@@ -395,11 +409,12 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.match(requests[0].messages[0].content,/START-FIGtagEND-FIG/);
             const wire=requests[0].messages.map(message=>message.content).join('\n');
             assert.match(wire,/试用人物 = black hair, yellow eyes[\s\S]*走到门口。\n\[P01\][\s\S]*花店亮灯。\n\[P03\]/);
-            assert.match(wire,/全部配图共 3 张[\s\S]*\[bl\]/);
+            assert.match(wire,/正文图 2 张[\s\S]*额外生成 1 张彩蛋图[\s\S]*\[bl\]/);
             assert.doesNotMatch(wire,/5~7|\[bg\]/);
             const [placed,original,updated]=await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]);
             const boundary=placed.indexOf('<meowfm>');
-            assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈试用标题┈┈\s+START-FIG\$试用人物\$, sittingEND-FIG/);
+            assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈✦·试用标题·\(｡•ᴗ•｡\)·✦┈┈\s+START-FIGwarm light, \(\$试用人物\$, sitting\)END-FIG/);
+            assert.doesNotMatch(placed,/Scene Composition|Character 1|centers|outdoors/);
             assert.match(placed.slice(0,boundary),/START-FIGextra shotEND-FIG/);
             assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+START-FIGteacupEND-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
             assert.equal(placed.match(/<meowfm>/g).length,1);
@@ -416,11 +431,12 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.equal(disabled.eggDescription,undefined);
             assert.equal(await generate.count(),3);
             assert.equal(await page.evaluate(()=>window.preview.calls.length),0,'manual mode extracts tags without generating an image');
-            await generate.nth(placed.indexOf('START-FIGextra shot')<placed.indexOf('START-FIG$试用人物$')?1:0).click();
+            await generate.nth(placed.indexOf('START-FIGextra shot')<placed.indexOf('START-FIGwarm light')?1:0).click();
             await page.waitForFunction(()=>window.preview.calls.length===1);
             const nai=await page.evaluate(()=>window.preview.calls[0].prompt??window.preview.calls[0].input);
             assert.match(nai,/black hair, yellow eyes, sitting/);
             assert.doesNotMatch(nai,/试用人物/);
+            assert.equal(await page.evaluate(()=>window.preview.calls[0].characters),undefined);
             await page.evaluate(async()=>{
                 const p=window.preview;
                 p.chatId='another-archive';p.context.chatMetadata={};
@@ -462,7 +478,7 @@ test('the configured drawing format writes into the active swipe and only expand
                 await p.emit('MESSAGE_RECEIVED',id,'normal');
             },beforeSave);
             await page.waitForFunction(()=>typeof window.preview.failSecondarySave==='function');
-            assert.deepEqual(await page.evaluate(()=>Object.keys(window.preview.chat.at(-1).miao_nai_image_swipes[1])),['body:2:existing view']);
+            assert.deepEqual(await page.evaluate(()=>Object.keys(window.preview.chat.at(-1).miao_nai_image_swipes[1])),['body:1:existing view']);
             await page.evaluate(async()=>{
                 const p=window.preview,message=p.chat.at(-1);
                 message.swipe_id=0;message.mes=message.swipes[0];
