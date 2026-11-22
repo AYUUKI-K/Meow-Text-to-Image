@@ -1,4 +1,4 @@
-export const secondaryDataSlots = new Set(['正文', '上下文', '用户需求', '世界书触发', '角色启用列表', 'miao_image_start', 'miao_image_end', 'miao_image_specialization']);
+export const secondaryDataSlots = new Set(['正文', '上下文', '用户需求', '用户人设', '角色设定', '世界书触发', '角色启用列表', 'miao_image_start', 'miao_image_end', 'miao_image_specialization']);
 
 const macro = /\{\{([^{}\r\n]*)\}\}/g;
 const macroOpen = /\{\{|\{@/;

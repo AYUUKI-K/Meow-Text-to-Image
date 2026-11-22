@@ -26,6 +26,37 @@ export function secondaryBlocks(message, swipe, text, mainCount) {
     }));
 }
 
+export function secondaryProfiles(host, message, {includePersona, includeCharacter, clean}) {
+    const characters = host.characters ?? [];
+    let card = characters[host.characterId];
+    if (host.groupId != null && host.groupId !== '') {
+        const group = host.groups?.find(item => String(item.id) === String(host.groupId));
+        const named = group?.members
+            ? characters.filter(item => group.members.includes(item?.avatar) && (item.name ?? item.data?.name) === message.name)
+            : [];
+        card = message.original_avatar ? characters.find(item => item?.avatar === message.original_avatar)
+            : named.length === 1 ? named[0] : undefined;
+    }
+    const user = host.name1 ?? '';
+    const character = card?.name ?? card?.data?.name ?? message.name ?? host.name2 ?? '';
+    const profileText = value => typeof value === 'string'
+        ? clean(value.replace(/\{\{\s*(user|char)\s*\}\}/gi, (_, name) => name.toLowerCase() === 'user' ? user : character)).trim()
+        : '';
+    const persona = includePersona ? profileText(host.powerUserSettings?.persona_description) : '';
+    const details = includeCharacter && card ? [
+        ['描述', card.description ?? card.data?.description],
+        ['性格', card.personality ?? card.data?.personality],
+        ['场景', host.chatMetadata?.scenario || (card.scenario ?? card.data?.scenario)],
+    ].map(([label, value]) => {
+        const text = profileText(value);
+        return text ? `${label}\n${text}` : '';
+    }).filter(Boolean) : [];
+    return {
+        用户人设: () => (persona ? [user, persona].filter(Boolean).join('\n') : '').slice(0,12000),
+        角色设定: () => (details.length ? [character, ...details].filter(Boolean).join('\n\n') : '').slice(0,12000),
+    };
+}
+
 export async function prepareSecondaryChat(chat, message, {includeContext, includeUser, applyRegex, clean}) {
     const earlier = chat.slice(0, chat.indexOf(message)).filter(item => !item.is_system && item.role !== 'tool');
     const depthOf = new Map(earlier.map((item, index) => [item, earlier.length - index]));

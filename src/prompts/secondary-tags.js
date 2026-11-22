@@ -106,7 +106,7 @@ function drawingExample({title=true,egg=true,eggDescription=true,count={max:2},r
     ].filter(Boolean).join('\n');
     const ordinary = [
         draw('after="P01" quote="推开窗户"','✦·窗边晨光·(｡•ᴗ•｡)·✦',roleName
-            ? `sfw, 1girl, windowsill, morning light, (girlA:1.2, $${roleName}$, slim, school uniform, smile, standing, opening window)`
+            ? `sfw, 1girl, windowsill, morning light, (girlA:1.2, $${roleName}$, school uniform, smile, standing, opening window)`
             : 'sfw, windowsill, morning light, opening window'),
         draw('after="P03" quote="拿起茶杯"','✧·杯中茶香·(≧▽≦)·✧','sfw, teacup, holding cup, soft lighting'),
     ];
@@ -191,12 +191,12 @@ function secondaryOutputRule(options, inline, capture, {specializationInPreset =
         '公共场景词依次写 sfw 或 nsfw、画面人数、质感、构图、地点、时间与光影。角色组分别写本段可见的状态、表情、视线和动作。多人互动可在对应的角色组内成对使用 source#、target#，相互动作使用 mutual#。',
         `格式示例：${flatTagExample}`,fandomRule];
     if (roleText) {
-        rule.push('逐张核对出镜人物。每位在绑定表中且确实出镜的角色都必须在自己的括号组里写一次 $角色名$，用绑定表里的名字原样替换「角色名」。保留完整的两个 $，禁止抄写或改写等号右边的固定 tag。继续为该角色补充本段的动作、表情和姿势。未出镜的角色无需调用；其他出镜角色由你根据正文直接写英文外貌和动作 tag。');
-        rule.push('把 $角色名$ 当作已经填好的一整组内置人物特征词。发色、瞳色、发型等固定特征由它占位，插件会在发给 NovelAI 前展开。你只写记号本身，不在记号里写英文 tag，也不重复、猜测或改写这些固定特征。');
-        rule.push('角色组按 (girlA:1.2, $角色名$, slim, school uniform, smile, standing) 的顺序写。保留人物标识及其权重；调用记号只放在固定特征的位置，后面的体态、服装、表情和动作按本段正文来写。');
-        const calls=roleText.split('\n').map(line=>line.split(' = ',1)[0]);
-        rule.push('当前存档的角色调用表，右侧是必须原样输出的记号\n'+calls.map(name=>`${name} → $${name}$`).join('\n'));
-        if(roleSlot)rule.push('如果自定义预设还列出了角色的固定 tag，照样返回调用记号，由插件补上固定外貌。');
+        const bindings = roleText.split('\n').map(line => line.replace(/^(.+?) = /, (_, name) => `$${name}$ = `));
+        rule.push('当前存档的固定特征对照表。等号右侧是左侧调用记号已经代表的完整特征，只供辨认和避免重复。最终绘图 tag 只抄左侧记号。\n'+bindings.join('\n'));
+        rule.push('逐张核对出镜人物。每位在绑定表中且确实出镜的角色都必须在自己的括号组里写一次 $角色名$，照抄对照表左侧的实际名字和两个 $。角色组按 (girlA:1.2, $角色名$, school uniform, smile, standing) 排列。权重放在人物标识上，记号保持原样。');
+        rule.push('绑定角色组在调用记号之后只补本段可见的服饰、表情和动作。发色、瞳色、发型、身材等固定特征由记号负责。即使正文、User 人设、Char 角色卡或世界书也写了这些外观，也不要在同一角色组里另写一次。');
+        rule.push('未出镜角色省略。其他出镜角色由你根据正文和人物资料直接写英文外貌和动作 tag。提交前逐张检查，确保每个绑定角色的固定特征只以调用记号出现。');
+        if(roleSlot)rule.push('自定义预设里的角色固定 tag 同样作为参考，输出时使用对照表左侧的调用记号。');
     } else rule.push('每个出镜角色都由你根据正文直接写英文外貌和动作 tag。');
     if (options.selfCheck) rule.push('返回前检查位置编号、张数、角色描述和标签边界。');
     if (options.nsfwRules) rule.push(options.nsfwRules);

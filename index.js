@@ -34,7 +34,7 @@ import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_
 import {editedTag} from './src/prompts/tag-edit.js';
 import {secondaryEnabled,imageGenerationMode,secondaryConnection,secondaryChatURL,requestSecondaryModels,secondaryBody,requestSecondaryTags,secondaryPattern,inlineSecondaryPreset} from './src/prompts/secondary-tags.js';
 import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile,listedSecondaryMacros} from './src/prompts/secondary-presets.js';
-import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,prepareSecondaryChat} from './src/chat/secondary-tags.js';
+import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,prepareSecondaryChat,secondaryProfiles} from './src/chat/secondary-tags.js';
 import {captureMacroValues,expandRoleTags,insertDrawingTags,numberedReply,roleList} from './src/chat/secondary-placement.js';
 import {drawingOptions,drawingNsfwRules,drawingSpecialization,limitDrawingCount,withDrawingOptions,worldDrawingPolicy} from './src/prompts/drawing-options.js';
 import {exportPreview,previewPNG} from './src/prompts/prompt-preview-transfer.js';
@@ -1212,10 +1212,14 @@ async function autoLatest() {
         if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!session.attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&egg});
     }
 }
-async function secondaryPromptText(chat,message,preset){
+async function secondaryPromptText(host,message,preset){
     const slots=new Set(listedSecondaryMacros(preset).map(raw=>raw.slice(2,-2).trim()));
     const format=reasoningFormat();
-    return prepareSecondaryChat(chat,message,{
+    const profiles=secondaryProfiles(host,message,{
+        includePersona:slots.has('用户人设'),includeCharacter:slots.has('角色设定'),
+        clean:source=>maskReasoning(source,format),
+    });
+    const result=await prepareSecondaryChat(host.chat,message,{
         includeContext:slots.has('上下文'),
         includeUser:slots.has('用户需求'),
         clean:source=>secondaryBody(source,settings.pattern,format),
@@ -1233,6 +1237,7 @@ async function secondaryPromptText(chat,message,preset){
             }catch{throw Error('副 API 应用酒馆正则失败，请检查启用的规则');}
         },
     });
+    return {...result,values:{...result.values,...profiles}};
 }
 function secondaryRawBody(text,pattern,format){
     let visible=maskReasoning(text,format);
@@ -1283,7 +1288,7 @@ async function runSecondaryTags(message,automatic){
             const existingOrdinary=inline?initialBlocks.length-Number(!!existingEgg):readSecondaryTags(message,swipe).length;
             const remaining=output.count.max-existingOrdinary;
             if(remaining<1&&(!inline||!output.egg||existingEgg))return;
-            const {body,values}=await secondaryPromptText(host.chat,message,preset);
+            const {body,values}=await secondaryPromptText(host,message,preset);
             if(!current()||controller.signal.aborted)return;
             if(!body)throw Error('应用酒馆正则后没有可用正文，请检查出站正则');
             const key=await secondaryVault(connection.url).get();

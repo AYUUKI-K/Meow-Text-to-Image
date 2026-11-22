@@ -410,16 +410,19 @@ test('the configured drawing format writes into the active swipe and only expand
                     json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P03">START-FIG $其他存档角色$, walking END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P01">START-FIG extra shot END-FIG</draw><draw egg="true"><tags>┈┈简单彩蛋┈┈\nSTART-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
-            await page.evaluate(()=>{
+            await page.evaluate(tt=>{
                 const p=window.preview;
+                const profile={description:'{{char}} 戴金边眼镜。 <think>隐藏的角色卡内容</think>',personality:'平静而有耐心。',scenario:'卡片旧场景。'};
                 Object.assign(p.context,{characterId:0,characters:[
-                    {avatar:'sample-a.png',name:'角色卡 A'},{avatar:'sample-b.png',name:'角色卡 B'}],
-                    chatMetadata:{miao_nai_image_role_bindings:'已有角色 = silver hair\n第二角色 = blue eyes'},
+                    {avatar:'sample-a.png',name:'角色卡 A',...(tt?{data:profile}:profile)},{avatar:'sample-b.png',name:'角色卡 B',description:'其他角色卡的设定。'}],
+                    name1:'玩家 A',
+                    chatMetadata:{scenario:'当前聊天的场景。',miao_nai_image_role_bindings:'已有角色 = silver hair\n第二角色 = blue eyes'},
                     saveMetadata:async()=>{},updateMessageBlock(index,message){
                         document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`).textContent=message.mes;
                     }});
+                p.context.powerUserSettings.persona_description='{{user}} 穿蓝色外套。';
                 Object.assign(p.settings,{mode:'manual',cloudQueue:false,eggProfileEnabled:false});
-            });
+            },tt);
             await page.locator('#miao-nai-menu').click();
             const nav=page.locator('.miao-overview:visible, .miao-tabs:visible');
             if(tt){
@@ -439,7 +442,7 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.getByRole('combobox',{name:'发送的性向',exact:true}).selectOption('BL');
             const fixture={type:'miao-secondary-tag-preset',version:2,name:'电子幽灵-结构测试',entries:[
                 {name:'格式',role:'system',enabled:true,content:'{{setvar::张数::5~7}}<drawings><draw after="P02">{{miao_image_start}}tag{{miao_image_end}}</draw></drawings>'},
-                {name:'正文槽位',role:'system',enabled:true,content:'可用角色：\n{{角色启用列表}}\n\n{{正文}}'},
+                {name:'正文槽位',role:'system',enabled:true,content:'可用角色：\n{{角色启用列表}}\n<persona>{{用户人设}}</persona>\n<character>{{角色设定}}</character>\n\n{{正文}}'},
             ]};
             await page.locator('[data-miao-secondary-preset-import]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
             await page.getByText('格式 · system',{exact:true}).waitFor();
@@ -523,9 +526,14 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.equal(requests.length,1);
             assert.match(requests[0].messages[0].content,/START-FIGtagEND-FIG/);
             const wire=requests[0].messages.map(message=>message.content).join('\n');
+            assert.match(wire,/<persona>玩家 A\n玩家 A 穿蓝色外套。<\/persona>/);
+            assert.match(wire,/<character>角色卡 A[\s\S]*角色卡 A 戴金边眼镜。\s*[\s\S]*平静而有耐心。/);
+            assert.match(wire,/场景\n当前聊天的场景。<\/character>/);
+            assert.doesNotMatch(wire,/隐藏的角色卡内容|其他角色卡的设定|卡片旧场景|\{\{用户人设\}\}|\{\{角色设定\}\}/);
             assert.match(wire,/试用人物 = black hair, yellow eyes[\s\S]*走到门口。\n\[P01\][\s\S]*花店亮灯。\n\[P03\]/);
-            assert.match(wire,/每位在绑定表中且确实出镜的角色都必须在自己的括号组里写一次 \$角色名\$[\s\S]*其他出镜角色由你根据正文直接写英文外貌和动作 tag/);
-            assert.match(wire,/试用人物 → \$试用人物\$/);
+            assert.match(wire,/每位在绑定表中且确实出镜的角色都必须在自己的括号组里写一次 \$角色名\$[\s\S]*其他出镜角色由你根据正文和人物资料直接写英文外貌和动作 tag/);
+            assert.match(wire,/\$试用人物\$ = black hair, yellow eyes/);
+            assert.match(wire,/即使正文、User 人设、Char 角色卡或世界书也写了这些外观，也不要在同一角色组里另写一次/);
             assert.match(wire,/由你根据这张图创作标题、装饰符号和颜文字/);
             assert.match(wire,/正文图 2 张[\s\S]*额外生成 1 张彩蛋图[\s\S]*\[bl\]/);
             assert.doesNotMatch(wire,/5~7|\[bg\]/);

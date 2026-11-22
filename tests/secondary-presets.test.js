@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {activeSecondaryPreset, addSecondaryPreset, listedSecondaryMacros, readSecondaryLibrary, readSecondaryPreset, secondaryPresetFile, secondaryPresets} from '../src/prompts/secondary-presets.js';
 import {buildSecondaryMessages, requestSecondaryModels, requestSecondaryTags} from '../src/prompts/secondary-tags.js';
 import {insertDrawingTags, numberedReply, roleList, expandRoleTags} from '../src/chat/secondary-placement.js';
+import {secondaryProfiles} from '../src/chat/secondary-tags.js';
 import {drawingOptions, withDrawingOptions, worldDrawingPolicy} from '../src/prompts/drawing-options.js';
 import {defaultPromptSettings} from '../src/prompts/prompt-settings.js';
 
@@ -116,6 +117,8 @@ test('Electronic Ghost is available by default and assembles a complete non-stre
     assert.equal(preset.id,'electronic-ghost');
     assert.match(preset.name,/电子幽灵/);
     assert.ok(preset.entries.length>3);
+    assert.ok(listedSecondaryMacros(preset).includes('{{用户人设}}'));
+    assert.ok(listedSecondaryMacros(preset).includes('{{角色设定}}'));
     const output={...drawingOptions(defaultPromptSettings()),egg:false};
     await assert.rejects(requestSecondaryTags({url:'https://fixture.invalid/chat',model:'fixture',maxTags:3,preset,output},'fixture-key','猫走到窗前。\n[P01]',{
         macros:{values:{角色启用列表:()=>''},substitute:text=>text.replace(/\{\{user\}\}/g,'访客').replace(/\{\{(?:set|get)(?:global)?var::[^}]*\}\}/gi,'')},
@@ -132,6 +135,25 @@ test('Electronic Ghost is available by default and assembles a complete non-stre
     }),/HTTP 503/);
 });
 
+test('group replies use the author card and profile slots honor the preset selection',()=>{
+    const common={name:'同名角色'};
+    const host={name1:'玩家',groupId:3,characterId:0,
+        groups:[{id:3,members:['first.png','author.png']}],
+        characters:[{...common,avatar:'first.png',description:'另一张卡'},
+            {...common,avatar:'author.png',data:{description:'{{char}} 戴着眼镜。',personality:'安静。',scenario:'图书馆。'}}],
+        powerUserSettings:{persona_description:'{{user}} 穿蓝外套。'},
+    };
+    const message={name:common.name,original_avatar:'author.png'};
+    const options={includePersona:true,includeCharacter:true,clean:text=>text};
+    const values=secondaryProfiles(host,message,options);
+    assert.equal(values.用户人设(),'玩家\n玩家 穿蓝外套。');
+    assert.match(values.角色设定(),/同名角色 戴着眼镜。[\s\S]*安静。[\s\S]*图书馆。/);
+    assert.doesNotMatch(values.角色设定(),/另一张卡/);
+    assert.equal(secondaryProfiles(host,{name:common.name},options).角色设定(),'');
+    assert.equal(secondaryProfiles(host,message,{...options,includePersona:false}).用户人设(),'');
+    assert.equal(secondaryProfiles(host,message,{...options,includeCharacter:false}).角色设定(),'');
+});
+
 test('the Electronic Ghost example shows a title for every enabled drawing, including the bonus',()=>{
     const preset=activeSecondaryPreset(readSecondaryLibrary({}));
     const defaults=drawingOptions(defaultPromptSettings());
@@ -145,25 +167,26 @@ test('the Electronic Ghost example shows a title for every enabled drawing, incl
     assert.doesNotMatch(example({title:false,egg:false}),/<title>|egg="true"|<egg_description>/);
 });
 
-test('the bundled preset sends exact role calls while keeping fixed tags for local expansion',async()=>{
+test('the bundled preset explains the fixed feature mapping and keeps the call in its drawing example',async()=>{
     const preset=activeSecondaryPreset(readSecondaryLibrary({}));
     const output={...drawingOptions(defaultPromptSettings()),egg:false};
-    const roles=roleList('苏禾 = amber eyes, blue coat\n温枝 = purple hair');
+    const roles=roleList('苏禾 = white hair, blue eyes, long hair\n温枝 = purple hair');
     const macros={values:{上下文:()=>'',用户需求:()=>'',世界书触发:()=>''},substitute:text=>
         text.replace(/\{\{user\}\}/g,'测试').replace(/\{\{(?:get|set)(?:global)?var::[^{}]*\}\}/gi,'')};
     await assert.rejects(requestSecondaryTags({url:'https://fixture.invalid/chat',model:'fixture',maxTags:3,preset,output},'fixture-key','苏禾递过钥匙。\n[P01]',{
         macros,roleTags:roles,fetchImpl:async(_url,{body})=>{
             const wire=JSON.parse(body).messages.map(message=>message.content).join('\n');
-            assert.match(wire,/苏禾 → \$苏禾\$\n温枝 → \$温枝\$/);
-            assert.match(wire,/把 \$角色名\$ 当作已经填好的一整组内置人物特征词/);
-            assert.match(wire,/\(girlA:1\.2, \$角色名\$, slim, school uniform, smile, standing\)/);
-            assert.match(wire,/<draw after="P01" quote="推开窗户">\s*(?:<title>[^<]+<\/title>\s*)?<tags>image###sfw, 1girl,[^<]+\(girlA:1\.2, \$苏禾\$, slim, school uniform, smile, standing, opening window\)###<\/tags>/);
-            assert.doesNotMatch(wire,/amber eyes|blue coat|purple hair/);
+            assert.match(wire,/\$苏禾\$ = white hair, blue eyes, long hair\n\$温枝\$ = purple hair/);
+            assert.match(wire,/绑定角色组在调用记号之后只补本段可见的服饰、表情和动作/);
+            assert.match(wire,/\(girlA:1\.2, \$角色名\$, school uniform, smile, standing\)/);
+            const example=wire.match(/<draw after="P01" quote="推开窗户">[\s\S]*?<\/draw>/)?.[0];
+            assert.match(example,/<tags>image###sfw, 1girl,[^<]+\(girlA:1\.2, \$苏禾\$, school uniform, smile, standing, opening window\)###<\/tags>/);
+            assert.doesNotMatch(example,/white hair|blue eyes|long hair|purple hair/);
             return new Response(null,{status:503});
         },
     }),/HTTP 503/);
-    assert.equal(expandRoleTags('(girlA:1.2, $苏禾$, slim, school uniform, smile, standing),',roles),
-        '(girlA:1.2, amber eyes, blue coat, slim, school uniform, smile, standing),');
+    assert.equal(expandRoleTags('(girlA:1.2, $苏禾$, school uniform, smile, standing),',roles),
+        '(girlA:1.2, white hair, blue eyes, long hair, school uniform, smile, standing),');
 });
 
 test('an existing secondary preset retains its current instructions and raw-body layout', ()=>{
