@@ -1,8 +1,10 @@
+import {electronicGhost} from './electronic-ghost.js';
+
 export const replySlot = '{{正文}}';
 export const SECONDARY_PRESET_FILE_LIMIT = 450000;
 const type = 'miao-secondary-tag-preset';
 const defaultId = 'electronic-ghost';
-const missingDefault = Object.freeze({id: defaultId, name: '电子幽灵', pendingImport: true});
+const bundledDefault = Object.freeze({...normalizePreset(electronicGhost), id: defaultId});
 const initialLibrary = Object.freeze({activeId: defaultId, imports: Object.freeze([])});
 
 function normalizePreset(preset) {
@@ -69,7 +71,6 @@ export function readSecondaryPreset(text, {fileName = ''} = {}) {
 }
 
 export function secondaryPresetFile(preset) {
-    if (preset.pendingImport) throw Error('请先导入电子幽灵原预设');
     const data = {type, version: preset.entries ? 2 : 1, ...normalizePreset(preset)};
     const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
     if (blob.size > SECONDARY_PRESET_FILE_LIMIT) throw Error('副 API 预设文件过大');
@@ -79,8 +80,8 @@ export function secondaryPresetFile(preset) {
 
 export function secondaryPresets(library) {
     const original = library.electronicGhost;
-    const electronicGhost = original ? {...original, id: defaultId} : missingDefault;
-    return [electronicGhost, ...library.imports.map((preset, index) => ({...preset, id: `import-${index}`}))];
+    return [original ? {...original, id: defaultId} : bundledDefault,
+        ...library.imports.map((preset, index) => ({...preset, id: `import-${index}`}))];
 }
 
 export function activeSecondaryPreset(library) {

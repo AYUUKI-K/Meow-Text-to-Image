@@ -9,6 +9,7 @@ import {hostFetch} from '../platform/host-fetch.js';
 
 export const secondaryPattern = delimiterPattern('image###', '###');
 export const secondaryEnabled = settings => settings.tagSource === 'secondary';
+export const imageGenerationMode = settings => secondaryEnabled(settings) && settings.mode === 'stream' ? 'auto' : settings.mode;
 export const inlineSecondaryPreset = preset => preset?.entries?.some(entry =>
     entry.enabled && entry.content.includes('<drawings>') && entry.content.includes('after=')) ?? false;
 
@@ -108,9 +109,11 @@ function secondaryOutputRule(options, inline, capture, specializationInPreset) {
     if (options.specialization&&!specializationInPreset) rule.push(options.specialization);
     if (inline) {
         const escaped = value => value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        rule.push(`仅返回 <drawings> XML。每张图一个 <draw after="P02">。绘图提示词放在 <tags>${escaped(capture.start)}tag${escaped(capture.end)}</tags> 内。`);
+        rule.push(`仅返回 <drawings> XML。普通图的 <draw after="P02"> 必须从剧情原文中选择实际存在的段尾编号，每张普通图优先匹配不同的剧情段落。绘图提示词放在 <tags>${escaped(capture.start)}tag${escaped(capture.end)}</tags> 内。`);
+        rule.push('普通图只能放在正文段落，避开 meowfm 彩蛋区。不要复述正文，也不要返回 meowfm 标记。');
         if (options.title) rule.push('每张图在 <draw> 内加一个 <title>，只写标题文字。');
-        if (options.egg) rule.push('彩蛋所在的 <draw> 加 egg="true"。');
+        if (options.egg) rule.push('正文已有彩蛋位置。仅一张彩蛋图使用 egg="true"，插件会将它放到原有彩蛋标记之后。');
+        else rule.push('本楼不输出彩蛋条目。');
         if (options.egg && options.eggDescription) rule.push('彩蛋的 <draw> 用 <egg_description> 返回解析，其他插图不加。');
         rule.push('XML 文本中的 & 和尖括号按 XML 规则转义。');
     }
@@ -118,7 +121,7 @@ function secondaryOutputRule(options, inline, capture, specializationInPreset) {
 }
 
 export function buildSecondaryMessages({maxTags, preset, output, capture = {start:'image###',end:'###'}}, body, expand) {
-    if (!preset || preset.pendingImport) throw Error('请先在「预设」中导入完整的电子幽灵 JSON');
+    if (!preset) throw Error('副 API 预设无效');
     const render = source => {
         const text = captureTemplate(sharedTemplate(source,output));
         return expand ? expand(text) : resolveCapture(text,capture).replace(replySlot, () => body);
@@ -173,7 +176,7 @@ export async function requestSecondaryTags(connection, key, body, {signal, fetch
     const text = Array.isArray(content) ? content.filter(part => part?.type === 'text').map(part => part.text).join('\n') : content;
     if (inlineSecondaryPreset(connection.preset)) {
         if (typeof text !== 'string' || text.length > 100000) throw Error('副 API 绘图返回无效');
-        const {drawings, errors} = drawingResponse(text, capture, connection.output);
+        const {drawings, errors} = drawingResponse(maskReasoning(text), capture, connection.output);
         if (!drawings.length) throw Error(errors[0] ?? '副 API 未返回可用的 <draw> 绘图条目');
         const egg = drawings.findLast(drawing=>drawing.egg);
         for (const drawing of drawings) {

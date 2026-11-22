@@ -1,7 +1,7 @@
 import {preserveWorldMacros} from './world-macros.js';
 import {randomId} from '../platform/browser-crypto.js';
 import {promptTemplates} from '../prompts/prompt-templates.js';
-export const BUNDLED_RESOURCES={"schema":1,"version":"2.2.2-1026","revision":2026102601,"worldName":"[喵喵]文生图 2.2.2","worldSHA256":"63ed43d74b00c05f2cf42db300cb83b15026c2cf7e58ae15f0ca9dd24af43e5a","regexSHA256":"d2991bb7e775b162980cb92dcb2e41b82cb11ea179397e542d5b32078a70dbd4"};
+export const BUNDLED_RESOURCES={"schema":1,"version":"2.2.3-1107c","revision":2026110703,"worldName":"[喵喵]文生图 2.2.3","worldSHA256":"f25b076115c56301f0bd7d5d2c3f57088de2651559d5cce81547b7d52abb271f","regexSHA256":"a0f551a33db9c3870ba93d8e9b308f8f4cce86e91aaf149711050333a6119179"};
 export const RESOURCE_VERSION=BUNDLED_RESOURCES.version;
 export const WORLD_NAME=BUNDLED_RESOURCES.worldName;
 const drawingEntryTitles=new Set([...Object.values(promptTemplates).map(entry=>entry.comment),'使用说明']);
@@ -31,7 +31,7 @@ export function filterDrawingWorldEntries(lists, configuredWorld) {
 }
 
 const validEntries=book=>book&&book.entries&&typeof book.entries==='object'&&!Array.isArray(book.entries)&&Object.values(book.entries).every(entry=>entry&&typeof entry==='object'&&!Array.isArray(entry));
-export function mergeWorldEntries(existing,incoming,{preserveMacros=false}={}){
+export function mergeWorldEntries(existing,incoming,{preserveMacros=false,preserveOptions=false}={}){
     if(!validEntries(incoming)||!validEntries(existing))throw Error('世界书需要有效的 entries 字段');
     const entries=structuredClone(existing.entries);
     for(const source of Object.values(incoming.entries)){
@@ -43,7 +43,11 @@ export function mergeWorldEntries(existing,incoming,{preserveMacros=false}={}){
             if(!/^\d+$/.test(key)||Object.hasOwn(entries,key)){let uid=0;while(Object.hasOwn(entries,String(uid)))uid++;key=String(uid);}
         }
         for(const [duplicate] of matches.slice(1))delete entries[duplicate];
+        const previous=entries[key];
         entries[key]={...structuredClone(source),uid:Number(key)};
+        if(preserveOptions&&previous&&(/\[选(?:开|一)\]/.test(title)||title==='NSFW提示词')){
+            for(const flag of ['disable','constant'])if(typeof previous[flag]==='boolean')entries[key][flag]=previous[flag];
+        }
     }
     const merged={...structuredClone(existing),...structuredClone(incoming),entries};
     return preserveMacros?preserveWorldMacros(existing,merged):merged;

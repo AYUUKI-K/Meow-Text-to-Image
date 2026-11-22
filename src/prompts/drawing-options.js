@@ -67,11 +67,11 @@ export function drawingNsfwRules(config, options) {
     return parseHeaderMacros(template).map(macro=>macro.value).join('\n');
 }
 
-export function drawingOutputRule(options) {
+export function drawingOutputRule(options, {existingEggMarker = false} = {}) {
     const {count, egg, title, eggDescription} = options;
     return [
         `本楼全部配图共 ${count.text} 张，最多 ${count.max} 张。彩蛋计入总数。`,
-        egg ? '彩蛋开启，在总数内预留一张彩蛋。' : '彩蛋关闭，不添加彩蛋。',
+        egg ? `彩蛋开启，${existingEggMarker?'正文已有彩蛋标记时才':''}在总数内预留一张彩蛋。` : '彩蛋关闭，不添加彩蛋。',
         title ? '小标题开启，为每张图写小标题。' : '小标题关闭，省略小标题。',
         egg && eggDescription ? '彩蛋解析开启，只为彩蛋附上一段解析。' : '彩蛋解析关闭，省略彩蛋解析。',
     ].join('\n');
@@ -79,6 +79,7 @@ export function drawingOutputRule(options) {
 
 export function sharedDrawingText(text) {
     return text.replace('正文目标张数','总出图张数')
+        .replace('在本轮基础配置指定的彩蛋标记后输出彩蛋；彩蛋标记必须独占一行。','只有正文已经出现彩蛋标记时，才在该标记之后输出彩蛋图。保持原有标记。')
         .replace('在本次正文图片完成后，额外构思一个小彩蛋图片','在本次出图总数内预留一个小彩蛋')
         .replace('- 正文仍须满足本轮配置的原定张数。\n- 彩蛋不计入正文的原定张数。\n- 全部输出数量为「正文图片数 + 1 张」。','- 彩蛋计入本轮出图总数。')
         .replace('画面的数量为本轮任务配置的正文图片数；如果彩蛋开启，则另外加一张。','画面的总数以本轮插件出图张数为准，包含彩蛋。')

@@ -26,11 +26,16 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  await nav.getByRole('button',{name:'生图指令',exact:true}).click();
  const source=page.getByRole('combobox',{name:'来源',exact:true}),injection=()=>page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text);
  await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});
- assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签']);assert.equal(await page.locator('.miao-prompt-tree').count(),0);
+ assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签','世界书与正则']);assert.equal(await page.locator('.miao-prompt-tree').count(),0);
+ await page.getByRole('button',{name:'检查资源更新',exact:true}).click();
+ await page.getByRole('button',{name:'更新资源',exact:true}).click();
+ await page.waitForFunction(()=>window.preview.settings.resourceRevision===2026110703);
+ assert.equal(await page.evaluate(()=>window.preview.worldWrites.at(-1).name),'[喵喵]文生图 2.2.3');
  // Switching source must commit the pending capture fields, including on failure.
  await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('custom###');
  await source.selectOption('builtin');await page.waitForFunction(()=>window.preview.settings.promptConfig.mode==='builtin');await page.locator('.miao-prompt-tree').waitFor();
  assert.equal(await page.evaluate(()=>window.preview.settings.startTag),'custom###');assert.match(await injection(),/custom###\s*\[图片tag\]\s*###/);
+ assert.match(await injection(),/严禁新建、补写或重复任何彩蛋标记/);
  await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('image###');
  assert.deepEqual(await page.locator('.miao-prompt-tree > .miao-tree-node').evaluateAll(nodes=>nodes.map(n=>n.dataset.displayId)),['00','01','02','03','04','05']);
  const branch=id=>page.locator(`[data-node-id="${id}"]`),button=(name)=>page.getByRole('button',{name,exact:true});
@@ -72,7 +77,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  assert.ok((await injection()).includes('全部配图共 4~6 张'));
  // Source save failure keeps the old UI and D0.
  await page.evaluate(()=>window.preview.failSettingsSave=true);await source.selectOption('external');await page.waitForFunction(()=>document.querySelectorAll('dialog[open]').length>1);assert.equal(await source.inputValue(),'builtin');assert.ok(await page.locator('.miao-prompt-tree').isVisible());await page.evaluate(()=>window.preview.failSettingsSave=false);await page.locator('dialog[open]:not(.miao-settings-dialog) .popup-controls button').click();
- await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections.miao_nai_image_instruction.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签']);
+ await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections.miao_nai_image_instruction.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签','世界书与正则']);
  assert.equal(await drawingCount.inputValue(),'4~6');
  assert.match(await page.evaluate(()=>window.preview.runtimeMacros.miao_drawing_policy()),/4~6 张[\s\S]*┈┈/);
  await page.getByRole('textbox',{name:'结束标签',exact:true}).fill('END');await button('保存').click();await page.waitForFunction(()=>window.preview.settings.endTag==='END');

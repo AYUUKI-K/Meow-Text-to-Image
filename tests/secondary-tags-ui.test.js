@@ -50,24 +50,15 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             const presetPicker=page.getByRole('combobox',{name:'当前副 API 预设',exact:true});
             assert.equal(await presetPicker.inputValue(),'electronic-ghost');
             assert.equal(await presetPicker.locator('option').count(),1);
-            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵（待导入）');
+            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵1.6（默认）');
             const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
-            assert.equal(await exportButton.isDisabled(),true);
-            await page.evaluate(async endpoint=>{
-                const p=window.preview;
-                const previous=p.settings.secondaryTagAPI;
-                p.settings.secondaryTagAPI={url:endpoint,model:'fixture-model'};
-                await p.emit('GENERATION_STARTED','normal',{},false);
-                p.chat.push({name:'Reply',mes:'There is no imported preset yet.'});
-                document.getElementById('chat').insertAdjacentHTML('beforeend',`<div class="mes" mesid="${p.chat.length-1}"><div class="mes_text">There is no imported preset yet.</div></div>`);
-                await p.emit('GENERATION_ENDED',p.chat.length);
-                await new Promise(resolve=>setTimeout(resolve,150));
-                p.settings.secondaryTagAPI=previous;
-            },endpoint);
-            assert.equal(await page.getByRole('button',{name:'提取绘图 tag',exact:true}).count(),0);
-            assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(item=>item.type==='error'&&item.message.includes('电子幽灵'))),false);
-            assert.equal(requests.length,0,'a missing default preset must not trigger a request');
+            assert.equal(await exportButton.isEnabled(),true);
             const messages=page.locator('.miao-secondary-preset-messages');
+            assert.ok(await messages.locator('details:visible').count()>3);
+            assert.match(await messages.locator('details[open] pre').textContent(),/\{\{正文\}\}/);
+            assert.equal(await page.getByRole('button',{name:'更新资源',exact:true}).count(),1);
+            assert.equal(await page.getByRole('button',{name:'提取绘图 tag',exact:true}).count(),0);
+            assert.equal(requests.length,0,'viewing the bundled preset must not trigger a request');
             const bodyTemplate='<剧情原文>\n{{正文}}\n</剧情原文>';
             const full={prompts:[
                 {identifier:'body',name:'正文条目',role:'system',content:bodyTemplate},
@@ -76,9 +67,9 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 {identifier:'style',name:'风格',role:'system',content:'完整的风格示例'},
                 {identifier:'unlisted',name:'备用范例',role:'system',content:'备用内容'},
             ],prompt_order:[{character_id:100001,order:['setting','style','body','example'].map(identifier=>({identifier,enabled:true}))}]};
-            const input=page.locator('#miao-nai-settings input[type=file]');
+            const input=page.locator('[data-miao-secondary-preset-import]');
             await input.setInputFiles({name:'电子幽灵-测试.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(full))});
-            await messages.locator('details').nth(4).waitFor();
+            await messages.getByText('备用范例 · system · 未启用',{exact:true}).waitFor();
             assert.equal(await messages.locator('details:visible').count(),5);
             assert.equal(await messages.locator('details[open] pre').textContent(),bodyTemplate);
             assert.equal(await exportButton.isEnabled(),true);
@@ -101,7 +92,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             const fixture={type:'miao-secondary-tag-preset',version:1,name:'Fixture preset',
                 instructions:'{{setvar::对象::猫}}{{setglobalvar::标题::{{getvar::对象}}和花}}FIXTURE_DIRECTOR {{getvar::对象}}',
                 bodyTemplate:bodyTemplate+'\n{{getglobalvar::标题}}\n{{角色启用列表}}\n{{上下文}}\n{{用户需求}}\n{{世界书触发}}'};
-            await page.locator('input[type=file]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
+            await input.setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
             await page.getByText(/发送前展开：.*\{\{getvar::对象\}\}/).waitFor();
             assert.equal(await presetPicker.inputValue(),'import-0');
             await page.getByRole('button',{name:'保存副 API',exact:true}).click();
@@ -122,7 +113,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 const data=Buffer.concat(chunks);
                 assert.deepEqual(JSON.parse(data.toString()),fixture,'the export must contain only portable preset fields');
                 const saves=await page.evaluate(()=>window.preview.settingsSaves);
-                await page.locator('input[type=file]').setInputFiles({name:download.suggestedFilename(),mimeType:'application/json',buffer:data});
+                await input.setInputFiles({name:download.suggestedFilename(),mimeType:'application/json',buffer:data});
                 await page.waitForFunction(previous=>window.preview.settingsSaves>previous,saves);
                 assert.equal(await presetPicker.locator('option').count(),2,'reimporting the same preset must not duplicate it');
             }
@@ -160,12 +151,15 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 const garden={world:'Story world',comment:'主体',content:'Garden lore'};
                 const createLore=()=>({globalLore:[named],characterLore:[header,sibling],chatLore:[garden],
                     personaLore:[{world:'[喵喵]文生图 2.2.3',comment:'彩蛋[选开]',content:'old optional instruction'}]});
-                const main=createLore(),secondary=createLore();
-                p.settings.tagSource='main';
+                const main=createLore(),builtin=createLore(),secondary=createLore();
+                const promptMode=p.settings.promptConfig.mode;
+                p.settings.tagSource='main';p.settings.promptConfig.mode='external';
                 await p.emit('WORLDINFO_ENTRIES_LOADED',main);
-                p.settings.tagSource='secondary';
+                p.settings.promptConfig.mode='builtin';
+                await p.emit('WORLDINFO_ENTRIES_LOADED',builtin);
+                p.settings.tagSource='secondary';p.settings.promptConfig.mode=promptMode;
                 await p.emit('WORLDINFO_ENTRIES_LOADED',secondary);
-                p.worldEntryCounts=[Object.values(main).map(group=>group.length),Object.values(secondary).map(group=>group.length)];
+                p.worldEntryCounts=[main,builtin,secondary].map(lore=>Object.values(lore).map(group=>group.length));
                 await p.emit('WORLD_INFO_ACTIVATED',[...Object.values(secondary).flat(),named]);
                 p.chat.push({name:'Reply',mes:rawReply});
                 window.drawSecondaryFixture();
@@ -174,8 +168,14 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.waitForTimeout(180);
             assert.equal(requests.length,0);
             assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
-            assert.deepEqual(await page.evaluate(()=>window.preview.worldEntryCounts),[[1,2,1,1],[0,0,1,0]]);
-            await page.evaluate(async()=>{await window.preview.emit('GENERATION_ENDED',4);await window.preview.emit('GENERATION_ENDED',4);});
+            assert.deepEqual(await page.evaluate(()=>window.preview.worldEntryCounts),[[1,2,1,1],[0,0,1,0],[0,0,1,0]]);
+            await page.evaluate(()=>window.preview.emit('GENERATION_ENDED',4));
+            await page.waitForTimeout(100);
+            assert.equal(requests.length,0,'an early ENDED event must not send a streaming draft');
+            await page.evaluate(async()=>{
+                await window.preview.emit('MESSAGE_RECEIVED',3,'normal');
+                await window.preview.emit('CHARACTER_MESSAGE_RENDERED',3,'normal');
+            });
             const secondary=page.locator('[data-miao-source=secondary]');
             await secondary.waitFor();
             assert.equal(await secondary.count(),1);
@@ -183,6 +183,9 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.equal(requests.length,1);
             assert.equal(requests[0].auth,'Bearer fixture-secondary-key');
             assert.equal(requests[0].body.model,'fixture-model');
+            assert.equal(requests[0].body.stream,false);
+            assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(item=>item.type==='info'&&item.message.includes('正在生成绘图 tag'))),true);
+            assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(item=>item.type==='success'&&item.message.includes('已生成 1 个绘图 tag'))),true);
             assert.equal(requests[0].body.messages[0].content,'FIXTURE_DIRECTOR 猫');
             assert.deepEqual(requests[0].body.messages.at(-1),{role:'user',content:'<剧情原文>\n画面：猫跳上窗台。\n</剧情原文>\n猫和花\ncats\n角色：历史素材。\n\n用户：Earlier filtered text\nEarlier filtered text\nGarden lore'});
             assert.equal(await page.evaluate(()=>window.preview.chat.at(-1).mes),rawReply);
@@ -322,8 +325,8 @@ test('the configured drawing format writes into the active swipe and only expand
             await nav.getByRole('button',{name:'生图指令',exact:true}).click();
             await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
             const count=page.getByRole('textbox',{name:'出图张数',exact:true});
-            await count.fill('1~2');await count.blur();
-            await page.waitForFunction(()=>window.preview.settings.promptConfig.params.count==='1~2');
+            await count.fill('3');await count.blur();
+            await page.waitForFunction(()=>window.preview.settings.promptConfig.params.count==='3');
             await page.getByRole('switch',{name:'启用小标题',exact:true}).check();
             await page.getByRole('switch',{name:'启用NSFW 扩展',exact:true}).check();
             await page.getByRole('combobox',{name:'发送的性向',exact:true}).selectOption('BL');
@@ -331,7 +334,7 @@ test('the configured drawing format writes into the active swipe and only expand
                 {name:'格式',role:'system',enabled:true,content:'{{setvar::张数::5~7}}<drawings><draw after="P02">{{miao_image_start}}tag{{miao_image_end}}</draw></drawings>'},
                 {name:'正文槽位',role:'system',enabled:true,content:'可用角色：\n{{角色启用列表}}\n\n{{正文}}'},
             ]};
-            await page.locator('#miao-nai-settings input[type=file]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
+            await page.locator('[data-miao-secondary-preset-import]').setInputFiles({name:'fixture.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
             await page.getByText('格式 · system',{exact:true}).waitFor();
             await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://draw-fixture.invalid/v1');
             await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture');
@@ -346,7 +349,7 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.getByRole('button',{name:'保存角色 tag',exact:true}).click();
             await page.waitForFunction(()=>!!window.preview.context.chatMetadata.miao_nai_image_role_bindings);
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
-            const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。';
+            const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。\n\n<meowfm>彩蛋正文。</meowfm>';
             await page.evaluate(async ({prose,tt})=>{
                 const p=window.preview;
                 p.chat.splice(0,p.chat.length);
@@ -368,11 +371,16 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.match(requests[0].messages[0].content,/START-FIGtagEND-FIG/);
             const wire=requests[0].messages.map(message=>message.content).join('\n');
             assert.match(wire,/试用人物 = black hair, yellow eyes[\s\S]*走到门口。\n\[P01\][\s\S]*花店亮灯。\n\[P03\]/);
-            assert.match(wire,/全部配图共 1~2 张[\s\S]*\[bl\]/);
+            assert.match(wire,/全部配图共 3 张[\s\S]*\[bl\]/);
             assert.doesNotMatch(wire,/5~7|\[bg\]/);
-            const expected='走到门口。\n\n把窗推开。\n\n┈┈试用标题┈┈\n\nSTART-FIG$试用人物$, sittingEND-FIG\n\n花店亮灯。\n\n/meow_FM\nSTART-FIGteacupEND-FIG\n\n<easter_egg>\n彩蛋 &amp; 茶\n</easter_egg>';
-            assert.deepEqual(await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]),
-                [expected,'另一条分支',expected]);
+            const [placed,original,updated]=await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]);
+            const boundary=placed.indexOf('<meowfm>');
+            assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈试用标题┈┈\s+START-FIG\$试用人物\$, sittingEND-FIG/);
+            assert.match(placed.slice(0,boundary),/START-FIGextra shotEND-FIG/);
+            assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+START-FIGteacupEND-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
+            assert.equal(placed.match(/<meowfm>/g).length,1);
+            assert.doesNotMatch(placed,/\/meow_FM/i);
+            assert.deepEqual([original,updated],['另一条分支',placed]);
             const disabled=await page.evaluate(async()=>{
                 const {drawingResponse}=await import('/scripts/extensions/third-party/test/src/chat/secondary-placement.js');
                 return drawingResponse('<drawings><draw after="P01" egg="true"><title>标题</title><tags>START-FIG cat END-FIG</tags><egg_description>解析</egg_description></draw></drawings>',
@@ -381,9 +389,9 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.equal(disabled.egg,true);
             assert.equal(disabled.title,undefined);
             assert.equal(disabled.eggDescription,undefined);
-            assert.equal(await generate.count(),2);
+            assert.equal(await generate.count(),3);
             assert.equal(await page.evaluate(()=>window.preview.calls.length),0,'manual mode extracts tags without generating an image');
-            await generate.first().click();
+            await generate.nth(placed.indexOf('START-FIGextra shot')<placed.indexOf('START-FIG$试用人物$')?1:0).click();
             await page.waitForFunction(()=>window.preview.calls.length===1);
             const nai=await page.evaluate(()=>window.preview.calls[0].prompt??window.preview.calls[0].input);
             assert.match(nai,/black hair, yellow eyes, sitting/);

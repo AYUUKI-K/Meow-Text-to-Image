@@ -1,4 +1,5 @@
 import {maskReasoning,parseBodyBlocks} from '../core/core.js';
+import {eggBoundary} from '../chat/secondary-placement.js';
 
 // Only an entire visible line is a separator. User text is never a regexp.
 export function parseGenerationBody(text,pattern,format={},marker=''){
@@ -12,17 +13,19 @@ export function parseGenerationBody(text,pattern,format={},marker=''){
             offset+=line.length+1;
         }
     }
-    const last=blocks.at(-1),position=positions[0];
-    const marked=last&&positions.length===1&&position<last.start&&!visible.slice(position+marker.length,last.start).trim()?last:null;
+    const last=blocks.at(-1),position=positions[0],xml=eggBoundary(visible);
+    const end=xml?.end??(positions.length===1?position+marker.length:undefined);
+    const marked=last&&end!==undefined&&end<=last.start&&
+        !visible.slice(end,last.start).replace(/^\s*┈┈[^\r\n]+┈┈\s*$/,'').trim()?last:null;
     return {blocks,marked};
 }
-export function generationCandidates(parsed,{streaming=false,eggEnabled=false}={}){
+export function generationCandidates(parsed,{streaming=false,eggEnabled=false,implicitEgg=true}={}){
     const last=parsed.blocks.at(-1);
     return parsed.blocks.flatMap(block=>{
         // A later token can add another separator/tag. Keep just the tail until
         // completion even with an explicit marker, so ambiguous output is safe.
         if(eggEnabled&&streaming&&block===last)return [];
-        return [{block,egg:eggEnabled&&block===last&&(!streaming||block===parsed.marked)}];
+        return [{block,egg:eggEnabled&&block===last&&(block===parsed.marked||!streaming&&implicitEgg)}];
     });
 }
 

@@ -5,16 +5,12 @@ import {promptTemplates} from '../src/prompts/prompt-templates.js';
 import {composePrompt} from '../src/prompts/prompt-composer.js';
 import {defaultLegacyPromptSettings as defaultPromptSettings,migratePromptSettings,fixedMacroSnapshot,updateFixedMacros} from '../src/prompts/prompt-settings.js';
 import {createPromptInjection,PROMPT_ID} from '../src/platform/prompt-injection.js';
-test('bundled worldbook delegates shared rules while the legacy prompt snapshot remains readable',()=>{
+test('the restored worldbook keeps its native modules and old fixed settings can still migrate',()=>{
  const book=JSON.parse(fs.readFileSync(new URL('../assets/worldbook.json',import.meta.url)));
  const entries=Object.values(book.entries);
  for(const t of Object.values(promptTemplates))assert.ok(entries.some(e=>e.comment===t.comment));
- assert.ok(entries.find(e=>e.comment==='主体').content.includes('{{miao_drawing_policy}}'));
- const retired=['自检[选开]','彩蛋[选开]','小标题[选开]','bg[选一]','bl[选一]','gl[选一]','双性[选一]','彩蛋解析[选开]','NSFW提示词'];
- for(const name of retired){
-  const entry=entries.find(e=>e.comment===name);
-  assert.equal(entry.disable,true);
-  assert.equal(entry.content,'');
+ for(const name of ['自检[选开]','彩蛋[选开]','小标题[选开]','bg[选一]','bl[选一]','gl[选一]','双性[选一]','彩蛋解析[选开]','NSFW提示词']){
+  assert.ok(entries.find(e=>e.comment===name).content.trim());
  }
  assert.equal(migratePromptSettings(book).params.count,'2~3');
 });

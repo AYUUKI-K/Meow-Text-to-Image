@@ -61,6 +61,36 @@ test('paragraph IDs are suffixes, map through regex changes, and write only wrap
     assert.throws(()=>expandRoleTags(macro,roleList('其它角色 = glasses')),/未绑定/);
 });
 
+test('normal figures stay in distinct prose paragraphs and the bonus reuses the existing XML',()=>{
+    const raw='第一段。\n\n第二段。\n\n第三段。\n\n<Meow_FM>彩蛋内容</Meow_FM>\n\n末尾信息。';
+    const {text,anchors}=numberedReply('第一段。\n\n第二段。\n\n第三段。',raw,'/meow_FM');
+    assert.match(text,/第三段。\n\[P03\]$/);
+    const drawings=[{anchor:'P02',tag:'[A]'}, {anchor:'P02',tag:'[B]'},
+        {anchor:'P99',tag:'[C]'}, {anchor:'P01',tag:'[EGG]',egg:true}];
+    const result=insertDrawingTags(raw,anchors.paragraphs,drawings,anchors.end,anchors.egg,anchors.available);
+    assert.match(result.text,/第一段。\s+\[B\]\s+第二段。\s+\[A\]\s+第三段。\s+\[C\]\s+<Meow_FM>彩蛋内容<\/Meow_FM>\s+\[EGG\]\s+末尾信息。/);
+    assert.equal(result.text.replace(/\n\n\[(?:A|B|C|EGG)\]/g,''),raw);
+    assert.equal(insertDrawingTags('单段。',[{id:'P01',end:3}],drawings.slice(-1)).starts.size,0);
+});
+
+test('Electronic Ghost is available by default and assembles a complete non-streaming request',async()=>{
+    const preset=activeSecondaryPreset(readSecondaryLibrary({}));
+    assert.equal(preset.id,'electronic-ghost');
+    assert.match(preset.name,/电子幽灵/);
+    assert.ok(preset.entries.length>3);
+    const output={...drawingOptions(defaultPromptSettings()),egg:false};
+    await assert.rejects(requestSecondaryTags({url:'https://fixture.invalid/chat',model:'fixture',maxTags:3,preset,output},'fixture-key','猫走到窗前。\n[P01]',{
+        macros:{values:{角色启用列表:()=>''},substitute:text=>text.replace(/\{\{user\}\}/g,'访客').replace(/\{\{(?:set|get)(?:global)?var::[^}]*\}\}/gi,'')},
+        fetchImpl:async(_url,{body})=>{
+            const payload=JSON.parse(body),messages=payload.messages.map(item=>item.content).join('\n');
+            assert.equal(payload.stream,false);
+            assert.match(messages,/猫走到窗前。\n\[P01\]/);
+            assert.match(messages,/本楼不输出彩蛋条目/);
+            return new Response(null,{status:503});
+        },
+    }),/HTTP 503/);
+});
+
 test('an existing secondary preset retains its current instructions and raw-body layout', ()=>{
     const legacy={name:'My previous preset',instructions:'Use visual tags.'};
     const preset=activeSecondaryPreset(readSecondaryLibrary({secondaryTagAPI:{preset:legacy}}));

@@ -14,6 +14,7 @@ publicFiles.add('src/novelai/character-prompts.js');
 publicFiles.add('src/prompts/secondary-tags.js');
 publicFiles.add('src/prompts/secondary-macros.js');
 publicFiles.add('src/prompts/secondary-presets.js');
+publicFiles.add('src/prompts/electronic-ghost.js');
 publicFiles.add('src/chat/secondary-placement.js');
 publicFiles.add('src/prompts/drawing-options.js');
 publicFiles.add('src/chat/secondary-tags.js');
