@@ -155,11 +155,15 @@ test('the bundled preset sends exact role calls while keeping fixed tags for loc
         macros,roleTags:roles,fetchImpl:async(_url,{body})=>{
             const wire=JSON.parse(body).messages.map(message=>message.content).join('\n');
             assert.match(wire,/苏禾 → \$苏禾\$\n温枝 → \$温枝\$/);
+            assert.match(wire,/把 \$角色名\$ 当作已经填好的一整组内置人物特征词/);
+            assert.match(wire,/\(girlA:1\.2, \$角色名\$, slim, school uniform, smile, standing\)/);
+            assert.match(wire,/<draw after="P01" quote="推开窗户">\s*(?:<title>[^<]+<\/title>\s*)?<tags>image###sfw, 1girl,[^<]+\(girlA:1\.2, \$苏禾\$, slim, school uniform, smile, standing, opening window\)###<\/tags>/);
             assert.doesNotMatch(wire,/amber eyes|blue coat|purple hair/);
             return new Response(null,{status:503});
         },
     }),/HTTP 503/);
-    assert.equal(expandRoleTags('($苏禾$, passing a key)',roles),'(amber eyes, blue coat, passing a key)');
+    assert.equal(expandRoleTags('(girlA:1.2, $苏禾$, slim, school uniform, smile, standing),',roles),
+        '(girlA:1.2, amber eyes, blue coat, slim, school uniform, smile, standing),');
 });
 
 test('an existing secondary preset retains its current instructions and raw-body layout', ()=>{

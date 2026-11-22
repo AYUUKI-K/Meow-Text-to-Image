@@ -92,16 +92,22 @@ export function flattenSecondaryPrompt(prompt) {
 const flatTagExample = 'sfw, 1boy, 1girl, soft thick paint, medium close-up, cafe, window light, masterpiece, best quality, (1.2::Character Name(Series Name)::, offering a cup), (girlA:1.2, white hair, short hair, blue eyes, tan sweater, reaching out), looking at each other';
 const fandomRule = '未绑定的著名同人或 ACGN 角色，使用世界书的 (1.2::角色英文名(作品出处)::, 本段动作或表情) 结构。姓名和作品处于同一组权重内；省略默认发色、瞳色和服装，正文明确出现换装、战损等变化时才补相应 tag。原创角色按正文写外貌，各角色单独使用带权重的括号组。';
 
-function drawingExample({title=true,egg=true,eggDescription=true,count={max:2}}={}){
+const escapeXMLText = value => value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const drawingFormatHeading = '仅用 <drawings> 返回配图。';
+
+function drawingExample({title=true,egg=true,eggDescription=true,count={max:2},roleName,
+    capture={start:'{{miao_image_start}}',end:'{{miao_image_end}}'}}={}){
     const draw=(attributes,heading,tags)=>[
         `  <draw ${attributes}>`,
         title && `    <title>${heading}</title>`,
-        `    <tags>{{miao_image_start}}${tags}{{miao_image_end}}</tags>`,
+        `    <tags>${escapeXMLText(capture.start+tags+capture.end)}</tags>`,
         egg&&eggDescription&&attributes==='egg="true"'&&'    <egg_description>今天的茶是胜利品。</egg_description>',
         '  </draw>',
     ].filter(Boolean).join('\n');
     const ordinary = [
-        draw('after="P01" quote="推开窗户"','✦·窗边晨光·(｡•ᴗ•｡)·✦','sfw, windowsill, morning light, opening window'),
+        draw('after="P01" quote="推开窗户"','✦·窗边晨光·(｡•ᴗ•｡)·✦',roleName
+            ? `sfw, 1girl, windowsill, morning light, (girlA:1.2, $${roleName}$, slim, school uniform, smile, standing, opening window)`
+            : 'sfw, windowsill, morning light, opening window'),
         draw('after="P03" quote="拿起茶杯"','✧·杯中茶香·(≧▽≦)·✧','sfw, teacup, holding cup, soft lighting'),
     ];
     return [
@@ -127,6 +133,7 @@ export function secondaryTagTemplate(text) {
         .replace('-   **格式**: `{角色1全套描述}, {角色2全套描述}, ...`','- 格式：(角色1的 tag), (角色2的 tag)')
         .replace('- if: 原创角色 → 使用 girl / boy + 详细外貌tag(发色+发型+瞳色+眼型+特征等)','- 未绑定的原创角色使用 girl / boy 及各自的外貌 tag。')
         .replace('- 包裹必须包含详细的：(外貌 + 性别 + 服装 + 表情 + 动作)','- 角色组包含本轮规定的身份写法，并补充当前表情、动作与可见状态。只为未绑定的原创角色填写完整外貌。')
+        .replace('主角：详细描述所有细节','主角：遵从本轮身份规则。已绑定角色保留调用记号，并补充本段的动作与表情。')
         .replace('- 每个角色必须加权重','- 人物组可按需加权。已绑定人物的调用记号原样保留。')
         .replace('你必须在思考阶段明确列出{{miao_image_count}}张个有效的段尾编号，否则视为任务失败。','从有编号的段落中按本轮数量 {{miao_image_count}} 选出相应的有效段尾编号。')
         .replace('每个插入点需明确：动作、构图、坐标','每个插入点须有本段发生的动作、构图和原文短语；不得借用末段情节。')
@@ -160,10 +167,7 @@ function removeLegacyRoleDirections(text) {
 
 function sharedTemplate(text, options) {
     if (!options) return text;
-    let source = secondaryTagTemplate(text).replace(/\{@([^@\r\n]+)@\}/g,'{{$1}}');
-    if(source.startsWith('仅用 <drawings> 返回配图。')){
-        source=source.replace(/\n<drawings>[\s\S]*?<\/drawings>/,()=> '\n'+drawingExample(options));
-    }
+    const source = secondaryTagTemplate(text).replace(/\{@([^@\r\n]+)@\}/g,'{{$1}}');
     const names = new Set(['张数','生图数量','彩蛋数量','小标题','彩蛋解析','性向绘画',
         '文生图NSFW1','文生图NSFW2','文生图NSFW3','文生图NSFW4']);
     if (!options.egg) for (const name of ['彩蛋','彩蛋自检','彩蛋要求']) names.add(name);
@@ -188,6 +192,8 @@ function secondaryOutputRule(options, inline, capture, {specializationInPreset =
         `格式示例：${flatTagExample}`,fandomRule];
     if (roleText) {
         rule.push('逐张核对出镜人物。每位在绑定表中且确实出镜的角色都必须在自己的括号组里写一次 $角色名$，用绑定表里的名字原样替换「角色名」。保留完整的两个 $，禁止抄写或改写等号右边的固定 tag。继续为该角色补充本段的动作、表情和姿势。未出镜的角色无需调用；其他出镜角色由你根据正文直接写英文外貌和动作 tag。');
+        rule.push('把 $角色名$ 当作已经填好的一整组内置人物特征词。发色、瞳色、发型等固定特征由它占位，插件会在发给 NovelAI 前展开。你只写记号本身，不在记号里写英文 tag，也不重复、猜测或改写这些固定特征。');
+        rule.push('角色组按 (girlA:1.2, $角色名$, slim, school uniform, smile, standing) 的顺序写。保留人物标识及其权重；调用记号只放在固定特征的位置，后面的体态、服装、表情和动作按本段正文来写。');
         const calls=roleText.split('\n').map(line=>line.split(' = ',1)[0]);
         rule.push('当前存档的角色调用表，右侧是必须原样输出的记号\n'+calls.map(name=>`${name} → $${name}$`).join('\n'));
         if(roleSlot)rule.push('如果自定义预设还列出了角色的固定 tag，照样返回调用记号，由插件补上固定外貌。');
@@ -196,8 +202,7 @@ function secondaryOutputRule(options, inline, capture, {specializationInPreset =
     if (options.nsfwRules) rule.push(options.nsfwRules);
     if (options.specialization&&!specializationInPreset) rule.push(options.specialization);
     if (inline) {
-        const escaped = value => value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        rule.push(`仅返回 <drawings> XML。普通图的 <draw after="P02" quote="原文短语"> 必须使用实际给出的段尾编号；quote 从同一段中原样摘取一段可辨识的短语。绘图提示词放在 <tags>${escaped(capture.start)}tag${escaped(capture.end)}</tags> 内。`);
+        rule.push(`最终回复只包含一个 <drawings> XML。每张图用一个 <draw>。正文图用 after 指定真实的段尾编号，再用 quote 原样摘录同段短语。每个条目的 <tags> 仅包含一组 ${escapeXMLText(capture.start)}tag${escapeXMLText(capture.end)}；出镜绑定角色的调用记号属于这组 tag 的人物特征字段。省略 Markdown 围栏和说明文字。`);
         rule.push('先从开头到结尾挑选不同剧情节点，再给每个节点写画面；有足够段落时覆盖至少一个前半段情节。每张图只能描绘其编号段落里的场景，按段号顺序输出；普通图不可共用段号或集中选最后几段。');
         rule.push('普通图只能放在正文段落，避开 meowfm 彩蛋区。不要复述正文，也不要返回 meowfm 标记。');
         if (options.title) rule.push(`每张正文图和彩蛋图的 <draw> 内都必须有一个非空的 <title>，写在 <tags> 前。由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。在 <title> 中只写标题内容，省略世界书的 ┈┈ 边框。返回前逐张检查标题。`);
@@ -211,9 +216,15 @@ function secondaryOutputRule(options, inline, capture, {specializationInPreset =
 
 export function buildSecondaryMessages({maxTags, preset, output, roleText = '', capture = {start:'image###',end:'###'}}, body, expand) {
     if (!preset) throw Error('副 API 预设无效');
+    const renderText = text => expand ? expand(text) : resolveCapture(text,capture).replace(replySlot, () => body);
     const render = source => {
         const text = captureTemplate(sharedTemplate(source,output));
-        return expand ? expand(text) : resolveCapture(text,capture).replace(replySlot, () => body);
+        const example = output && text.startsWith(drawingFormatHeading) && /\n<drawings>[\s\S]*?<\/drawings>/.exec(text);
+        if (!example) return renderText(text);
+        // Insert saved role names after expanding Tavern macros, keeping the names literal.
+        const roleName = roleText.split(' = ',1)[0];
+        return renderText(text.slice(0,example.index))+ '\n'+drawingExample({...output,roleName,capture})+
+            renderText(text.slice(example.index+example[0].length));
     };
     if (preset.entries) {
         const messages = preset.entries.filter(entry => entry.enabled && entry.content.trim() &&
