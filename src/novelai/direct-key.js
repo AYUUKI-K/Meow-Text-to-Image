@@ -1,6 +1,17 @@
 // Key material never enters extension settings or uploaded Vibe files.
-export function createKeyVault(scope,{indexedDBImpl=globalThis.indexedDB}={}){
+export function createKeyVault(scope,{indexedDBImpl=globalThis.indexedDB,tabStorage}={}){
     let sessionKey='';
+    const tabKey='miao-nai:tab-key:'+scope;
+    const readTab=()=>{try{return tabStorage?.().getItem(tabKey)||'';}catch{return '';}};
+    function writeTab(value){
+        if(!tabStorage)return;
+        try{
+            const storage=tabStorage();
+            if(value)storage.setItem(tabKey,value);else storage.removeItem(tabKey);
+        }catch{
+            if(value)throw Error('无法把 Key 保存到当前标签页，请改为「此设备」');
+        }
+    }
     const database=()=>new Promise((resolve,reject)=>{
         if(!indexedDBImpl)return reject(Error('此浏览器不支持记住 Key，请取消勾选「在此设备记住」'));
         const request=indexedDBImpl.open('miao-nai-direct-key',1);
@@ -9,14 +20,26 @@ export function createKeyVault(scope,{indexedDBImpl=globalThis.indexedDB}={}){
     });
     const operation=async(mode,run)=>{const db=await database();try{return await new Promise((resolve,reject)=>{const tx=db.transaction('keys',mode),request=run(tx.objectStore('keys'));let value;request.onsuccess=()=>value=request.result;tx.oncomplete=()=>resolve(value);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Key 保存中断'));});}finally{db.close();}};
     const forgetPersistent=async()=>{if(indexedDBImpl)await operation('readwrite',store=>store.delete(scope));};
-    const get=async()=>{if(sessionKey)return sessionKey;if(!indexedDBImpl)return '';sessionKey=(await operation('readonly',store=>store.get(scope)))||'';return sessionKey;};
+    const get=async()=>{sessionKey||=readTab();if(sessionKey)return sessionKey;if(!indexedDBImpl)return '';sessionKey=(await operation('readonly',store=>store.get(scope)))||'';return sessionKey;};
+    async function set(value,remember=false){
+        if(remember){
+            await operation('readwrite',store=>store.put(value,scope));
+            writeTab('');
+        }else{
+            const previousTab=readTab();
+            writeTab(value);
+            try{await forgetPersistent();}
+            catch(error){writeTab(previousTab);throw error;}
+        }
+        sessionKey=value;
+    }
     return {
         get,
-        async set(value,remember=false){if(remember)await operation('readwrite',store=>store.put(value,scope));else await forgetPersistent();sessionKey=value;},
-        async remember(remember){const key=await get();if(remember&&key)await operation('readwrite',store=>store.put(key,scope));else if(!remember)await forgetPersistent();return Boolean(key);},
+        set,
+        async remember(remember){const key=await get();if(key||!remember)await set(key,remember);return Boolean(key);},
         async status(){const key=await get(),stored=indexedDBImpl?(await operation('readonly',store=>store.get(scope)))||'':'';return {available:!!key,persistent:!!key&&stored===key};},
         forgetPersistent,
-        async clear(){await forgetPersistent();sessionKey='';},
+        async clear(){await set('');},
     };
 }
 

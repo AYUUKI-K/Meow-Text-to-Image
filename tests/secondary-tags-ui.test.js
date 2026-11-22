@@ -14,67 +14,86 @@ async function previewAddress(server){
     });
 }
 
-test('updating the extension keeps device keys available after reloading the settings panel',{timeout:30000},async()=>{
+test('updating the extension keeps device and tab keys available after reloading the settings panel',{timeout:30000},async()=>{
     const {chromium}=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
     const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
     let browser;
     try{
         const base=await previewAddress(server);
         browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
-        const page=await browser.newPage();
-        page.setDefaultTimeout(6500);
-        await page.goto(base+'/?settings-smoke&key-update');
-        await page.locator('#miao-nai-menu').waitFor();
-        await page.evaluate(async()=>{
-            const p=window.preview;
-            const {createKeyVault}=await import('/scripts/extensions/third-party/test/src/novelai/direct-key.js');
-            const {fingerprintKey}=await import('/scripts/extensions/third-party/test/src/queue/cloud-queue.js');
-            const user='miao-preview-user';
-            await createKeyVault(user).set('fixture-nai-key',true);
-            await createKeyVault(JSON.stringify([user,'custom-novelai'])).set('fixture-custom-key',true);
-            Object.assign(p.settings,{tagSource:'secondary',
-                keyHash:await fingerprintKey('fixture-nai-key'),rememberDirectKey:true,
-                customKeyHash:await fingerprintKey('fixture-custom-key'),rememberCustomKey:true});
-        });
-        await page.locator('#miao-nai-menu').click();
-        await page.locator('.miao-overview').getByRole('button',{name:'资源',exact:true}).click();
-        assert.equal(await page.getByRole('combobox',{name:'副 API Key 保存',exact:true}).inputValue(),'device');
-        await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://key-update.invalid/v1');
-        await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture');
-        await page.getByLabel('副 API Key',{exact:true}).fill('fixture-secondary-key');
-        await page.getByRole('button',{name:'保存副 API',exact:true}).click();
-        await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
-        await page.evaluate(()=>{
-            const p=window.preview;
-            const saves=p.settingsSaves??0;
-            p.beforeRequest=path=>{
-                if(path==='/api/extensions/update')sessionStorage.setItem('miao-fixture-update-saved',String(p.settingsSaves>saves));
-            };
-        });
-        await page.getByRole('button',{name:'返回主页',exact:true}).click();
-        await page.getByRole('button',{name:'检查并更新',exact:true}).click();
-        await page.waitForFunction(()=>window.preview.reloads===1);
-        assert.equal(await page.evaluate(()=>sessionStorage.getItem('miao-fixture-update-saved')),'true');
-        await page.reload();
-        await page.locator('#miao-nai-menu').click();
-        await page.locator('.miao-overview').getByRole('button',{name:'资源',exact:true}).click();
-        await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
-        assert.equal(await page.getByLabel('副 API Key',{exact:true}).inputValue(),'');
-        await page.getByRole('button',{name:'保存',exact:true}).click();
-        await page.getByRole('button',{name:'已保存',exact:true}).waitFor();
-        const result=await page.evaluate(async()=>{
-            const {createKeyVault}=await import('/scripts/extensions/third-party/test/src/novelai/direct-key.js');
-            const {fingerprintKey}=await import('/scripts/extensions/third-party/test/src/queue/cloud-queue.js');
-            const p=window.preview,user='miao-preview-user';
-            const scopes=[user,JSON.stringify([user,'custom-novelai']),JSON.stringify([user,'secondary-tags',p.settings.secondaryTagAPI.url])];
-            const keys=await Promise.all(scopes.map(scope=>createKeyVault(scope).get()));
-            return [
-                keys[0]==='fixture-nai-key'&&p.settings.keyHash===await fingerprintKey(keys[0]),
-                keys[1]==='fixture-custom-key'&&p.settings.customKeyHash===await fingerprintKey(keys[1]),
-                keys[2]==='fixture-secondary-key',
-            ];
-        });
-        assert.deepEqual(result,[true,true,true]);
+        for(const mode of ['device','page','legacy-device']){
+            const remember=mode==='page'?'page':'device';
+            const page=await browser.newPage();
+            page.setDefaultTimeout(6500);
+            await page.route('https://key-update.invalid/v1/models',route=>route.fulfill({
+                headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization'},
+                json:{data:[{id:'fixture'}]},
+            }));
+            await page.goto(base+'/?settings-smoke&key-update');
+            await page.locator('#miao-nai-menu').waitFor();
+            await page.evaluate(async()=>{
+                const p=window.preview;
+                const {createKeyVault}=await import('/scripts/extensions/third-party/test/src/novelai/direct-key.js');
+                const {fingerprintKey}=await import('/scripts/extensions/third-party/test/src/queue/cloud-queue.js');
+                const user='miao-preview-user';
+                await createKeyVault(user).set('fixture-nai-key',true);
+                await createKeyVault(JSON.stringify([user,'custom-novelai'])).set('fixture-custom-key',true);
+                Object.assign(p.settings,{tagSource:'secondary',
+                    keyHash:await fingerprintKey('fixture-nai-key'),rememberDirectKey:true,
+                    customKeyHash:await fingerprintKey('fixture-custom-key'),rememberCustomKey:true});
+            });
+            await page.locator('#miao-nai-menu').click();
+            await page.locator('.miao-overview').getByRole('button',{name:'资源',exact:true}).click();
+            const persistence=page.getByRole('combobox',{name:'副 API Key 保存',exact:true});
+            assert.equal(await persistence.inputValue(),'device');
+            await persistence.selectOption(remember);
+            await page.getByRole('textbox',{name:'副 API 地址',exact:true}).fill('https://key-update.invalid/v1');
+            await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture');
+            await page.getByLabel('副 API Key',{exact:true}).fill('fixture-secondary-key');
+            await page.getByRole('button',{name:'保存副 API',exact:true}).click();
+            await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
+            await page.evaluate(legacy=>{
+                const p=window.preview;
+                if(legacy)p.settings.secondaryTagAPI.remember=false;
+                const saves=p.settingsSaves??0;
+                p.beforeRequest=path=>{
+                    if(path==='/api/extensions/update')sessionStorage.setItem('miao-fixture-update-saved',String(p.settingsSaves>saves));
+                };
+            },mode==='legacy-device');
+            await page.getByRole('button',{name:'返回主页',exact:true}).click();
+            await page.getByRole('button',{name:'检查并更新',exact:true}).click();
+            await page.waitForFunction(()=>window.preview.reloads===1);
+            assert.equal(await page.evaluate(()=>sessionStorage.getItem('miao-fixture-update-saved')),'true');
+            await page.reload();
+            await page.locator('#miao-nai-menu').click();
+            await page.locator('.miao-overview').getByRole('button',{name:'资源',exact:true}).click();
+            await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
+            assert.equal(await page.getByLabel('副 API Key',{exact:true}).inputValue(),'');
+            assert.equal(await page.getByLabel('副 API Key',{exact:true}).getAttribute('placeholder'),'已保存，留空沿用');
+            assert.equal(await persistence.inputValue(),mode==='legacy-device'?'page':remember);
+            if(mode==='legacy-device')await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture-new-model');
+            await page.getByRole('button',{name:'保存',exact:true}).click();
+            await page.getByRole('button',{name:'已保存',exact:true}).waitFor();
+            assert.equal(await persistence.inputValue(),remember);
+            const result=await page.evaluate(async remember=>{
+                const {createKeyVault}=await import('/scripts/extensions/third-party/test/src/novelai/direct-key.js');
+                const {fingerprintKey}=await import('/scripts/extensions/third-party/test/src/queue/cloud-queue.js');
+                const p=window.preview,user='miao-preview-user';
+                const scopes=[user,JSON.stringify([user,'custom-novelai']),JSON.stringify([user,'secondary-tags',p.settings.secondaryTagAPI.url])];
+                const keys=await Promise.all(scopes.map((scope,index)=>createKeyVault(scope,index===2?{tabStorage:()=>sessionStorage}:{}).get()));
+                const {persistent}=await createKeyVault(scopes[2],{tabStorage:()=>sessionStorage}).status();
+                return [
+                    keys[0]==='fixture-nai-key'&&p.settings.keyHash===await fingerprintKey(keys[0]),
+                    keys[1]==='fixture-custom-key'&&p.settings.customKeyHash===await fingerprintKey(keys[1]),
+                    keys[2]==='fixture-secondary-key'&&persistent===(remember==='device'),
+                ];
+            },remember);
+            assert.deepEqual(result,[true,true,true]);
+            const request=page.waitForRequest(request=>request.method()==='GET'&&request.url()==='https://key-update.invalid/v1/models');
+            await page.getByRole('button',{name:'获取模型',exact:true}).click();
+            assert.equal((await request).headers().authorization,'Bearer fixture-secondary-key');
+            await page.close();
+        }
     }finally{await browser?.close();server.kill();}
 });
 
@@ -456,6 +475,8 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.getByRole('button',{name:'保存捕捉标签',exact:true}).click();
             const characters=page.getByRole('textbox',{name:'角色名',exact:true});
             const roleTags=page.getByRole('textbox',{name:'固定 tag',exact:true});
+            assert.equal(await characters.first().getAttribute('placeholder'),'小爱');
+            assert.equal(await roleTags.first().getAttribute('placeholder'),'blue eyes,long hair,white hair,');
             assert.deepEqual(await characters.evaluateAll(inputs=>inputs.map(input=>input.value)),['已有角色','第二角色']);
             assert.deepEqual(await roleTags.evaluateAll(inputs=>inputs.map(input=>input.value)),['silver hair','blue eyes']);
             if(tt)assert.match(await page.locator('.miao-role-row').first().evaluate(row=>getComputedStyle(row).gridTemplateAreas),/"name remove" "tags tags"/);

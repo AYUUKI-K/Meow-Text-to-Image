@@ -104,8 +104,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const tags=field(group,'固定 tag',row.tags,value=>{row.tags=value;},{type:'textarea'});
             name.closest('label').classList.add('miao-role-name');
             tags.closest('label').classList.add('miao-role-tags');
-            name.placeholder='例如 结城爱';
-            tags.placeholder='例如 black hair, yellow eyes';
+            name.placeholder='小爱';
+            tags.placeholder='blue eyes,long hair,white hair,';
             tags.rows=2;
             action(group,'移除角色',()=>{
                 const rowIndex=draft.rows.indexOf(row);
@@ -606,16 +606,20 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 const model=field(api,'副 API 模型',connection.model,()=>{});
                 const key=field(api,'副 API Key','',()=>{},{wide:true});
                 key.autocomplete='off';key.autocapitalize='none';key.spellcheck=false;
-                const remember=field(api,'副 API Key 保存',connection.remember!==false?'device':'page',()=>{},{options:[['page','当前页面'],['device','此设备']]});
+                const remember=field(api,'副 API Key 保存',connection.remember!==false?'device':'page',()=>{},{options:[['page','当前标签页'],['device','此设备']]});
                 const status=node('p',undefined,'miao-notice');status.setAttribute('role','status');api.append(status);
+                url.addEventListener('input',()=>{key.placeholder='';});
                 const refreshKeyStatus=async()=>{
                     const saved=settings.secondaryTagAPI;
-                    let message;
+                    let message,available=false;
                     try{
-                        const available=await secondaryKeyAvailable();
+                        available=await secondaryKeyAvailable();
                         message=available?'连接已配置 · 全文结束后出词':saved?.url?'当前浏览器缺少副 API Key，请重新填写并保存。':'请填写地址、模型和 Key 后保存。';
                     }catch{message='无法读取此设备保存的副 API Key。';}
-                    if(settings.secondaryTagAPI===saved)status.textContent=message;
+                    if(settings.secondaryTagAPI===saved){
+                        status.textContent=message;
+                        if(url.value.trim()===(saved?.url??''))key.placeholder=available?'已保存，留空沿用':'';
+                    }
                 };
                 void refreshKeyStatus();
                 const actions=node('div',undefined,'miao-actions');api.append(actions);
@@ -638,6 +642,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                         await saveSecondarySettings('secondary',{url:url.value,model:model.value,key:key.value,remember:remember.value==='device'});
                         url.value=settings.secondaryTagAPI.url;
                         model.value=settings.secondaryTagAPI.model;
+                        remember.value=settings.secondaryTagAPI.remember?'device':'page';
                         key.value='';
                         await refreshKeyStatus();
                     });

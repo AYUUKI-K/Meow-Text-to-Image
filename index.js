@@ -142,7 +142,7 @@ const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
 const customVault=createKeyVault(JSON.stringify([directUser,'custom-novelai']));
 const secondaryVaults=new Map();
 function secondaryVault(url){
-    if(!secondaryVaults.has(url))secondaryVaults.set(url,createKeyVault(JSON.stringify([directUser,'secondary-tags',url])));
+    if(!secondaryVaults.has(url))secondaryVaults.set(url,createKeyVault(JSON.stringify([directUser,'secondary-tags',url]),{tabStorage:()=>sessionStorage}));
     return secondaryVaults.get(url);
 }
 async function listSecondaryModels({url,key}){
@@ -654,9 +654,10 @@ async function saveSecondarySettings(source,values,library){
         if(values){
             const next=secondaryConnection(values),vault=secondaryVault(next.url);
             delete next.maxTags;
-            const previousKey=await vault.get(),key=values.key.trim()||previousKey;
+            const previousKey=await vault.get(),input=values.key.trim(),key=input||previousKey;
             if(!key)throw Error('请填写此副 API 地址的 Key');
             const {persistent}=await vault.status();
+            if(!input&&persistent&&previousConnection?.url===next.url&&previousConnection.remember===next.remember)next.remember=true;
             await vault.set(key,next.remember);
             restoreKey=()=>vault.set(previousKey,persistent);
             settings.secondaryTagPresets??=readSecondaryLibrary(settings);
