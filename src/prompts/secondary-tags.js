@@ -89,13 +89,44 @@ export function flattenSecondaryPrompt(prompt) {
     return characters.length ? [scene.replace(/,\s*$/, ''), ...characters.map(character=>`(${character.prompt})`)].join(', ') : scene;
 }
 
-const flatTagExample = 'sfw, 1boy, 1girl, close-up, warm light, (1.2::name A(series)::, dark hair, sitting), (name B:1.2, light hair, looking at another), indoor';
+const flatTagExample = 'sfw, 1boy, 1girl, soft thick paint, medium close-up, cafe, window light, masterpiece, best quality, (1.2::Character Name(Series Name)::, offering a cup), (girlA:1.2, white hair, short hair, blue eyes, tan sweater, reaching out), looking at each other';
+const fandomRule = '未绑定的著名同人或 ACGN 角色，使用世界书的 (1.2::角色英文名(作品出处)::, 本段动作或表情) 结构。姓名和作品处于同一组权重内；省略默认发色、瞳色和服装，正文明确出现换装、战损等变化时才补相应 tag。原创角色按正文写外貌，各角色单独使用带权重的括号组。';
+
+function drawingExample({title=true,egg=true,eggDescription=true,count={max:2}}={}){
+    const draw=(attributes,heading,tags)=>[
+        `  <draw ${attributes}>`,
+        title && `    <title>${heading}</title>`,
+        `    <tags>{{miao_image_start}}${tags}{{miao_image_end}}</tags>`,
+        egg&&eggDescription&&attributes==='egg="true"'&&'    <egg_description>今天的茶是胜利品。</egg_description>',
+        '  </draw>',
+    ].filter(Boolean).join('\n');
+    const ordinary = [
+        draw('after="P01" quote="推开窗户"','✦·窗边晨光·(｡•ᴗ•｡)·✦','sfw, windowsill, morning light, opening window'),
+        draw('after="P03" quote="拿起茶杯"','✧·杯中茶香·(≧▽≦)·✧','sfw, teacup, holding cup, soft lighting'),
+    ];
+    return [
+        '<drawings>',
+        ...ordinary.slice(0,count.max),
+        egg&&draw('egg="true"','☆·茶杯大冒险·(๑˃ᴗ˂)☆','chibi, playful smile, teacup'),
+        '</drawings>',
+    ].filter(Boolean).join('\n');
+}
 
 // Adapt older Electronic Ghost imports at request time, leaving their stored instructions intact.
 export function secondaryTagTemplate(text) {
     return removeLegacyRoleDirections(text.replace(/Scene Composition:\s*morning light, windowsill;Character 1 Prompt:\$角色名\$, looking outside\|centers:B3;/g,flatTagExample)
         .replace(/Scene Composition:\.\.\.;Character X Prompt:\.\.\.\|centers:坐标;Character X UC:\.\.\.;/g,flatTagExample)
+        .replaceAll('sfw, 1boy, 1girl, close-up, warm light, (1.2::name A(series)::, dark hair, sitting), (name B:1.2, light hair, looking at another), indoor',flatTagExample)
         .replace(/^ *- 每个角色必须有坐标[^\n]*$/gm,'   - 每个角色的词放在各自的括号内，场景与角色组用逗号连接。')
+        .replace(/^只返回一个 <drawings>。每张图用一个 <draw[^\n]*\n<drawings>[\s\S]*?<\/drawings>/,'仅用 <drawings> 返回配图。普通图按段尾编号落图，彩蛋使用独立条目。\n'+drawingExample())
+        .replace(/^示例只说明字段。[^\n]*/m,'示例只说明字段。实际张数、小标题、彩蛋和解析以本轮插件设置为准。开启小标题时，每张图都必须返回各自的 title。')
+        .replace(/3\.你需要思考:如果角色是著名ACGN角色[^\n]*/,'3. '+fandomRule)
+        .replace('- 原创作画：每张图片都是独一无二的，必须完整、逐字逐句地以“角色DNA“描述角色','- 原创角色按正文写可见的发型、瞳色、身形和衣着。著名角色和已绑定角色按各自规则写。')
+        .replace('你必须在思考阶段明确列出{{miao_image_count}}张个有效的段尾编号，否则视为任务失败。','从有编号的段落中按本轮数量 {{miao_image_count}} 选出相应的有效段尾编号。')
+        .replace('每个插入点需明确：动作、构图、坐标','每个插入点须有本段发生的动作、构图和原文短语；不得借用末段情节。')
+        .replace(/- 数量：每张图片Tag≥Tag≥90个个（逗号分隔计数）\n[^\n]*/,'- 围绕本段可见画面选择有效 tag，保留有用的构图、光影、动作和角色区别。')
+        .replace(/8\. \*\*UC动态排除项检查\*\*：[\s\S]*?(?=9\. \*\*)/,'8. 检查画面可见范围，省略与本段无关的细节。\n\n')
+        .replace(/9\. \*\*防吞噬检查\*\*：[\s\S]*?(?=10\. \*\*)/,'9. 核对每张图的标签边界。仅返回配图 XML。\n\n')
         .replace('## 1.Scene Composition','## 1.公共场景词')
         .replace('## 2.Character Prompt','## 2.人物括号组')
         .replace('<title>窗边晨光</title>','<title>✦·窗边晨光·(｡•ᴗ•｡)·✦</title>')
@@ -123,7 +154,10 @@ function removeLegacyRoleDirections(text) {
 
 function sharedTemplate(text, options) {
     if (!options) return text;
-    const source = secondaryTagTemplate(text).replace(/\{@([^@\r\n]+)@\}/g,'{{$1}}');
+    let source = secondaryTagTemplate(text).replace(/\{@([^@\r\n]+)@\}/g,'{{$1}}');
+    if(source.startsWith('仅用 <drawings> 返回配图。')){
+        source=source.replace(/\n<drawings>[\s\S]*?<\/drawings>/,()=> '\n'+drawingExample(options));
+    }
     const names = new Set(['张数','生图数量','彩蛋数量','小标题','彩蛋解析','性向绘画',
         '文生图NSFW1','文生图NSFW2','文生图NSFW3','文生图NSFW4']);
     if (!options.egg) for (const name of ['彩蛋','彩蛋自检','彩蛋要求']) names.add(name);
@@ -144,7 +178,8 @@ function sharedTemplate(text, options) {
 function secondaryOutputRule(options, inline, capture, {specializationInPreset = false, roleText = '', roleSlot = false} = {}) {
     const rule = [drawingOutputRule(options),'插图尽量分布在不同段落。',
         '每张图使用一段逗号分隔的 NovelAI tag。公共场景词在前，每个角色的特征和动作各放进一组括号，最后接共享动作或氛围。保留有效权重。省略字段名、独立负面词、坐标和分号分栏。',
-        `格式示例：${flatTagExample}`];
+        '公共场景词依次写 sfw 或 nsfw、画面人数、质感、构图、地点、时间与光影。角色组分别写本段可见的状态、表情、视线和动作。多人互动可在对应的角色组内成对使用 source#、target#，相互动作使用 mutual#。',
+        `格式示例：${flatTagExample}`,fandomRule];
     if (roleText) {
         rule.push('只对绑定表中确实出镜的角色使用 $角色名$，名字必须与绑定表完全一致；动作、表情、姿势等现场信息继续写在该角色的括号内。其他出镜角色由你根据正文直接写英文外貌和动作 tag。');
         if(!roleSlot)rule.push('当前存档的角色绑定表\n'+roleText);
@@ -154,9 +189,10 @@ function secondaryOutputRule(options, inline, capture, {specializationInPreset =
     if (options.specialization&&!specializationInPreset) rule.push(options.specialization);
     if (inline) {
         const escaped = value => value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        rule.push(`仅返回 <drawings> XML。普通图的 <draw after="P02"> 必须从剧情原文中选择实际存在的段尾编号，每张普通图优先匹配不同的剧情段落。绘图提示词放在 <tags>${escaped(capture.start)}tag${escaped(capture.end)}</tags> 内。`);
+        rule.push(`仅返回 <drawings> XML。普通图的 <draw after="P02" quote="原文短语"> 必须使用实际给出的段尾编号；quote 从同一段中原样摘取一段可辨识的短语。绘图提示词放在 <tags>${escaped(capture.start)}tag${escaped(capture.end)}</tags> 内。`);
+        rule.push('先从开头到结尾挑选不同剧情节点，再给每个节点写画面；有足够段落时覆盖至少一个前半段情节。每张图只能描绘其编号段落里的场景，按段号顺序输出；普通图不可共用段号或集中选最后几段。');
         rule.push('普通图只能放在正文段落，避开 meowfm 彩蛋区。不要复述正文，也不要返回 meowfm 标记。');
-        if (options.title) rule.push(`每张图在 <draw> 内加一个 <title>，由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。只写分隔线内的内容。`);
+        if (options.title) rule.push(`每张正文图和彩蛋图的 <draw> 内都必须有一个非空的 <title>，写在 <tags> 前。由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。在 <title> 中只写标题内容，省略世界书的 ┈┈ 边框。返回前逐张检查标题。`);
         if (options.egg) rule.push('正文已有彩蛋位置。仅一张彩蛋图使用 egg="true"，插件会将它放到原有彩蛋标记之后。');
         else rule.push('本楼不输出彩蛋条目。');
         if (options.egg && options.eggDescription) rule.push('彩蛋的 <draw> 用 <egg_description> 返回解析，其他插图不加。');
@@ -228,8 +264,7 @@ export async function requestSecondaryTags(connection, key, body, {signal, fetch
         const {drawings, errors} = drawingResponse(maskReasoning(text), capture, connection.output);
         if (!drawings.length) throw Error(errors[0] ?? '副 API 未返回可用的 <draw> 绘图条目');
         const egg = drawings.findLast(drawing=>drawing.egg);
-        const ordinary = new Set(limitReturnedDrawings(drawings.filter(drawing=>!drawing.egg),maxTags));
-        return drawings.filter(drawing=>drawing===egg||ordinary.has(drawing)).map(drawing=>{
+        return drawings.filter(drawing=>!drawing.egg||drawing===egg).map(drawing=>{
             const prompt=flattenSecondaryPrompt(drawing.prompt);
             return {...drawing,prompt,tag:capture.start+prompt+capture.end};
         });
@@ -237,21 +272,4 @@ export async function requestSecondaryTags(connection, key, body, {signal, fetch
     const tags = typeof text === 'string' && text.length <= 100000 ? extractSecondaryTags(text, maxTags, delimiterPattern(capture.start,capture.end)) : [];
     if (!tags.length) throw Error('副 API 未输出完整的绘图标签，请检查捕捉标签配置');
     return tags;
-}
-
-function limitReturnedDrawings(drawings, maxTags) {
-    if (drawings.length <= maxTags) return drawings;
-    const selected = new Set(), anchors = new Set();
-    for (const drawing of drawings) {
-        if (selected.size >= maxTags) break;
-        if (/^P\d+$/.test(drawing.anchor) && !anchors.has(drawing.anchor)) {
-            selected.add(drawing);
-            anchors.add(drawing.anchor);
-        }
-    }
-    for (const drawing of drawings) {
-        if (selected.size >= maxTags) break;
-        selected.add(drawing);
-    }
-    return drawings.filter(drawing => selected.has(drawing));
 }

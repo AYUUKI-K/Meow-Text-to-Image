@@ -1261,12 +1261,16 @@ async function runSecondaryTags(message,automatic){
             const prepared=inline?numberedReply(body,secondaryRawBody(text,settings.pattern,reasoningFormat()),marker):{text:body};
             anchors=prepared.anchors;
             if(inline&&!prepared.text)throw Error('没有可定位的正文段落');
-            requestedBodyCount=limitDrawingCount({min:Math.max(0,output.count.min-existingOrdinary),max:output.count.max},remaining);
+            const available=inline?Math.min(remaining,anchors.paragraphs.length):remaining;
+            requestedBodyCount=limitDrawingCount({min:Math.max(0,output.count.min-existingOrdinary),max:output.count.max},available);
             const requestOutput={...output,count:requestedBodyCount,
                 egg:inline&&output.egg&&!!anchors.egg&&!existingEgg,
                 specialization:drawingSpecialization(promptConfig,output),nsfwRules:drawingNsfwRules(promptConfig,output)};
             if(!current()||controller.signal.aborted)return;
-            if(!requestedBodyCount.max&&!requestOutput.egg)return;
+            if(!requestedBodyCount.max&&!requestOutput.egg){
+                if(inline&&!anchors.paragraphs.length&&remaining>0)throw Error('出站正则处理后的正文无法对应到存档段落');
+                return;
+            }
             notices.info('正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
             return requestSecondaryTags({...connection,maxTags:requestedBodyCount.max,preset,capture,output:requestOutput},key,prepared.text,{
                 signal:controller.signal,macros,roleTags,
@@ -1279,8 +1283,8 @@ async function runSecondaryTags(message,automatic){
         const tags=await Promise.race([request(),cancelled]);
         if(!tags||!current()||controller.signal.aborted)return;
         if(inline){
-            const result=insertDrawingTags(text,anchors.paragraphs,tags,anchors.end,anchors.egg,anchors.available);
-            if(!result.starts.size)throw Error('副 API 返回的绘图 tag 无法写入正文');
+            const result=insertDrawingTags(text,anchors.paragraphs,tags,anchors.egg,requestedBodyCount.max);
+            if(!result.starts.size)throw Error('副 API 未返回能对应到正文段落的绘图 tag');
             const swipes=message.swipes,oldSwipe=swipes?.[swipe];
             const nextBlocks=parseBodyBlocks(result.text,settings.pattern,reasoningFormat());
             const retained=nextBlocks.filter(block=>!result.starts.has(block.start));
@@ -1308,7 +1312,9 @@ async function runSecondaryTags(message,automatic){
                 refreshSecondaryMessage(message);
                 notices.success(`已写入 ${result.starts.size} 个绘图 tag`,'喵喵文生图');
                 const ordinary=result.starts.size-result.eggStarts.size;
-                if(ordinary<requestedBodyCount.min)notices.warning(`副 API 只返回了 ${ordinary} 张正文图，本轮至少请求了 ${requestedBodyCount.min} 张。`,'副 API 出词');
+                if(result.unplaced)notices.warning(`${result.unplaced} 张正文图的段号无效或重复，已跳过。`,'副 API 出词');
+                else if(ordinary<requestedBodyCount.min)notices.warning(`副 API 只返回了 ${ordinary} 张正文图，本轮至少请求了 ${requestedBodyCount.min} 张。`,'副 API 出词');
+                if(output.title&&result.missingTitles)notices.warning(`${result.missingTitles} 张图的副 API 返回缺少小标题。`,'副 API 出词');
             }
             if(current()&&!controller.signal.aborted&&automatic&&imageGenerationMode(settings)!=='manual'){
                 const inserted=nextBlocks.filter(block=>result.starts.has(block.start));

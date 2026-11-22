@@ -23,7 +23,7 @@ export const electronicGhost = {
         {
             "name": "任务整理",
             "role": "system",
-            "content": "[任务整理]\n1.为了确保了解任务，必须构思 {{miao_image_count}}张，并且进行 {{miao_image_count}}次。\n2.需要符合画图关键词tag，对<user>和<char>进行完全客观的描写。\n3.你需要思考:如果角色是著名ACGN角色，必须只写(1.5::English Name::1.5::English Source::)，严禁描述该角色的默认特征(如默认发色、瞳色、默认服装)，默认会自动补全默认外貌，仅当文中描述了变异(湿身/战损/换装)时，才追加对应标签。\n4.NSFW环节重点刻画:人物的性器官、人物表情，人物之间的体型差，年龄差，画面冲突性，特征(胸围等)\n{{getglobalvar::彩蛋}}",
+            "content": "[任务整理]\n1.为了确保了解任务，必须构思 {{miao_image_count}}张，并且进行 {{miao_image_count}}次。\n2.需要符合画图关键词tag，对<user>和<char>进行完全客观的描写。\n3. 未绑定的著名同人或 ACGN 角色，使用世界书的 (1.2::角色英文名(作品出处)::, 本段动作或表情) 结构。姓名和作品处于同一组权重内；省略默认发色、瞳色和服装，正文明确出现换装、战损等变化时才补相应 tag。原创角色按正文写外貌，各角色单独使用带权重的括号组。\n4.NSFW环节重点刻画:人物的性器官、人物表情，人物之间的体型差，年龄差，画面冲突性，特征(胸围等)\n{{getglobalvar::彩蛋}}",
             "enabled": true
         },
         {
@@ -41,7 +41,7 @@ export const electronicGhost = {
         {
             "name": "生成机制",
             "role": "system",
-            "content": "[生成机制]\n- 数量： {{miao_image_count}}张，按文本长度动态调整\n- 位置：正文每段结尾有 [P01] 一类的编号。用 <draw> 的 after 属性指定在该段之后落图。\n- 分布：必须在响应初始阶段（思维链/大纲构建时）选择适合配图的段落编号，避免集中在同一处\n- 插图提示：无论响应内容类型（对话/故事/游戏/推理），任何思维链、内容规划或推理阶段，均需主动思考设计插图提示\n- 原创作画：每张图片都是独一无二的，必须完整、逐字逐句地以“角色DNA“描述角色\n\n# 优先级规则\n叙事第一：你的首要任务是还原用户描述的**剧情、动作、张力和互动**。不要让死板的人物标签淹没了画面发生了什么。\n尽量展现完整人物而非聚焦身体部分！",
+            "content": "[生成机制]\n- 数量： {{miao_image_count}}张，按文本长度动态调整\n- 位置：正文每段结尾有 [P01] 一类的编号。用 <draw> 的 after 属性指定在该段之后落图。\n- 分布：必须在响应初始阶段（思维链/大纲构建时）选择适合配图的段落编号，避免集中在同一处\n- 插图提示：无论响应内容类型（对话/故事/游戏/推理），任何思维链、内容规划或推理阶段，均需主动思考设计插图提示\n- 原创角色按正文写可见的发型、瞳色、身形和衣着。著名角色和已绑定角色按各自规则写。\n\n# 优先级规则\n叙事第一：你的首要任务是还原用户描述的**剧情、动作、张力和互动**。不要让死板的人物标签淹没了画面发生了什么。\n尽量展现完整人物而非聚焦身体部分！",
             "enabled": true
         },
         {
@@ -65,7 +65,7 @@ export const electronicGhost = {
         {
             "name": "格式模板",
             "role": "system",
-            "content": "只返回一个 <drawings>。每张图用一个 <draw after=\"P02\">，after 填正文段尾实际存在的编号，去掉方括号。最后一段的编号同样有效。\n<drawings>\n  <draw after=\"P02\">\n    <title>✦·窗边晨光·(｡•ᴗ•｡)·✦</title>\n    <tags>{{miao_image_start}}sfw, 1boy, 1girl, close-up, warm light, (1.2::name A(series)::, dark hair, sitting), (name B:1.2, light hair, looking at another), indoor{{miao_image_end}}</tags>\n  </draw>\n  <draw after=\"P03\" egg=\"true\">\n    <tags>{{miao_image_start}}chibi, playful smile{{miao_image_end}}</tags>\n    <egg_description>今天的茶是胜利品。</egg_description>\n  </draw>\n</drawings>\n示例只说明字段。正文图按插件设置的 {{miao_image_count}} 执行，彩蛋独立加一张。插件开启小标题时才返回 title，开启彩蛋时才标 egg=\"true\"，开启彩蛋解析时才为彩蛋返回 egg_description。\n使用正文里实际存在的编号，转义 XML 文本中的 &amp; 和尖括号。",
+            "content": "仅用 <drawings> 返回配图。普通图按段尾编号落图，彩蛋使用独立条目。\n<drawings>\n  <draw after=\"P01\" quote=\"推开窗户\">\n    <title>✦·窗边晨光·(｡•ᴗ•｡)·✦</title>\n    <tags>{{miao_image_start}}sfw, windowsill, morning light, opening window{{miao_image_end}}</tags>\n  </draw>\n  <draw after=\"P03\" quote=\"拿起茶杯\">\n    <title>✧·杯中茶香·(≧▽≦)·✧</title>\n    <tags>{{miao_image_start}}sfw, teacup, holding cup, soft lighting{{miao_image_end}}</tags>\n  </draw>\n  <draw egg=\"true\">\n    <title>☆·茶杯大冒险·(๑˃ᴗ˂)☆</title>\n    <tags>{{miao_image_start}}chibi, playful smile, teacup{{miao_image_end}}</tags>\n    <egg_description>今天的茶是胜利品。</egg_description>\n  </draw>\n</drawings>\n示例只说明字段。实际张数、小标题、彩蛋和解析以本轮插件设置为准。开启小标题时，每张图都必须返回各自的 title。\n使用正文里实际存在的编号，转义 XML 文本中的 &amp; 和尖括号。",
             "enabled": true
         },
         {
@@ -491,13 +491,13 @@ export const electronicGhost = {
         {
             "name": "规划",
             "role": "system",
-            "content": "1.需求\n  - 分析用户需求 (注意是否包含图片)\n\n2.**正文角色检查**：\n   - 检查正文包含了哪些角色？\n   \n3. **角色选择**：\n   - 先确认每个画面中实际出现的人物。\n   - 每位角色的动作、表情、姿势分别写入各自的括号组。\n   - 根据正文描述未绑定的出镜角色。\n\n4. **图片插入点规划 (KPI:  {{miao_image_count}}张)**：\n   - 你必须在思考阶段明确列出{{miao_image_count}}张个有效的段尾编号，否则视为任务失败。\n   - 优先选择不同段落，让插图在正文中分布均匀。\n   - 每个插入点需明确：动作、构图、坐标\n\n5. **构图与视角预判**：\n   - 根据动作/互动类型，确定最佳视角：正面(front view)/侧面(side view)/背后(from behind)/POV\n   - 确定画面焦点：face focus/ass focus/breast focus/full body等\n   - 确定光线：来源(sunlight/moonlight)、质感(soft/hard)、方向(side/rim)、色调(warm/cool)\n  角色检查:\n- 角色名: [英文名]\n- 列表匹配度: [X%]\n\n身体状态:\n- 上半身: nsfw/sfw/hidden\n- 下半身: nsfw/sfw/hidden\n\n6. **多角色交互前缀审查**：\n   - 多角色交互时，必须使用前缀标识：\n     - 发起方：`source#动作`\n     - 承受方：`target#动作`\n     - 相互：`mutual#动作`\n   - 错误：`fellatio,oral`（谁在做？）\n   - 正确：`source#fellatio,oral`（她在口交）+ `target#fellatio`（他被口交）\n\n7. **Tag数量与权重自查**：\n   - 数量：每张图片Tag≥Tag≥90个个（逗号分隔计数）\n   - 不足时补充：背景细节、光影效果、角色微表情、动作细节、生理反应(sweat,trembling)、特效(speed lines,sound effects)，禁止补充其他！\n   - 权重增强{Tag}：优先级 外貌>动作>服饰状态>表情>特效\n   - 权重减弱[Tag]：背景次要元素、程度较轻的状态",
+            "content": "1.需求\n  - 分析用户需求 (注意是否包含图片)\n\n2.**正文角色检查**：\n   - 检查正文包含了哪些角色？\n   \n3. **角色选择**：\n   - 先确认每个画面中实际出现的人物。\n   - 每位角色的动作、表情、姿势分别写入各自的括号组。\n   - 根据正文描述未绑定的出镜角色。\n\n4. **图片插入点规划 (KPI:  {{miao_image_count}}张)**：\n   - 从有编号的段落中按本轮数量 {{miao_image_count}} 选出相应的有效段尾编号。\n   - 优先选择不同段落，让插图在正文中分布均匀。\n   - 每个插入点须有本段发生的动作、构图和原文短语；不得借用末段情节。\n\n5. **构图与视角预判**：\n   - 根据动作/互动类型，确定最佳视角：正面(front view)/侧面(side view)/背后(from behind)/POV\n   - 确定画面焦点：face focus/ass focus/breast focus/full body等\n   - 确定光线：来源(sunlight/moonlight)、质感(soft/hard)、方向(side/rim)、色调(warm/cool)\n  角色检查:\n- 角色名: [英文名]\n- 列表匹配度: [X%]\n\n身体状态:\n- 上半身: nsfw/sfw/hidden\n- 下半身: nsfw/sfw/hidden\n\n6. **多角色交互前缀审查**：\n   - 多角色交互时，必须使用前缀标识：\n     - 发起方：`source#动作`\n     - 承受方：`target#动作`\n     - 相互：`mutual#动作`\n   - 错误：`fellatio,oral`（谁在做？）\n   - 正确：`source#fellatio,oral`（她在口交）+ `target#fellatio`（他被口交）\n\n7. **Tag数量与权重自查**：\n   - 围绕本段可见画面选择有效 tag，保留有用的构图、光影、动作和角色区别。\n   - 权重增强{Tag}：优先级 外貌>动作>服饰状态>表情>特效\n   - 权重减弱[Tag]：背景次要元素、程度较轻的状态",
             "enabled": true
         },
         {
             "name": "生成",
             "role": "system",
-            "content": "8. **UC动态排除项检查**：\n   - 路人屏蔽项：每个角色添加 `background characters`\n   - 多角色排除项：多角色时每个角色添加 `fused bodies`\n   - **视觉边界排除**（基于构图判断不可见元素）：\n     - 仅下半身构图 → 排除 shirt, expression, face 等上半身相关\n     - 背后视角(from behind) → 排除 eyes, eye color, expression, looking at viewer\n     - 蒙眼/面罩 → 排除 eye color, eyes\n   - 动态互斥：如角色1微笑、角色2哭泣 → 角色1的UC加 crying\n\n9. **防吞噬检查**：\n   - 结构必须是：image-> 图片代码块 -> image\n   - `<Tag_think>` 和 `</Tag_think>` 必须正确闭合\n   - 绝不能把正文写进 `<Tag_think>` 里！\n\n10. **确认最终输出**：\n   - NAI格式：`{{miao_image_start}}sfw, 1boy, 1girl, close-up, warm light, (1.2::name A(series)::, dark hair, sitting), (name B:1.2, light hair, looking at another), indoor{{miao_image_end}}`\n   - 每个角色的词放在各自的括号内，场景与角色组用逗号连接。\n   - 核对每个 <draw> 的 after 是否来自正文的段尾编号。\n\n   - 必须正确闭合 <drawings> 和各个 <draw>。\n   - 彩蛋使用 egg=\"true\"，插件跟随正文已有彩蛋位置放置。",
+            "content": "8. 检查画面可见范围，省略与本段无关的细节。\n\n9. 核对每张图的标签边界。仅返回配图 XML。\n\n10. **确认最终输出**：\n   - NAI格式：`{{miao_image_start}}sfw, 1boy, 1girl, soft thick paint, medium close-up, cafe, window light, masterpiece, best quality, (1.2::Character Name(Series Name)::, offering a cup), (girlA:1.2, white hair, short hair, blue eyes, tan sweater, reaching out), looking at each other{{miao_image_end}}`\n   - 每个角色的词放在各自的括号内，场景与角色组用逗号连接。\n   - 核对每个 <draw> 的 after 是否来自正文的段尾编号。\n\n   - 必须正确闭合 <drawings> 和各个 <draw>。\n   - 彩蛋使用 egg=\"true\"，插件跟随正文已有彩蛋位置放置。",
             "enabled": true
         },
         {

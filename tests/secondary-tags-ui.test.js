@@ -397,7 +397,7 @@ test('the configured drawing format writes into the active swipe and only expand
                 if(request)requests.push(request);
                 const role=request?.messages.some(message=>message.content.includes('试用人物 = black hair, yellow eyes'))?'$试用人物$':'short hair';
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
-                    json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P02">START-FIG extra shot END-FIG</draw><draw after="P03" egg="true"><title>简单彩蛋</title><tags>START-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
+                    json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P01">START-FIG extra shot END-FIG</draw><draw egg="true"><tags>┈┈简单彩蛋┈┈\nSTART-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(()=>{
@@ -492,7 +492,7 @@ test('the configured drawing format writes into the active swipe and only expand
             });
             assert.equal(await roleTags.first().inputValue(),'black hair, yellow eyes');
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
-            const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。\n\n<meowfm>彩蛋正文。</meowfm>';
+            const prose='走到门口。\n把窗推开。\n花店亮灯。\n\n<meowfm>彩蛋正文。</meowfm>';
             await page.evaluate(async ({prose,tt})=>{
                 const p=window.preview;
                 p.chat.splice(0,p.chat.length);
@@ -522,12 +522,13 @@ test('the configured drawing format writes into the active swipe and only expand
             const boundary=placed.indexOf('<meowfm>');
             assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈✧·试用标题·\(≧▽≦\)·✧┈┈\s+START-FIGwarm light, \(\$试用人物\$, sitting\), \(red hair, holding a book\)END-FIG/);
             assert.doesNotMatch(placed,/Scene Composition|Character 1|centers|outdoors/);
-            assert.match(placed.slice(0,boundary),/START-FIGextra shotEND-FIG/);
+            assert.match(placed.slice(0,boundary),/走到门口。\s+START-FIGextra shotEND-FIG\s+把窗推开。/);
             assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+┈┈简单彩蛋┈┈\s+START-FIGteacupEND-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
             assert.equal(placed.match(/<meowfm>/g).length,1);
             assert.doesNotMatch(placed,/\/meow_FM/i);
             assert.doesNotMatch(placed,/extra bonus/);
             assert.deepEqual([original,updated],['另一条分支',placed]);
+            assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(t=>t.type==='warning'&&t.message.includes('1 张图的副 API 返回缺少小标题'))),true);
             const disabled=await page.evaluate(async()=>{
                 const {drawingResponse}=await import('/scripts/extensions/third-party/test/src/chat/secondary-placement.js');
                 return drawingResponse('<drawings><draw after="P01" egg="true"><title>标题</title><tags>START-FIG cat END-FIG</tags><egg_description>解析</egg_description></draw></drawings>',

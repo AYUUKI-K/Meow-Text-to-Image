@@ -17,7 +17,6 @@ export function captureTemplate(text) {
 }
 
 export function paragraphsOf(body) {
-  const blocks = /\r?\n[ \t]*\r?\n/.test(body) ? /\r?\n(?:[ \t]*\r?\n)+/g : /\r?\n/g;
   const paragraphs = [];
   let from = 0;
   function add(until) {
@@ -25,9 +24,14 @@ export function paragraphsOf(body) {
     const text = chunk.trimStart();
     if (text) paragraphs.push({id: 'P' + String(paragraphs.length + 1).padStart(2, '0'), text, end: from + chunk.length});
   }
-  for (const separator of body.matchAll(blocks)) {
-    add(separator.index);
-    from = separator.index + separator[0].length;
+  // Handle both hard-broken chat prose and paragraphs already wrapped in HTML.
+  for (const separator of body.matchAll(/(<p(?:\s[^<>]*?)?>[\s\S]*?<\/p\s*>)|\r?\n/gi)) {
+    const start = separator.index;
+    add(start);
+    from = start;
+    const end = start + separator[0].length;
+    if (separator[1]) add(end);
+    from = end;
   }
   add(body.length);
   return paragraphs;
@@ -59,6 +63,7 @@ export function roleList(text) {
 }
 
 const escapeDecoration = text => text.replace(/[&<>]/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;'}[char]));
+const normalizeParagraph = text => text.replace(/<\/?(?:p|em|strong|b|i|span)\b[^>]*>/gi, '').replace(/\s+/g, ' ').trim();
 
 export function drawingResponse(text, capture, options) {
   const xml = text.trim().replace(/^```(?:xml)?\s*([\s\S]*?)\s*```$/i, '$1');
@@ -74,7 +79,9 @@ export function drawingResponse(text, capture, options) {
     const anchor = number ? 'P' + String(Number(number[1])).padStart(2, '0') : rawAnchor;
     const fields = new Map([...draw.children].map(child => [child.tagName,child]));
     const plain = fields.size === 0;
-    const raw = (plain ? draw.textContent : fields.get('tags')?.textContent ?? '').trim();
+    let raw = (plain ? draw.textContent : fields.get('tags')?.textContent ?? '').trim();
+    const prefix = raw.startsWith(capture.start) ? null : /^┈{2,}([^\r\n]+?)┈{2,}\s*/.exec(raw);
+    if (prefix) raw = raw.slice(prefix[0].length);
     const invalidFields = fields.size !== draw.childElementCount ||
       [...fields].some(([name, child]) => !['tags','title','egg_description'].includes(name) || child.childElementCount);
     if (draw.tagName !== 'draw' || invalidFields || !raw.startsWith(capture.start) ||
@@ -86,8 +93,10 @@ export function drawingResponse(text, capture, options) {
     if (!prompt || prompt.includes(capture.end) || prompt.includes(capture.start) || /<\/?[a-z][^>]*>/i.test(prompt)) {
       errors.push('有一张图的 tag 不完整或包含额外标记。');
     } else {
+      const quote = draw.getAttribute('quote');
       const drawing = {anchor, prompt, tag: capture.start + prompt + capture.end};
-      const title = fields.get('title')?.textContent.trim().replace(/[\r\n]+/g,' ').replace(/^┈{2,}|┈{2,}$/g,'').trim();
+      if (quote) drawing.quote = quote;
+      const title = (fields.get('title')?.textContent.trim() || prefix?.[1] || '').replace(/[\r\n]+/g,' ').replace(/^┈{2,}|┈{2,}$/g,'').trim();
       if (options?.title && title) drawing.title = escapeDecoration(title);
       if (draw.getAttribute('egg') === 'true') {
         if (!options?.egg) continue;
@@ -108,32 +117,24 @@ export function expandRoleTags(prompt, roles) {
   });
 }
 
-export function insertDrawingTags(body, paragraphs, drawings, endOfBody = paragraphs.at(-1)?.end, egg, available = paragraphs.map(({end}) => end)) {
-  const positions = new Map(paragraphs.map(({id, end}) => [id, end]));
+export function insertDrawingTags(body, paragraphs, drawings, egg, maxOrdinary = Infinity) {
+  const positions = new Map(paragraphs.map(paragraph => [paragraph.id, paragraph]));
   const newline = body.includes('\r\n') ? '\r\n' : '\n';
   const gap = newline.repeat(2);
   const byOffset = new Map();
-  let atEnd = 0;
   const ordinary = drawings.filter(drawing => !drawing.egg);
   const reserved = new Set(), assigned = new Map();
+  let unplaced = 0;
   for (const drawing of ordinary) {
-    const offset = positions.get(drawing.anchor);
-    if (offset === undefined || reserved.has(offset)) continue;
+    if (assigned.size >= maxOrdinary) break;
+    const quote = normalizeParagraph(drawing.quote ?? '');
+    const byNumber = positions.get(drawing.anchor);
+    const matches = quote.length >= 4 && (!byNumber || !normalizeParagraph(byNumber.text ?? '').includes(quote))
+      ? paragraphs.filter(paragraph => normalizeParagraph(paragraph.text ?? '').includes(quote)) : [];
+    const offset = (matches.length === 1 ? matches[0] : byNumber)?.end;
+    if (offset === undefined || reserved.has(offset)) {unplaced++;continue;}
     assigned.set(drawing, offset);
     reserved.add(offset);
-  }
-  for (const drawing of ordinary) {
-    if (assigned.has(drawing)) continue;
-    const free = available.filter(offset => !reserved.has(offset));
-    const candidates = free.length ? free : available;
-    const target = positions.get(drawing.anchor) ?? (ordinary.length === 1 ? endOfBody :
-      available[Math.round(ordinary.indexOf(drawing) * (available.length - 1) / (ordinary.length - 1))]);
-    const offset = candidates.reduce((nearest, candidate) =>
-      nearest === undefined || Math.abs(target - candidate) < Math.abs(target - nearest) ? candidate : nearest, undefined);
-    if (offset === undefined && endOfBody === undefined) continue;
-    assigned.set(drawing, offset ?? endOfBody);
-    reserved.add(offset ?? endOfBody);
-    if ((offset ?? endOfBody) === endOfBody) atEnd++;
   }
   const bonus = drawings.findLast(drawing => drawing.egg);
   if (bonus && egg) assigned.set(bonus, egg.end);
@@ -161,7 +162,8 @@ export function insertDrawingTags(body, paragraphs, drawings, endOfBody = paragr
     cursor = offset;
   }
   text += body.slice(cursor);
-  return {text, starts, eggStarts, placed: starts.size - atEnd, atEnd};
+  return {text, starts, eggStarts, unplaced,
+    missingTitles: [...assigned.keys()].filter(drawing => !drawing.title).length};
 }
 
 // Outbound regex runs on the entire reply. Retain offsets into the unfiltered
@@ -171,30 +173,30 @@ export function numberedReply(prose, rawVisible, marker) {
   const filteredEgg = eggBoundary(prose, marker);
   const outgoing = paragraphsOf(prose.slice(0, filteredEgg?.start));
   const original = paragraphsOf(rawVisible.slice(0, egg?.start));
-  const normalize = value => value.replace(/\s+/g, ' ').trim();
   const byText = new Map();
   const frequencies = new Map();
   for (const {text, end} of original) {
-    const key = normalize(text);
+    const key = normalizeParagraph(text);
     byText.set(key, byText.has(key) ? null : end);
   }
   for (const {text} of outgoing) {
-    const key = normalize(text);
+    const key = normalizeParagraph(text);
     frequencies.set(key, (frequencies.get(key) ?? 0) + 1);
   }
   const inOrder = outgoing.length === original.length && outgoing.every(({text}, index) => {
-    const exact = byText.get(normalize(text));
+    const exact = byText.get(normalizeParagraph(text));
     return exact == null || exact === original[index].end;
   });
   const paragraphs = outgoing.flatMap(({id, text}, index) => {
-    const key = normalize(text);
+    const key = normalizeParagraph(text);
     const end = inOrder ? original[index].end : frequencies.get(key) === 1 ? byText.get(key) : null;
-    return end == null ? [] : [{id, end}];
+    return end == null ? [] : [{id, text, end}];
   });
-  const numbered = outgoing.map(({id, text}) => `${text}\n[${id}]`).join('\n\n');
+  const known = new Set(paragraphs.map(({id}) => id));
+  const numbered = outgoing.map(({id, text}) => known.has(id) ? `${text}\n[${id}]` : text).join('\n\n');
   const eggText = filteredEgg ? prose.slice(filteredEgg.start) : '';
   return {
     text: [numbered, eggText].filter(Boolean).join('\n\n'),
-    anchors: {paragraphs, end: original.at(-1)?.end, egg, available: original.map(({end}) => end)},
+    anchors: {paragraphs, egg},
   };
 }

@@ -53,32 +53,43 @@ test('paragraph IDs are suffixes, map through regex changes, and write only wrap
     const {text,anchors}=numberedReply('甲段。\n\n新描述。\n\n最后一段。',original);
     assert.equal(text,'甲段。\n[P01]\n\n新描述。\n[P02]\n\n最后一段。\n[P03]');
     const macro='$结城爱$';
-    const result=insertDrawingTags(original,anchors.paragraphs,[{anchor:'P02',tag:`OPEN${macro}, windowCLOSE`},{anchor:'P99',tag:'OPENflowerCLOSE'}],anchors.end);
+    const result=insertDrawingTags(original,anchors.paragraphs,[{anchor:'P02',tag:`OPEN${macro}, windowCLOSE`},{anchor:'P99',quote:'最后一段。',tag:'OPENflowerCLOSE'}]);
     assert.equal(result.text,'甲段。\r\n\r\n旧描述。\r\n\r\nOPEN$结城爱$, windowCLOSE\r\n\r\n最后一段。\r\n\r\nOPENflowerCLOSE');
-    assert.equal(result.atEnd,1);
+    assert.equal(result.unplaced,0);
     assert.equal(expandRoleTags(macro,roleList('结城爱 = black hair, yellow eyes,')),'black hair, yellow eyes');
     assert.equal(expandRoleTags('$结城爱￥',roleList('结城爱 = black hair')),'black hair');
     assert.throws(()=>expandRoleTags(macro,roleList('其它角色 = glasses')),/未绑定/);
 });
 
 test('normal figures stay in distinct prose paragraphs and the bonus reuses the existing XML',()=>{
-    const raw='第一段。\n\n第二段。\n\n第三段。\n\n<Meow_FM>彩蛋内容</Meow_FM>\n\n末尾信息。';
-    const {text,anchors}=numberedReply('第一段。\n\n第二段。\n\n第三段。',raw,'/meow_FM');
-    assert.match(text,/第三段。\n\[P03\]$/);
-    const drawings=[{anchor:'P02',tag:'[A]'}, {anchor:'P02',tag:'[B]'},
-        {anchor:'P99',tag:'[C]'}, {anchor:'P01',tag:'[EGG]',egg:true}];
-    const result=insertDrawingTags(raw,anchors.paragraphs,drawings,anchors.end,anchors.egg,anchors.available);
+    const raw='第一段。\n第二段。\n\n第三段。\n\n<Meow_FM>彩蛋内容</Meow_FM>\n\n末尾信息。';
+    const {text,anchors}=numberedReply(raw,raw,'/meow_FM');
+    assert.match(text,/第一段。\n\[P01\]\n\n第二段。\n\[P02\]\n\n第三段。\n\[P03\]/);
+    const drawings=[{anchor:'P02',tag:'[A]'}, {anchor:'P02',tag:'[DUPLICATE]'},
+        {anchor:'P02',quote:'第一段。',tag:'[B]'}, {anchor:'P99',tag:'[INVALID]'},
+        {anchor:'P99',quote:'第三段。',tag:'[C]'}, {anchor:'P01',tag:'[EGG]',egg:true}];
+    const result=insertDrawingTags(raw,anchors.paragraphs,drawings,anchors.egg,3);
     assert.match(result.text,/第一段。\s+\[B\]\s+第二段。\s+\[A\]\s+第三段。\s+\[C\]\s+<Meow_FM>彩蛋内容<\/Meow_FM>\s+\[EGG\]\s+末尾信息。/);
     assert.equal(result.text.replace(/\n\n\[(?:A|B|C|EGG)\]/g,''),raw);
+    assert.equal(result.unplaced,2);
     assert.equal(insertDrawingTags('单段。',[{id:'P01',end:3}],drawings.slice(-1)).starts.size,0);
+});
+
+test('numbering preserves HTML paragraph boundaries and does not invent offsets for regex-only text',()=>{
+    const raw='<p>她推开窗。\n风吹了进来。</p><p>他拿起杯子。</p>';
+    const {text,anchors}=numberedReply('序言（正则添加）。\n<p>她推开窗。\n风吹了进来。</p><p>他拿起杯子。</p>',raw);
+    assert.match(text,/^序言（正则添加）。\n\n<p>她推开窗。\n风吹了进来。<\/p>\n\[P02\]/);
+    const result=insertDrawingTags(raw,anchors.paragraphs,[{anchor:'P01',tag:'[INVALID]'},{anchor:'P02',tag:'[WINDOW]'}]);
+    assert.equal(result.text,'<p>她推开窗。\n风吹了进来。</p>\n\n[WINDOW]\n\n<p>他拿起杯子。</p>');
+    assert.equal(result.unplaced,1);
 });
 
 test('secondary API sees the entire tail while only prose before the first egg markup gets positions',()=>{
     const raw='开头。\n\n第二段。\n\n<meowfm>彩蛋正文</meowfm>同行尾注。\n\n<Meow_FM>第二处标记</Meow_FM>\n\n收尾。';
     const {text,anchors}=numberedReply(raw,raw);
     assert.equal(text,'开头。\n[P01]\n\n第二段。\n[P02]\n\n<meowfm>彩蛋正文</meowfm>同行尾注。\n\n<Meow_FM>第二处标记</Meow_FM>\n\n收尾。');
-    const drawings=[{anchor:'P99',tag:'[BODY]'},{tag:'[EGG]',egg:true}];
-    const placed=insertDrawingTags(raw,anchors.paragraphs,drawings,anchors.end,anchors.egg,anchors.available);
+    const drawings=[{anchor:'P02',tag:'[BODY]'},{tag:'[EGG]',egg:true}];
+    const placed=insertDrawingTags(raw,anchors.paragraphs,drawings,anchors.egg);
     assert.match(placed.text,/第二段。\n\n\[BODY\]\n\n<meowfm>彩蛋正文<\/meowfm>\n\n\[EGG\]\n\n同行尾注。/);
 });
 
@@ -95,10 +106,25 @@ test('Electronic Ghost is available by default and assembles a complete non-stre
             assert.equal(payload.stream,false);
             assert.match(messages,/猫走到窗前。\n\[P01\]/);
             assert.match(messages,/本楼不输出彩蛋条目/);
+            assert.match(messages,/\(1\.2::角色英文名\(作品出处\)::, 本段动作或表情\)/);
+            assert.doesNotMatch(messages,/1\.5::English Name|逐字逐句地|Tag≥Tag/);
             assert.doesNotMatch(messages,/\$角色名\$|\$xiao|\{\{角色启用列表\}\}/);
             return new Response(null,{status:503});
         },
     }),/HTTP 503/);
+});
+
+test('the Electronic Ghost example shows a title for every enabled drawing, including the bonus',()=>{
+    const preset=activeSecondaryPreset(readSecondaryLibrary({}));
+    const defaults=drawingOptions(defaultPromptSettings());
+    const example=options=>buildSecondaryMessages({maxTags:3,preset,output:{...defaults,...options}},'完整正文')
+        .map(({content})=>content).join('\n').match(/<drawings>\n[\s\S]+?<\/drawings>/)?.[0];
+    const enabled=example({title:true,egg:true,eggDescription:true});
+    const draws=[...enabled.matchAll(/<draw [^>]+>([\s\S]*?)<\/draw>/g)];
+    assert.equal(draws.length,3);
+    assert.ok(draws.every(([, content])=>/<title>[^<]+<\/title>\s*<tags>/.test(content)));
+    assert.match(draws[2][0],/<draw egg="true">[\s\S]*<egg_description>/);
+    assert.doesNotMatch(example({title:false,egg:false}),/<title>|egg="true"|<egg_description>/);
 });
 
 test('an existing secondary preset retains its current instructions and raw-body layout', ()=>{
