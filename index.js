@@ -1109,7 +1109,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
                 last.swipe===(message?.swipe_id??0)&&last.preset===preset.id?last.messages:null;
         },
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
-        checkUpdate:force=>updater.check(force),installUpdate:()=>updater.install(),refreshPage:()=>location.reload(),
+        checkUpdate:force=>updater.check(force),installUpdate:async()=>{await persistSettings();return updater.install();},refreshPage:()=>location.reload(),
         listVibes:()=>direct.list(),importVibeFiles,exportVibeFiles,
         directKeyStatus:async()=>{const vault=activeVault(),hash=connectionSnapshot(settings).keyHash,status=await vault.status(),key=await vault.get();return {...status,ready:Boolean(key&&hash&&await fingerprintKey(key)===hash),serverSaved:settings.naiConnection!=='custom'&&!!settings.keyHash};},clearDirectKey:async()=>{const custom=settings.naiConnection==='custom';await activeVault().clear();if(custom){settings.customKeyHash='';settings.connectionRevision++;save();}},
         closeSettings:()=>{if(pendingSettingsConfirm){pendingSettingsConfirm(false);return;}return settingsPopup?.completeAffirmative?settingsPopup.completeAffirmative():settingsPopup?.dlg.close();},
@@ -1501,6 +1501,7 @@ async function init() {
     });
     c.eventSource.on(c.eventTypes.CHAT_CHANGED,()=>{
         for(const message of ctx().chat)knownSecondaryFloors.add(message);
+        settingsHost?.dispatchEvent(new Event('miao-role-scope-changed'));
         streamActive=false;generationChat=null;autoSession=null;secondarySession=null;secondaryRequestPreview=null;secondaryJob?.controller.abort();
         scheduleRender(false);setTimeout(()=>{
             void guard(restoreResourceChatBinding)();

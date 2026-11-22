@@ -712,6 +712,12 @@
     border-radius: 6px;
 }
 
+.miao-role-scope {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--mi-muted);
+}
+
 .miao-role-rows {
     display: grid;
     gap: 10px;

@@ -30,7 +30,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
     let roleDraft;
     const safe=fn=>async()=>{try{await fn();}catch(e){onError(e);}};
     const updateBox=node('div',undefined,'miao-update-status');updateBox.setAttribute('aria-live','polite');
-    let paintPreviews=()=>{},paintResources=()=>{},renderEpoch=0,batchExport=false;const exportSelection=new Set();
+    let paintPreviews=()=>{},paintResources=()=>{},refreshRoleScope=()=>{},renderEpoch=0,batchExport=false;const exportSelection=new Set();
     let batchVibes=false,vibeTransferBusy=false;const vibeSelection=new Set();
     let updateData=null,updateBusy=false,updateError='',updated=false;
     function paintUpdate(){
@@ -71,18 +71,19 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         wrap.append(control);parent.append(wrap);return control;
     }
     function section(parent,title) {const box=node('section',undefined,'miao-section');box.append(node('h3',title));parent.append(box);return box;}
-    function renderRoleBindings(parent,withPromptLock){
-        const snapshot=readRoleBindings();
-        const sectionRoot=section(parent,'当前存档的角色 tag');
+    const sameRoleScope=(previous,next)=>previous&&previous.metadata===next.metadata&&
+        previous.scope.cardId===next.scope.cardId&&previous.scope.chatId===next.scope.chatId;
+    function renderRoleBindings(sectionRoot,snapshot,withPromptLock){
+        sectionRoot.replaceChildren(node('h3','当前存档的角色 tag'));
         if(!snapshot.available){
             roleDraft=undefined;
             sectionRoot.append(node('p','打开聊天存档后可绑定角色。','miao-notice'));
             return async()=>{};
         }
+        sectionRoot.append(node('p',[snapshot.scope.cardName,snapshot.scope.chatId].filter(Boolean).join(' · '),'miao-role-scope'));
         const serialize=rows=>rows.filter(row=>row.name.trim()||row.tags.trim())
             .map(row=>row.name.trim()+' = '+row.tags.split(/\r?\n/).map(line=>line.trim().replace(/[,，]+$/,'')).filter(Boolean).join(', ')).join('\n');
-        if(roleDraft?.snapshot.metadata!==snapshot.metadata||roleDraft?.snapshot.scope.chatId!==snapshot.scope.chatId||
-            roleDraft?.snapshot.scope.cardId!==snapshot.scope.cardId){
+        if(!sameRoleScope(roleDraft?.snapshot,snapshot)){
             const rows=snapshot.text.split(/\r?\n/).filter(line=>line.trim()).map(line=>{
                 const separator=line.indexOf('=');
                 return separator<0?{name:line.trim(),tags:''}:{name:line.slice(0,separator).trim(),tags:line.slice(separator+1).trim()};
@@ -272,7 +273,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         const previousGallery=root.querySelector('.miao-sample-gallery');if(previousGallery)memory.galleryTop=previousGallery.scrollTop;
         const galleryTop=memory.galleryTop;
         const epoch=++renderEpoch,keep=root.dataset.section===activeTab,scroller=root.closest('.popup-content'),outerTop=scroller?.scrollTop,positions=new Map([...root.querySelectorAll('[data-scroll-key]')].map(item=>[item.dataset.scrollKey,{top:item.scrollTop,left:item.scrollLeft}]));
-        paintPreviews=()=>{};paintResources=()=>{};ensureProfileIds(settings.profiles);reconcileProfileSelection(settings);root.replaceChildren();root.dataset.theme=theme();
+        paintPreviews=()=>{};paintResources=()=>{};refreshRoleScope=()=>{};ensureProfileIds(settings.profiles);reconcileProfileSelection(settings);root.replaceChildren();root.dataset.theme=theme();
         root.dataset.section=activeTab;
         root.dataset.favoritesEnabled=String(favoritesEnabled(settings));
         let commitPage=async()=>{},afterSave=()=>{};
@@ -639,19 +640,27 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     });
                 };
                 action(actions,'保存副 API',async()=>{await commitRules();await saveAPI();render();},true);
-                const commitRoles=renderRoleBindings(body,withPromptLock);
+                const roles=section(body,'当前存档的角色 tag');
+                let roleSnapshot,commitRoles;
+                refreshRoleScope=(snapshot=readRoleBindings())=>{
+                    if(sameRoleScope(roleSnapshot,snapshot)&&roleSnapshot.available===snapshot.available)return;
+                    roleSnapshot=snapshot;
+                    commitRoles=renderRoleBindings(roles,snapshot,withPromptLock);
+                };
+                refreshRoleScope();
                 renderSecondaryPresets(body,withPromptLock);
                 const capture=section(body,'捕捉标签');
                 const start=field(capture,'起始标签',settings.startTag,()=>{});
                 const end=field(capture,'结束标签',settings.endTag,()=>{});
                 action(capture,'保存捕捉标签',()=>withPromptLock(()=>saveCapture(start.value,end.value)));
                 commitPage=async()=>{
+                    const saveArchiveRoles=commitRoles;
                     await commitRules();
                     const saved=settings.secondaryTagAPI;
                     if(url.value.trim()!==(saved?.url??'')||model.value.trim()!==(saved?.model??'')||
                         key.value.trim()||(remember.value==='device')!==Boolean(saved?.remember))await saveAPI();
                     if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);
-                    await commitRoles();
+                    await saveArchiveRoles();
                 };
             }else{
                 let macrosView;
@@ -795,6 +804,11 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
     }
     for(const event of ['input','change'])root.addEventListener(event,()=>{const button=root.querySelector('.miao-save-button');if(button&&!button.disabled)button.textContent='保存';});
     root.addEventListener('miao-key-changed',()=>root.onKeyChanged?.());
+    root.addEventListener('miao-role-scope-changed',()=>{
+        const snapshot=readRoleBindings();
+        if(!sameRoleScope(roleDraft?.snapshot,snapshot))roleDraft=undefined;
+        refreshRoleScope(snapshot);
+    });
     root.addEventListener('miao-resources-changed',()=>paintResources());
     root.addEventListener('miao-profile-previews',()=>paintPreviews());
     root.addEventListener('miao-open-section',event=>{const detail=typeof event.detail==='string'?{section:event.detail}:event.detail||{};if(detail.section==='resources'||detail.section==='favorites'&&favoritesEnabled(settings)){activeTab=detail.section;initialFavorite=detail.favorite;render();root.closest('.popup-content')?.scrollTo({top:0});}});

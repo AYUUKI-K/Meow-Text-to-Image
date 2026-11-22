@@ -14,6 +14,60 @@ async function previewAddress(server){
     });
 }
 
+test('updating the extension keeps device keys available after reloading the settings panel',{timeout:30000},async()=>{
+    const {chromium}=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
+    const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
+    let browser;
+    try{
+        const base=await previewAddress(server);
+        browser=await chromium.launch({channel:process.env.MIAO_BROWSER_CHANNEL||'chrome',headless:true});
+        const page=await browser.newPage();
+        page.setDefaultTimeout(6500);
+        await page.goto(base+'/?settings-smoke&key-update');
+        await page.locator('#miao-nai-menu').waitFor();
+        await page.evaluate(async()=>{
+            const p=window.preview;
+            const {createKeyVault}=await import('/scripts/extensions/third-party/test/src/novelai/direct-key.js');
+            const {fingerprintKey}=await import('/scripts/extensions/third-party/test/src/queue/cloud-queue.js');
+            const user='miao-preview-user',url='https://key-update.invalid/v1/chat/completions';
+            await createKeyVault(user).set('fixture-nai-key',true);
+            await createKeyVault(JSON.stringify([user,'custom-novelai'])).set('fixture-custom-key',true);
+            await createKeyVault(JSON.stringify([user,'secondary-tags',url])).set('fixture-secondary-key',true);
+            Object.assign(p.settings,{tagSource:'secondary',secondaryTagAPI:{url,model:'fixture',remember:true},
+                keyHash:await fingerprintKey('fixture-nai-key'),rememberDirectKey:true,
+                customKeyHash:await fingerprintKey('fixture-custom-key'),rememberCustomKey:true});
+            const saves=p.settingsSaves??0;
+            p.beforeRequest=path=>{
+                if(path==='/api/extensions/update')sessionStorage.setItem('miao-fixture-update-saved',String(p.settingsSaves>saves));
+            };
+        });
+        await page.locator('#miao-nai-menu').click();
+        await page.getByRole('button',{name:'检查并更新',exact:true}).click();
+        await page.waitForFunction(()=>window.preview.reloads===1);
+        assert.equal(await page.evaluate(()=>sessionStorage.getItem('miao-fixture-update-saved')),'true');
+        await page.reload();
+        await page.locator('#miao-nai-menu').click();
+        await page.locator('.miao-tabs').getByRole('button',{name:'生图指令',exact:true}).click();
+        await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
+        assert.equal(await page.getByLabel('副 API Key',{exact:true}).inputValue(),'');
+        await page.getByRole('button',{name:'保存',exact:true}).click();
+        await page.getByRole('button',{name:'已保存',exact:true}).waitFor();
+        const result=await page.evaluate(async()=>{
+            const {createKeyVault}=await import('/scripts/extensions/third-party/test/src/novelai/direct-key.js');
+            const {fingerprintKey}=await import('/scripts/extensions/third-party/test/src/queue/cloud-queue.js');
+            const p=window.preview,user='miao-preview-user';
+            const scopes=[user,JSON.stringify([user,'custom-novelai']),JSON.stringify([user,'secondary-tags',p.settings.secondaryTagAPI.url])];
+            const keys=await Promise.all(scopes.map(scope=>createKeyVault(scope).get()));
+            return [
+                keys[0]==='fixture-nai-key'&&p.settings.keyHash===await fingerprintKey(keys[0]),
+                keys[1]==='fixture-custom-key'&&p.settings.customKeyHash===await fingerprintKey(keys[1]),
+                keys[2]==='fixture-secondary-key',
+            ];
+        });
+        assert.deepEqual(result,[true,true,true]);
+    }finally{await browser?.close();server.kill();}
+});
+
 test('the secondary tag API sees only completed reply text and saves tags to the original swipe', {timeout:60000}, async()=>{
     const {chromium}=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
     const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
@@ -348,7 +402,8 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(()=>{
                 const p=window.preview;
-                Object.assign(p.context,{characterId:0,characters:[{avatar:'sample.png',name:'测试角色卡'}],
+                Object.assign(p.context,{characterId:0,characters:[
+                    {avatar:'sample-a.png',name:'角色卡 A'},{avatar:'sample-b.png',name:'角色卡 B'}],
                     chatMetadata:{miao_nai_image_role_bindings:'已有角色 = silver hair\n第二角色 = blue eyes'},
                     saveMetadata:async()=>{},updateMessageBlock(index,message){
                         document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`).textContent=message.mes;
@@ -403,6 +458,39 @@ test('the configured drawing format writes into the active swipe and only expand
             await removeRole.nth(1).click();
             await page.getByRole('button',{name:'保存',exact:true}).click();
             await page.waitForFunction(()=>window.preview.context.chatMetadata.miao_nai_image_role_bindings==='试用人物 = black hair, yellow eyes');
+            await page.getByRole('button',{name:'已保存',exact:true}).waitFor();
+            await roleTags.first().fill('unsaved fixture draft');
+            await page.evaluate(async()=>{
+                const p=window.preview;
+                p.archiveA=p.context.chatMetadata;
+                p.context.characterId=1;
+                p.context.chatMetadata={miao_nai_image_role_bindings:'试用人物 = blue hair'};
+                await p.emit('CHAT_CHANGED');
+            });
+            assert.equal(await page.locator('.miao-role-scope').textContent(),'角色卡 B · preview');
+            assert.equal(await characters.first().inputValue(),'试用人物');
+            assert.equal(await roleTags.first().inputValue(),'blue hair');
+            await roleTags.first().fill('red hair');
+            await page.getByRole('button',{name:'保存角色 tag',exact:true}).click();
+            assert.deepEqual(await page.evaluate(()=>{
+                const p=window.preview,key='miao_nai_image_role_bindings';
+                return [p.archiveA[key],p.context.chatMetadata[key]];
+            }),['试用人物 = black hair, yellow eyes','试用人物 = red hair']);
+            await page.evaluate(async()=>{
+                const p=window.preview;
+                p.context.characterId=0;
+                p.chatId='preview-new';
+                p.context.chatMetadata={};
+                await p.emit('CHAT_CHANGED');
+            });
+            assert.equal(await page.locator('.miao-role-scope').textContent(),'角色卡 A · preview-new');
+            assert.equal(await characters.first().inputValue(),'');
+            await page.evaluate(async()=>{
+                const p=window.preview;
+                p.chatId='preview';p.context.chatMetadata=p.archiveA;
+                await p.emit('CHAT_CHANGED');
+            });
+            assert.equal(await roleTags.first().inputValue(),'black hair, yellow eyes');
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
             const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。\n\n<meowfm>彩蛋正文。</meowfm>';
             await page.evaluate(async ({prose,tt})=>{
