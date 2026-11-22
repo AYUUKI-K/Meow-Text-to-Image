@@ -711,6 +711,50 @@
     border: 1px solid var(--mi-line);
     border-radius: 6px;
 }
+
+.miao-role-rows {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+}
+
+.miao-role-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+    grid-template-areas: "name tags remove";
+    align-items: start;
+    gap: 10px;
+    padding: 12px;
+    min-width: 0;
+    border: 1px solid var(--mi-line);
+    border-radius: 8px;
+}
+
+.miao-role-row > .miao-field {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.miao-role-name { grid-area: name; }
+.miao-role-tags { grid-area: tags; }
+.miao-role-tags textarea { min-height: 64px; }
+.miao-role-row > .miao-button {
+    grid-area: remove;
+    align-self: start;
+    margin-top: 24px;
+    min-height: 44px;
+}
+
+.miao-role-actions { justify-content: space-between; }
+
+@container miao-settings (max-width: 540px) {
+    .miao-role-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "name remove" "tags tags";
+    }
+}
 .miao-secondary-preset-messages summary {
     min-height: 44px;
     padding: 11px 12px;

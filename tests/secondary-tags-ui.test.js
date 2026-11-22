@@ -348,7 +348,8 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(()=>{
                 const p=window.preview;
-                Object.assign(p.context,{characterId:0,characters:[{avatar:'sample.png',name:'测试角色卡'}],chatMetadata:{},
+                Object.assign(p.context,{characterId:0,characters:[{avatar:'sample.png',name:'测试角色卡'}],
+                    chatMetadata:{miao_nai_image_role_bindings:'已有角色 = silver hair\n第二角色 = blue eyes'},
                     saveMetadata:async()=>{},updateMessageBlock(index,message){
                         document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`).textContent=message.mes;
                     }});
@@ -385,10 +386,23 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.getByRole('textbox',{name:'起始标签',exact:true}).fill('START-FIG');
             await page.getByRole('textbox',{name:'结束标签',exact:true}).fill('END-FIG');
             await page.getByRole('button',{name:'保存捕捉标签',exact:true}).click();
-            const characters=page.getByRole('textbox',{name:'测试角色卡',exact:true});
-            await characters.fill('试用人物 = black hair, yellow eyes');
+            const characters=page.getByRole('textbox',{name:'角色名',exact:true});
+            const roleTags=page.getByRole('textbox',{name:'固定 tag',exact:true});
+            assert.deepEqual(await characters.evaluateAll(inputs=>inputs.map(input=>input.value)),['已有角色','第二角色']);
+            assert.deepEqual(await roleTags.evaluateAll(inputs=>inputs.map(input=>input.value)),['silver hair','blue eyes']);
+            if(tt)assert.match(await page.locator('.miao-role-row').first().evaluate(row=>getComputedStyle(row).gridTemplateAreas),/"name remove" "tags tags"/);
+            await characters.first().fill('试用人物');
+            await roleTags.first().fill('black hair,\nyellow eyes');
+            const removeRole=page.getByRole('button',{name:'移除角色',exact:true});
+            await removeRole.nth(1).click();
+            await page.getByRole('button',{name:'添加角色',exact:true}).click();
+            await characters.nth(1).fill('临时演员');
+            await roleTags.nth(1).fill('red hair');
             await page.getByRole('button',{name:'保存角色 tag',exact:true}).click();
-            await page.waitForFunction(()=>!!window.preview.context.chatMetadata.miao_nai_image_role_bindings);
+            await page.waitForFunction(()=>window.preview.context.chatMetadata.miao_nai_image_role_bindings==='试用人物 = black hair, yellow eyes\n临时演员 = red hair');
+            await removeRole.nth(1).click();
+            await page.getByRole('button',{name:'保存',exact:true}).click();
+            await page.waitForFunction(()=>window.preview.context.chatMetadata.miao_nai_image_role_bindings==='试用人物 = black hair, yellow eyes');
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
             const prose='走到门口。\n\n把窗推开。\n\n花店亮灯。\n\n<meowfm>彩蛋正文。</meowfm>';
             await page.evaluate(async ({prose,tt})=>{

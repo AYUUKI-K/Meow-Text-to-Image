@@ -27,6 +27,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
     let activeTab=initialTab||(matchMedia('(max-width:680px), (max-height:500px)').matches?'overview':'generation'),fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft=memory.samplePromptDraft,sortingProfiles=false;
+    let roleDraft;
     const safe=fn=>async()=>{try{await fn();}catch(e){onError(e);}};
     const updateBox=node('div',undefined,'miao-update-status');updateBox.setAttribute('aria-live','polite');
     let paintPreviews=()=>{},paintResources=()=>{},renderEpoch=0,batchExport=false;const exportSelection=new Set();
@@ -70,6 +71,74 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         wrap.append(control);parent.append(wrap);return control;
     }
     function section(parent,title) {const box=node('section',undefined,'miao-section');box.append(node('h3',title));parent.append(box);return box;}
+    function renderRoleBindings(parent,withPromptLock){
+        const snapshot=readRoleBindings();
+        const sectionRoot=section(parent,'当前存档的角色 tag');
+        if(!snapshot.available){
+            roleDraft=undefined;
+            sectionRoot.append(node('p','打开聊天存档后可绑定角色。','miao-notice'));
+            return async()=>{};
+        }
+        const serialize=rows=>rows.filter(row=>row.name.trim()||row.tags.trim())
+            .map(row=>row.name.trim()+' = '+row.tags.split(/\r?\n/).map(line=>line.trim().replace(/[,，]+$/,'')).filter(Boolean).join(', ')).join('\n');
+        if(roleDraft?.snapshot.metadata!==snapshot.metadata||roleDraft?.snapshot.scope.chatId!==snapshot.scope.chatId||
+            roleDraft?.snapshot.scope.cardId!==snapshot.scope.cardId){
+            const rows=snapshot.text.split(/\r?\n/).filter(line=>line.trim()).map(line=>{
+                const separator=line.indexOf('=');
+                return separator<0?{name:line.trim(),tags:''}:{name:line.slice(0,separator).trim(),tags:line.slice(separator+1).trim()};
+            });
+            roleDraft={snapshot,rows,saved:serialize(rows)};
+        }
+        const draft=roleDraft;
+        const list=node('div',undefined,'miao-role-rows');
+        const actions=node('div',undefined,'miao-actions miao-role-actions');
+        sectionRoot.append(list,actions);
+        function mountRow(row){
+            const group=node('div',undefined,'miao-role-row');
+            group.setAttribute('role','group');
+            group.setAttribute('aria-label','角色绑定');
+            list.append(group);
+            const name=field(group,'角色名',row.name,value=>{row.name=value;});
+            const tags=field(group,'固定 tag',row.tags,value=>{row.tags=value;},{type:'textarea'});
+            name.closest('label').classList.add('miao-role-name');
+            tags.closest('label').classList.add('miao-role-tags');
+            name.placeholder='例如 结城爱';
+            tags.placeholder='例如 black hair, yellow eyes';
+            tags.rows=2;
+            action(group,'移除角色',()=>{
+                const rowIndex=draft.rows.indexOf(row);
+                draft.rows.splice(rowIndex,1);
+                group.remove();
+                if(!draft.rows.length)addRow();
+                else (list.children[rowIndex]?.querySelector('input')??list.lastElementChild.querySelector('input')).focus();
+                list.dispatchEvent(new Event('change',{bubbles:true}));
+            });
+            return name;
+        }
+        const addRow=()=>{
+            const row={name:'',tags:''};
+            draft.rows.push(row);
+            mountRow(row).focus();
+        };
+        const commit=async()=>{
+            if(draft.pending)return draft.pending;
+            const text=serialize(draft.rows);
+            if(text===draft.saved)return;
+            for(const [index,row] of draft.rows.entries()){
+                const name=row.name.trim(),tags=row.tags.trim();
+                if(!name&&!tags)continue;
+                if(!name||/[=$￥]/.test(name)){list.children[index].querySelector('input').focus();throw Error('请填写角色名，角色名不能包含等号或角色宏符号');}
+                if(!tags){list.children[index].querySelector('textarea').focus();throw Error(`请填写「${name}」的固定 tag`);}
+            }
+            draft.pending=withPromptLock(()=>saveRoleBindings(draft.snapshot,text)).then(()=>{draft.saved=text;});
+            try{await draft.pending;}finally{draft.pending=null;}
+        };
+        if(!draft.rows.length)draft.rows.push({name:'',tags:''});
+        draft.rows.forEach(mountRow);
+        action(actions,'添加角色',addRow);
+        action(actions,'保存角色 tag',commit,true);
+        return commit;
+    }
     function showPreparedFile(parent,result){
         parent.replaceChildren();parent.hidden=!result?.name;if(parent.hidden)return;
         const filename=field(parent,'文件名',result.name,()=>{});filename.readOnly=true;filename.onclick=()=>filename.select();
@@ -570,13 +639,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     });
                 };
                 action(actions,'保存副 API',async()=>{await commitRules();await saveAPI();render();},true);
+                const commitRoles=renderRoleBindings(body,withPromptLock);
                 renderSecondaryPresets(body,withPromptLock);
-                const scope=readRoleBindings(),roles=section(body,'当前存档的角色 tag');
-                const values=field(roles,scope.scope.cardName||'角色绑定',scope.text,()=>{},{type:'textarea',wide:true});
-                values.placeholder='每行一个角色，例如 结城爱 = black hair, yellow eyes';
-                values.disabled=!scope.available;
-                if(scope.available)action(roles,'保存角色 tag',()=>withPromptLock(()=>saveRoleBindings(scope,values.value)));
-                else roles.append(node('p','打开一个聊天存档后可绑定角色。','miao-notice'));
                 const capture=section(body,'捕捉标签');
                 const start=field(capture,'起始标签',settings.startTag,()=>{});
                 const end=field(capture,'结束标签',settings.endTag,()=>{});
@@ -587,6 +651,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     if(url.value.trim()!==(saved?.url??'')||model.value.trim()!==(saved?.model??'')||
                         key.value.trim()||(remember.value==='device')!==Boolean(saved?.remember))await saveAPI();
                     if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);
+                    await commitRoles();
                 };
             }else{
                 let macrosView;
