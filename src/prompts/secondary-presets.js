@@ -6,6 +6,10 @@ const type = 'miao-secondary-tag-preset';
 const defaultId = 'electronic-ghost';
 const bundledDefault = Object.freeze({...normalizePreset(electronicGhost), id: defaultId});
 const initialLibrary = Object.freeze({activeId: defaultId, imports: Object.freeze([])});
+const legacyPlacementName = /^电子幽灵\s*1\.6\s*[-－]\s*段落定位$/;
+const keepLegacyCopy = preset => legacyPlacementName.test(preset.name)
+    ? {...preset, name:'电子幽灵1.6-段落定位（旧版副本）'}
+    : preset;
 
 function normalizePreset(preset) {
     const name = typeof preset?.name === 'string' ? preset.name.trim().slice(0, 80) : '';
@@ -89,7 +93,7 @@ export function activeSecondaryPreset(library) {
 }
 
 export function addSecondaryPreset(library, input) {
-    const preset = normalizePreset(input);
+    const preset = keepLegacyCopy(normalizePreset(input));
     const serialized = JSON.stringify(preset);
     if (serialized === JSON.stringify(normalizePreset(bundledDefault))) return {...library, activeId:defaultId};
     const index = library.imports.findIndex(item => JSON.stringify(normalizePreset(item)) === serialized);
@@ -98,7 +102,7 @@ export function addSecondaryPreset(library, input) {
     return {...library, activeId: `import-${library.imports.length}`, imports: [...library.imports, preset]};
 }
 
-export function readSecondaryLibrary(settings) {
+function storedSecondaryLibrary(settings) {
     if (settings.secondaryTagPresets) {
         const {electronicGhost: imported, ...library} = settings.secondaryTagPresets;
         if (!imported) return settings.secondaryTagPresets;
@@ -114,6 +118,15 @@ export function readSecondaryLibrary(settings) {
     return legacy?.instructions
         ? addSecondaryPreset(initialLibrary, {...legacy, name: legacy.name?.trim() || '已导入预设'})
         : initialLibrary;
+}
+
+export function readSecondaryLibrary(settings) {
+    const library = storedSecondaryLibrary(settings);
+    const imports = library.imports.map(keepLegacyCopy);
+    if (imports.every((preset, index) => preset === library.imports[index])) return library;
+    const retiredSelected = library.imports.some((preset, index) =>
+        preset !== imports[index] && library.activeId === `import-${index}`);
+    return {...library, imports, activeId:retiredSelected ? defaultId : library.activeId};
 }
 
 export function listedSecondaryMacros(preset) {

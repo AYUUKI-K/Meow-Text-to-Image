@@ -32,10 +32,13 @@ test('PNG buttons download original URLs on mobile browsers while JPG and TT kee
   assert.equal(await selected.failure(),null);assert.ok(selected.suggestedFilename().endsWith('.png'));assert.ok((await page.evaluate(()=>window.downloadAttempts.at(-1).url)).startsWith(url+'/user/images/'));
   await page.getByRole('button',{name:'关闭设置',exact:true}).click();
   await page.evaluate(async()=>{window.rejectBlobDownloads=false;window.preview.settings.exportFormat='jpg';await window.preview.emit('MESSAGE_UPDATED',0);});
-  await page.locator('.miao-image-card>img[data-miao-export-state=ready][data-miao-image-format=jpg]').waitFor();
+  assert.equal(await page.locator('.miao-image-card>img').getAttribute('src'),originalURL);
+  const readsBeforeJPG=await page.evaluate(()=>window.sourceFetches.length);
   if(await page.locator('.miao-image-tools').getAttribute('hidden')!==null)await page.locator('.miao-image-card>img').press('Enter');
   const [jpg]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'下载图片',exact:true}).tap()]);
   assert.equal(await jpg.failure(),null);assert.equal(jpg.suggestedFilename(),originalName.replace(/\.[^.]+$/,'.jpg'));const jpeg=[];for await(const chunk of await jpg.createReadStream())jpeg.push(chunk);assert.deepEqual([...Buffer.concat(jpeg).subarray(0,2)],[255,216]);
+  assert.equal(await page.locator('.miao-image-card>img').getAttribute('src'),originalURL);
+  assert.deepEqual(await page.evaluate(before=>window.sourceFetches.slice(before),readsBeforeJPG),[originalURL]);
   await page.evaluate(async()=>{const frame=document.createElement('iframe');frame.id='download-frame';frame.setAttribute('sandbox','allow-scripts allow-same-origin');frame.style='position:fixed;inset:8px auto auto 8px;width:200px;height:100px;background:white;z-index:2147483647';await new Promise(resolve=>{frame.onload=resolve;frame.src='about:blank';document.body.append(frame);});});
   const frame=page.frames().find(frame=>frame.parentFrame());
   await frame.evaluate(async originalURL=>{const {downloadBrowserBlob}=await import('/scripts/extensions/third-party/test/src/images/downloads.js'),blob=await(await fetch(originalURL)).blob();const button=document.createElement('button');button.textContent='测试框架下载';button.onclick=()=>downloadBrowserBlob(blob,'frame.png');document.body.append(button);},originalURL);

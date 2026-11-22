@@ -52,6 +52,20 @@ test('full Tavern presets retain ordered enabled messages, prefill and inactive 
     assert.equal(activeSecondaryPreset({...upgraded,activeId:'electronic-ghost'}).name,'电子幽灵1.7');
 });
 
+test('the old placement import stays available while the built-in 1.7 becomes active', ()=>{
+    const old={name:'电子幽灵1.6-段落定位',entries:[{name:'自定义正文',role:'system',enabled:true,content:'自定义指令\n{{正文}}'}]};
+    for(const settings of [
+        {secondaryTagPresets:{activeId:'import-0',imports:[old]}},
+        {secondaryTagPresets:{activeId:'electronic-ghost',imports:[],electronicGhost:old}},
+    ]){
+        const library=readSecondaryLibrary(settings);
+        assert.equal(activeSecondaryPreset(library).name,'电子幽灵1.7');
+        const selected=readSecondaryLibrary({secondaryTagPresets:{...library,activeId:'import-0'}});
+        assert.match(activeSecondaryPreset(selected).name,/旧版副本/);
+        assert.deepEqual(activeSecondaryPreset(selected).entries,old.entries);
+    }
+});
+
 test('paragraph IDs are suffixes, map through regex changes, and write only wrapped tags', ()=>{
     const original='甲段。\r\n\r\n旧描述。\r\n\r\n最后一段。';
     const {text,anchors}=numberedReply('甲段。\n\n新描述。\n\n最后一段。',original);

@@ -120,7 +120,7 @@ const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const favorites=createFavorites({settings,persist:persistSettings});
 const thumbnails=createThumbnails({fetchImage:url=>hostFetch(url),saveImage:saveBase64AsFile});
-const imagePresentation=createImagePresentation({getFormat:()=>settings.exportFormat,fetchImage:url=>hostFetch(url),saveJPEG:async(blob,folder,name)=>saveBase64AsFile(await blobBase64(blob),folder,name,'jpg'),onError:error=>notices.error('JPG 转换失败：'+error.message,'图片预览')});
+const imagePresentation=createImagePresentation({fetchImage:hostFetch});
 const bindImage=(image,url,options)=>imagePresentation.bind(image,url,options);
 async function saveGeneratedImage(data,folder,name){
     const url=await inStage('image-save',()=>saveBase64AsFile(data,folder,name,'png'));
@@ -1116,7 +1116,7 @@ async function deleteImages(folder,names,{parent,preserveSamples=false,days}={})
     }
     for(const p of settings.profiles)if(p.preview?.url){try{const loc=imageArchiveLocation(p.preview.url,location.href);if(paths.includes(`user/images/${loc.folder}/${loc.name}`)){delete p.preview;save();settingsHost?.dispatchEvent(new Event('miao-profile-previews'));}}catch{}}
     if(changed)await ctx().saveChat();renderAll();
-    for(const name of removed){try{await imageAPI('delete',{path:await imagePresentation.forget(allowed.get(name).url)});}catch{}}
+    for(const name of removed){try{await imageAPI('delete',{path:await imagePresentation.legacyJPEGPath(allowed.get(name).url)});}catch{}}
     if(removed.length)notices.success(`已清理 ${removed.length} 张图片`);
     if(failure)throw failure;
     return true;
@@ -1142,7 +1142,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
-        savePromptConfig,saveSecondarySettings,listSecondaryModels,saveDrawingRules,readWorldOptions,saveWorldOptions,readWorldMacroSettings,saveWorldMacroSettings,readRoleBindings:roleBindingSnapshot,saveRoleBindings,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,onExportFormatChange:()=>imagePresentation.refresh(),
+        savePromptConfig,saveSecondarySettings,listSecondaryModels,saveDrawingRules,readWorldOptions,saveWorldOptions,readWorldMacroSettings,saveWorldMacroSettings,readRoleBindings:roleBindingSnapshot,saveRoleBindings,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,
         secondaryKeyAvailable:()=>settings.secondaryTagAPI?.url?secondaryVault(settings.secondaryTagAPI.url).get().then(Boolean):false,
         saveSecondaryPresets:library=>saveSecondarySettings('secondary',undefined,library),
         exportSecondaryPreset:preset=>{const {blob,name}=secondaryPresetFile(preset);return prepareFileDownload(blob,name);},
