@@ -1,7 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings,WORLD_NAME} from '../src/resources/resources.js';
+import {mergeWorldEntries,mergeRegexRules,bundledWorldTargets,migrateWorldBindings,filterDrawingWorldEntries,WORLD_NAME} from '../src/resources/resources.js';
+import {createHash} from 'node:crypto';
+
+test('drawing lore is scoped by source and known entry markers even when the book was renamed',()=>{
+    const legacyHeader={world:'renamed lore',comment:'tag头',content:'<imageTag>{{setvar::张数::3}}{{setvar::彩蛋标签::/fixture}}'};
+    const renamedRule={world:'renamed lore',comment:'主体',content:'legacy drawing instruction'};
+    const customLore={world:'renamed lore',comment:'剧情设定',content:'keep this user entry'};
+    const similar={world:'story',comment:'主体',content:'unrelated story'};
+    const official={world:'[喵喵]文生图-标签跟随配置',comment:'彩蛋解析[选开]',content:'drawing instruction'};
+    const preferred={world:'my drawing settings',comment:'主体',content:'explicitly selected drawing book'};
+    const macro={world:'another world',comment:'renamed rule',content:'{{miao_drawing_policy}}'};
+    const lists=[[legacyHeader,similar],[renamedRule,customLore],[official,preferred,macro],[]];
+    assert.deepEqual(filterDrawingWorldEntries(lists,'my drawing settings'),[[similar],[customLore],[],[]]);
+    assert.equal(lists[2].length,3,'filtering must not mutate worldbook data outside the host request');
+});
 
 test('world updates replace matching titles, keep entry IDs, and retain unrelated user entries',()=>{
     const old={name:'user metadata',entries:{7:{uid:7,comment:'主体',content:'old',disable:true},3:{uid:3,comment:'用户追加',content:'keep'},9:{uid:9,comment:'主体',content:'duplicate'}}};
@@ -61,9 +75,16 @@ test('patch world upgrades cover old minor and patch versions without overwritin
     assert.equal(migrateWorldBindings({selected,chatMetadata},old,current),true);assert.deepEqual(selected,[current,'其他书']);assert.equal(chatMetadata.world_info,current);
 });
 
-test('bundled pack is exactly world 2.2.3 and the four supplied regex versions',async()=>{
-    const book=JSON.parse(await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8'));
-    const rules=JSON.parse(await readFile(new URL('../assets/regex.json',import.meta.url),'utf8'));
+test('bundled pack contains the main 2.2.3 worldbook and matching regex checksums',async()=>{
+    const manifest=JSON.parse(await readFile(new URL('../assets/resource-manifest.json',import.meta.url),'utf8'));
+    const world=await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8');
+    const regex=await readFile(new URL('../assets/regex.json',import.meta.url),'utf8');
+    const hash=text=>createHash('sha256').update(text.replace(/\r\n/g,'\n')).digest('hex');
+    assert.equal(manifest.worldName,'[喵喵]文生图 2.2.3');
+    assert.equal(manifest.worldName,WORLD_NAME);
+    assert.equal(hash(world),manifest.worldSHA256);
+    assert.equal(hash(regex),manifest.regexSHA256);
+    const book=JSON.parse(world),rules=JSON.parse(regex);
     assert.equal(Object.keys(book.entries).length,13);
     assert.ok(book.entries[10].content.includes('easter_egg'));
     assert.deepEqual(rules.map(rule=>rule.scriptName),['喵喵文生图1-去标签-1024','喵喵文生图2-去imagethink-1024','喵喵文生图3-居中美化-1107','喵喵文生图4-彩蛋介绍美化-1024']);

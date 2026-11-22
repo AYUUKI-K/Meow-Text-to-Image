@@ -54,3 +54,26 @@ test('official single and bundled Vibe files select only matching model encoding
  assert.throws(()=>resolveVibes('nai-diffusion-4-5-full',[{id:v.id,key:'hash',strength:1.1}],[v]),/强度/);
  assert.throws(()=>importVibeData({encodings:{}}));
 });
+test('outer openings in text order control malformed cross-type nesting',()=>{
+ const pairs=[['<think>','</think>'],['<thinking>','</thinking>'],['<analysis>','</analysis>'],['<reasoning>','</reasoning>'],['<imgthink>','</imgthink>'],['<imagethink>','</imagethink>'],['[custom]','[/custom]']];
+ const format={prefix:'[custom]',suffix:'[/custom]'};
+ for(const [open,close] of pairs)for(const [inner] of pairs){
+  if(open===inner)continue;
+  const text=`before\r\n${open}${inner}image###fake###\n${close}\r\nimage###real###`;
+  const masked=maskReasoning(text,format),blocks=parseBodyBlocks(text,undefined,format);
+  assert.equal(masked.length,text.length);
+  assert.deepEqual([...masked.matchAll(/[\r\n]/g)].map(m=>m.index),[...text.matchAll(/[\r\n]/g)].map(m=>m.index));
+  assert.deepEqual(blocks.map(b=>[b.prompt,b.start,b.index,b.bodyIndex]),[['real',text.indexOf('image###real'),1,0]]);
+  assert.deepEqual(parseBodyBlocks(`${open}${inner}image###fake###`,undefined,format),[]);
+ }
+});
+test('same-type depth, literal custom markers and unrecognized tags retain behavior',()=>{
+ for(const format of [{prefix:'[.*]',suffix:'[$]'}, {prefix:'%%',suffix:'%%'}, {prefix:'BEGIN',suffix:''}]){
+  const text=`${format.prefix}image###fake###${format.suffix}image###real###`;
+  assert.deepEqual(parseBodyBlocks(text,undefined,format).map(b=>b.prompt),format.suffix?['real']:[]);
+ }
+ const text='<analysis><analysis>image###fake###</analysis>image###fake2###</analysis>image###a###<think>image###fake3###</think>image###b###';
+ assert.deepEqual(parseBodyBlocks(text).map(b=>b.prompt),['a','b']);
+ assert.deepEqual(parseBodyBlocks('<content>image###visible###</content>').map(b=>b.prompt),['visible']);
+ assert.deepEqual(parseBodyBlocks('<!-- <analysis>image###fake### -->image###real###').map(b=>b.prompt),['real']);
+});

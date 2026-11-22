@@ -1,4 +1,5 @@
 import {decodeImage} from './image-export.js';
+import {characterParameters} from '../novelai/character-prompts.js';
 // PNG text chunks: https://www.w3.org/TR/png-3/#11textinfo
 const latin1=bytes=>Array.from(bytes,byte=>String.fromCharCode(byte)).join('');
 const utf8=bytes=>new TextDecoder().decode(bytes);
@@ -94,7 +95,9 @@ export function generationInfo(metadata,savedRecord){
     const source=typeof text.Source==='string'?text.Source:'',match=Object.entries(models).find(([,model])=>model[1].some(hash=>source.endsWith(' '+hash)));
     const modelId=embedded.model||match?.[0]||saved.model||'',model=models[modelId]?.[0]||modelId||source||'未记录';
     const prompt=embedded.v4_prompt?.caption?.base_caption??embedded.prompt??text.Description??saved.v4_prompt?.caption?.base_caption??saved.prompt??'',negative=embedded.v4_negative_prompt?.caption?.base_caption??embedded.uc??embedded.negative_prompt??saved.v4_negative_prompt?.caption?.base_caption??saved.negative_prompt??'';
-    const positiveCharacters=parameters.v4_prompt?.caption?.char_captions||[],negativeCharacters=parameters.v4_negative_prompt?.caption?.char_captions||[];
+    const savedCaptions=Array.isArray(saved.characters)&&saved.characters.length?characterParameters(saved):{};
+    const positiveCharacters=parameters.v4_prompt?.caption?.char_captions??savedCaptions.v4_prompt?.caption.char_captions??[];
+    const negativeCharacters=parameters.v4_negative_prompt?.caption?.char_captions??savedCaptions.v4_negative_prompt?.caption.char_captions??[];
     const characters=Array.from({length:Math.max(positiveCharacters.length,negativeCharacters.length)},(_,index)=>({positive:positiveCharacters[index]?.char_caption??'',negative:negativeCharacters[index]?.char_caption??'',centers:positiveCharacters[index]?.centers??negativeCharacters[index]?.centers}));
     const width=embedded.width??metadata.width??saved.width,height=embedded.height??metadata.height??saved.height;
     if(modelId)parameters.model=modelId;if(width!==undefined)parameters.width=width;if(height!==undefined)parameters.height=height;

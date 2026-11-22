@@ -1,0 +1,157 @@
+{
+  "00.PREFIX": {
+    "nodeId": "task",
+    "slot": "prefix",
+    "sha256": "9dc673f84892333f47b9a8cc261a05a132a399e8853a47a140d0e5e9f02d0226"
+  },
+  "00.2": {
+    "nodeId": "task.steps",
+    "slot": "body",
+    "sha256": "cbf7f95f489a9de1fc71385b3841a2702e233e33bd3bed8ef249a07ef6ab624a"
+  },
+  "00.3": {
+    "nodeId": "task.fan",
+    "slot": "body",
+    "sha256": "b5743dd50842cd2b775bc37d951006a46cf994b0ddee881fb4c6f7bd7f26c533"
+  },
+  "01.TEXT": {
+    "nodeId": "composition",
+    "slot": "body",
+    "sha256": "6c27757ae47f7619cd962bc2f5dcb116e3a4cb0886ca26b03715619ab62a0d13"
+  },
+  "02.01": {
+    "nodeId": "tags.rules",
+    "slot": "body",
+    "sha256": "091518fe796e3262d8c2cd76a07062bcf217e431fa1b4e7f109f31651f71ad70"
+  },
+  "02.02": {
+    "nodeId": "egg",
+    "slot": "body",
+    "sha256": "2884e62b8223d604c3a0a4c6e14de4d15485170566e3016d30c451e421c917d9"
+  },
+  "02.02.END": {
+    "nodeId": "egg",
+    "slot": "suffix",
+    "sha256": "ea996e4b601118a0aa0323a6988449eab16e09f6d660bd16c827549969ca8134"
+  },
+  "02.02.01": {
+    "nodeId": "egg.description",
+    "slot": "body",
+    "sha256": "b15af29195a0d922fd91039d18e68c62f76e8383dd637722e30c789d40f1db47"
+  },
+  "03.01": {
+    "nodeId": "nsfw.rules",
+    "slot": "body",
+    "sha256": "08cd7b6c2468d2fb0784c7ef4428b185d1210cd6cddc2a4498c3d86c6ecf9d82"
+  },
+  "03.02.BG": {
+    "nodeId": "orientation.bg",
+    "slot": "body",
+    "sha256": "e111f66392d3412133066b9c677ec77a79b1976dd099009e02ad98c9eb033699"
+  },
+  "03.02.BL": {
+    "nodeId": "orientation.bl",
+    "slot": "body",
+    "sha256": "03cde71d6809dd2fcecb246e60a5911c9624beae1311f200ad3e00b75978c537"
+  },
+  "03.02.GL": {
+    "nodeId": "orientation.gl",
+    "slot": "body",
+    "sha256": "02573ac22326072a8895b2bef39e60c0a9284b34221ea6f4cab809a1958cf4e0"
+  },
+  "03.02.INTERSEX": {
+    "nodeId": "orientation.intersex",
+    "slot": "body",
+    "sha256": "0bb9f4d3be776700a2e08fe41187afac44cfe23009d2ce7ec8036a41acb37087"
+  },
+  "04.PREFIX": {
+    "nodeId": "selfcheck",
+    "slot": "prefix",
+    "sha256": "432dab3e4ce35c326c0f3c27e929ce8fe80b6a3a1a105dcff0f7afe9590351f4"
+  },
+  "04.SUFFIX": {
+    "nodeId": "selfcheck",
+    "slot": "suffix",
+    "sha256": "e844c6584d23c79bb9831d6b537e143ad75d9c3d9bed75c0990caa9bfa46763e"
+  },
+  "04.01": {
+    "nodeId": "selfcheck.item1",
+    "slot": "body",
+    "sha256": "d3baeb752564bcb3074a975ab23cee1e4592c937f6828dafdb0d99ed28884c78"
+  },
+  "04.02": {
+    "nodeId": "selfcheck.item2",
+    "slot": "body",
+    "sha256": "7af22f25c80055bf3d1034b58adbdf85599ce1e1ed0c063fb257f10e9dcf1aa0"
+  },
+  "04.03": {
+    "nodeId": "selfcheck.item3",
+    "slot": "body",
+    "sha256": "966d1da4d9ba68fdef25b2aeb3f5a2a36e62770d59a15295700ef8fe243d10e5"
+  },
+  "04.04": {
+    "nodeId": "selfcheck.item4",
+    "slot": "body",
+    "sha256": "21f1e3e5d619bf516dacc796cab7e76a9e0f4dd87f016155a119d0eada690ce5"
+  },
+  "04.05": {
+    "nodeId": "selfcheck.item5",
+    "slot": "body",
+    "sha256": "b5180d3842d3c6778172ff700c71cd6d8c6f7d62281b1ec2decca7efcdf26b9c"
+  },
+  "04.06": {
+    "nodeId": "selfcheck.item6",
+    "slot": "body",
+    "sha256": "813b211787b71e790463ffa06524f50059df8f30d9b612eb9f9823b483367770"
+  },
+  "04.07": {
+    "nodeId": "selfcheck.item7",
+    "slot": "body",
+    "sha256": "6ccbabed4fbdc2964151420c72ddf12c0748c433ae9af515476c1a3c11d15300"
+  },
+  "04.08": {
+    "nodeId": "selfcheck.item8",
+    "slot": "body",
+    "sha256": "021c3e27a9b5640507889115c4635a6a62deff02ef1d228341170572568132aa"
+  },
+  "04.09": {
+    "nodeId": "selfcheck.item9",
+    "slot": "body",
+    "sha256": "dcf7b844cd5084e6b1905398e510d5136e43d22c0ef1b6b75d2106cf90a11d7e"
+  },
+  "04.10": {
+    "nodeId": "selfcheck.item10",
+    "slot": "body",
+    "sha256": "fdc4e42a6d3c2fb349efbf137840ce31e51d549be74d657024e6f88e263efc0a"
+  },
+  "04.EGG": {
+    "nodeId": "selfcheck.egg",
+    "slot": "body",
+    "sha256": "db784a023d11505dac90121f154bb8611b3e591273caba3fa54edcf13b8a5cb6"
+  },
+  "04.11": {
+    "nodeId": "selfcheck.nsfw",
+    "slot": "body",
+    "sha256": "f0c238326d3c2337f13c04909377cf369bf909d21a0f5c683349aaa34b909654"
+  },
+  "04.12": {
+    "nodeId": "selfcheck.total",
+    "slot": "body",
+    "sha256": "2aa55a9d3fc516d15083fe4d1dcaed5b5f3b93cdf479a2bf8e8ab1fbe79a1d1f"
+  },
+  "05.01": {
+    "nodeId": "output.selfcheck",
+    "slot": "body",
+    "sha256": "643963040c11c186a6139edff385c7501cd836cca39d77f628f80cdf1076cbd9"
+  },
+  "05.02": {
+    "nodeId": "output.subtitle",
+    "slot": "body",
+    "sha256": "58a80f16b8ee1fa9d734a2c31b1e0a6b1d8f93574b84cec748ba0ef7be5edbb0"
+  },
+  "05.03": {
+    "nodeId": "output.format",
+    "slot": "body",
+    "sha256": "7dd82765580e00154f65bbb61c9506060b670ddeb39f623fc4437e7999b6965a"
+  }
+}

@@ -1,6 +1,7 @@
 import {maskReasoning,parseBodyBlocks} from '../core/core.js';
+import {eggBoundary} from '../chat/secondary-placement.js';
 
-// Only an entire visible line is a separator. User text is never a regexp.
+// A custom separator must occupy a visible line unless it is MeowFM XML.
 export function parseGenerationBody(text,pattern,format={},marker=''){
     const visible=maskReasoning(text,format),blocks=parseBodyBlocks(text,pattern,format),positions=[];
     marker=String(marker||'').trim();
@@ -12,17 +13,25 @@ export function parseGenerationBody(text,pattern,format={},marker=''){
             offset+=line.length+1;
         }
     }
-    const last=blocks.at(-1),position=positions[0];
-    const marked=last&&positions.length===1&&position<last.start&&!visible.slice(position+marker.length,last.start).trim()?last:null;
+    // The image prompt may mention XML literally. Mask its span before looking
+    // for a real separator, retaining the original reply's offsets.
+    let xmlSource=visible;
+    for(const {raw,start} of blocks){
+        if(raw.includes('<'))xmlSource=xmlSource.slice(0,start)+raw.replace(/[^\r\n]/g,' ')+xmlSource.slice(start+raw.length);
+    }
+    const position=positions[0],xml=eggBoundary(xmlSource);
+    const end=xml?.end??(positions.length===1?position+marker.length:undefined);
+    const next=end===undefined?null:blocks.find(block=>block.start>=end);
+    const marked=next&&!visible.slice(end,next.start).replace(/^\s*┈┈[^\r\n]+┈┈\s*$/,'').trim()?next:null;
     return {blocks,marked};
 }
-export function generationCandidates(parsed,{streaming=false,eggEnabled=false}={}){
+export function generationCandidates(parsed,{streaming=false,eggEnabled=false,implicitEgg=true}={}){
     const last=parsed.blocks.at(-1);
+    const bonus=implicitEgg?last:parsed.marked;
+    const pending=bonus??last;
     return parsed.blocks.flatMap(block=>{
-        // A later token can add another separator/tag. Keep just the tail until
-        // completion even with an explicit marker, so ambiguous output is safe.
-        if(eggEnabled&&streaming&&block===last)return [];
-        return [{block,egg:eggEnabled&&block===last&&(!streaming||block===parsed.marked)}];
+        if(eggEnabled&&streaming&&block===pending)return [];
+        return [{block,egg:eggEnabled&&block===bonus}];
     });
 }
 
@@ -35,7 +44,7 @@ export function createEggMarkerCache({read,key}){
         read(){
             const current=key();
             if(!cached||cached.key!==current||cached.revision!==revision){
-                cached={key:current,revision,promise:Promise.resolve().then(read).then(snapshot=>snapshot.macros.findLast(m=>m.scope==='setvar'&&m.name==='彩蛋标签')?.value.trim()||'').catch(()=>'')};
+                cached={key:current,revision,promise:Promise.resolve().then(read).then(snapshot=>snapshot.macros.findLast(m=>['setvar','parameter'].includes(m.scope)&&m.name==='彩蛋标签')?.value.trim()||'').catch(()=>'')};
             }
             return cached.promise;
         },

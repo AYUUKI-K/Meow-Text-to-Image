@@ -1,4 +1,5 @@
 import {applyNovelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
+import {parseStructuredScene} from '../novelai/character-prompts.js';
 export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'standard',ucPreset:'heavy',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
 export function supportsVarietyBoost(model){return ['nai-diffusion-3','nai-diffusion-furry-3','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-4-5-full','nai-diffusion-4-5-curated'].includes(model);}
 export function varietyBoostSigma(request){
@@ -85,31 +86,48 @@ export function maskReasoning(text, configured={}) {
     let value=String(text??'');
     // Instructions in comments can mention an opening reasoning tag literally.
     value=value.replace(/<!--[\s\S]*?(?:-->|$)/g,match=>match.replace(/[^\r\n]/g,' '));
-    const maskPair=(prefix,suffix)=>{
-        let cursor=0;
-        while(cursor<value.length){
-            const start=value.indexOf(prefix,cursor);if(start<0)break;
-            let end=value.length;
-            if(suffix){
-                let position=start+prefix.length,depth=1;
-                while(position<value.length){
-                    const close=value.indexOf(suffix,position),nested=prefix===suffix?-1:value.indexOf(prefix,position);
-                    if(close<0)break;
-                    if(nested>=0&&nested<close){depth++;position=nested+prefix.length;}
-                    else{position=close+suffix.length;if(--depth===0){end=position;break;}}
+    const pairs=[['<think>','</think>'],['<thinking>','</thinking>'],['<analysis>','</analysis>'],['<reasoning>','</reasoning>'],['<imgthink>','</imgthink>'],['<imagethink>','</imagethink>'],['<tag_think>','</tag_think>']];
+    if(configured.prefix?.trim())pairs.unshift([configured.prefix,configured.suffix||'']);
+    const normalized=value.replace(/<\/?tag_think>/gi,tag=>tag.toLowerCase());
+    const searches=pairs.map(([prefix])=>prefix==='<tag_think>'?normalized:value);
+    // Cache each next opening so every search advances through the text.
+    const openings=pairs.map(([prefix],index)=>searches[index].indexOf(prefix));
+    const parts=[];
+    let cursor=0;
+    while(cursor<value.length){
+        let selected=-1,start=value.length;
+        for(let i=0;i<pairs.length;i++){
+            if(openings[i]>=0&&openings[i]<cursor)openings[i]=searches[i].indexOf(pairs[i][0],cursor);
+            if(openings[i]>=0&&openings[i]<start){selected=i;start=openings[i];}
+        }
+        if(selected<0)break;
+        const [prefix,suffix]=pairs[selected];
+        const search=searches[selected];
+        let end=value.length;
+        if(suffix){
+            let position=start+prefix.length,depth=1;
+            let close=search.indexOf(suffix,position);
+            let nested=prefix===suffix?-1:search.indexOf(prefix,position);
+            // Only the outer pair controls depth; other tag types are opaque.
+            while(close>=0){
+                if(nested>=0&&nested<close){
+                    depth++;position=nested+prefix.length;
+                    nested=search.indexOf(prefix,position);
+                    if(close<position)close=search.indexOf(suffix,position);
+                }else{
+                    position=close+suffix.length;
+                    if(--depth===0){end=position;break;}
+                    close=search.indexOf(suffix,position);
+                    if(nested>=0&&nested<position)nested=search.indexOf(prefix,position);
                 }
             }
-            value=value.slice(0,start)+value.slice(start,end).replace(/[^\r\n]/g,' ')+value.slice(end);
-            cursor=end;
         }
-    };
-    // Mask outer reasoning first so tags inside it cannot open a second range.
-    const outerPairs=[['<think>','</think>'],['<thinking>','</thinking>'],['<analysis>','</analysis>'],['<reasoning>','</reasoning>']];
-    if(configured.prefix?.trim())outerPairs.unshift([configured.prefix,configured.suffix||'']);
-    for(const [prefix,suffix] of outerPairs)maskPair(prefix,suffix);
-    // imgthink tags are reasoning too, but only when they remain visible.
-    maskPair('<imgthink>','</imgthink>');
-    maskPair('<imagethink>','</imagethink>');
+        parts.push(value.slice(cursor,start),value.slice(start,end).replace(/[^\r\n]/g,' '));
+        cursor=end;
+    }
+    if(!parts.length)return value;
+    parts.push(value.slice(cursor));
+    value=parts.join('');
     return value;
 }
 export function pageItems(items,page=0,size=24){
@@ -136,7 +154,16 @@ export function buildRequest(profile, prompt) {
     if (!Number.isInteger(+p.steps) || +p.steps<1 || +p.steps>50) throw new Error('步数须为 1～50');
     if (!Number.isFinite(+p.scale) || +p.scale<0 || +p.scale>10) throw new Error('Guidance 须为 0～10');
     if (!Number.isInteger(+p.seed) || +p.seed < -1 || +p.seed > 4294967295) throw new Error('种子须为 -1 或 0～4294967295');
-    const positive=[p.positive,prompt,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
+    const {scene,characters}=parseStructuredScene(prompt);
+    if(characters.length){
+        const modelVersion=/^nai-diffusion-([45])(?:-|$)/.exec(p.model)?.[1];
+        if(!modelVersion)throw Error('独立角色提示词需要 NovelAI V4、V4.5 或 V5 模型');
+        const limit=modelVersion==='5'?22:6;
+        if(characters.length>limit)throw Error(`当前模型最多支持 ${limit} 个独立角色`);
+    }
+    const positive=[p.positive,scene,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
     const prepared=applyNovelAIPresets(p,positive,p.negative);
-    return {prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model)};
+    const request={prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model)};
+    if(characters.length)request.characters=characters;
+    return request;
 }

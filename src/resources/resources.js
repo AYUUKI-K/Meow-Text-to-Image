@@ -1,8 +1,35 @@
 import {preserveWorldMacros} from './world-macros.js';
 import {randomId} from '../platform/browser-crypto.js';
+import {promptTemplates} from '../prompts/prompt-templates.js';
 export const BUNDLED_RESOURCES={"schema":1,"version":"2.2.3-1107c","revision":2026110703,"worldName":"[喵喵]文生图 2.2.3","worldSHA256":"f25b076115c56301f0bd7d5d2c3f57088de2651559d5cce81547b7d52abb271f","regexSHA256":"a0f551a33db9c3870ba93d8e9b308f8f4cce86e91aaf149711050333a6119179"};
 export const RESOURCE_VERSION=BUNDLED_RESOURCES.version;
 export const WORLD_NAME=BUNDLED_RESOURCES.worldName;
+const drawingEntryTitles=new Set([...Object.values(promptTemplates).map(entry=>entry.comment),'使用说明']);
+const drawingWorldName=/^(?:\[喵喵\]\s*文生图|喵喵文生图)(?:[\s_.（(-]|$)/;
+const worldEntryTitle=entry=>String(entry?.comment??'').trim();
+
+function drawingEntryMarker(entry) {
+    const text=entry?.content;
+    if(typeof text!=='string')return false;
+    if(text.includes('{{miao_drawing_policy}}'))return true;
+    return worldEntryTitle(entry)==='tag头'&&text.includes('<imageTag>')&&
+        text.includes('{{setvar::张数::')&&text.includes('{{setvar::彩蛋标签::');
+}
+
+export function filterDrawingWorldEntries(lists, configuredWorld) {
+    const drawingWorlds=new Set();
+    for(const entries of lists){
+        if(!Array.isArray(entries))continue;
+        for(const entry of entries){
+            if(typeof entry?.world==='string'&&(entry.world===configuredWorld||drawingWorldName.test(entry.world.trim())||drawingEntryMarker(entry))){
+                drawingWorlds.add(entry.world);
+            }
+        }
+    }
+    return lists.map(entries=>Array.isArray(entries)?entries.filter(entry=>!drawingEntryMarker(entry)&&
+        !(drawingWorlds.has(entry?.world)&&drawingEntryTitles.has(worldEntryTitle(entry)))):entries);
+}
+
 const validEntries=book=>book&&book.entries&&typeof book.entries==='object'&&!Array.isArray(book.entries)&&Object.values(book.entries).every(entry=>entry&&typeof entry==='object'&&!Array.isArray(entry));
 export function mergeWorldEntries(existing,incoming,{preserveMacros=false,preserveOptions=false}={}){
     if(!validEntries(incoming)||!validEntries(existing))throw Error('世界书需要有效的 entries 字段');
