@@ -2,9 +2,9 @@
   "display_name": "喵喵文生图",
   "loading_order": 110,
   "js": "index.js",
-  "css": "style.css?v=3.0.0",
+  "css": "style.css?v=3.0.1",
   "author": "喵喵电波-NUE",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "auto_update": false,
   "homePage": "https://github.com/AYUUKI-K/Meow-Text-to-Image"
 }
