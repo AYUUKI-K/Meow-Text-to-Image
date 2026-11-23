@@ -46,3 +46,18 @@ test('single D0 ID always reflects latest synchronous configuration and host err
  assert.ok(calls.every(c=>c[0]===PROMPT_ID&&JSON.stringify(c.slice(2))==='[1,0,false,0]'));
  assert.throws(()=>createPromptInjection({settings,context:()=>({}),onError:()=>errors++}).update());assert.equal(errors,1);
 });
+test('injected dialogue instructions follow the existing egg setting and the generation model',()=>{
+ const settings={enabled:true,promptConfig:defaultPromptSettings(),profiles:[{model:'nai-diffusion-5-full'}],active:0};
+ const injection=createPromptInjection({settings,context:()=>({setExtensionPrompt:()=>{}}),onError:()=>{}});
+ settings.promptConfig.modules.easterEgg=true;
+ assert.match(injection.update(),/对白默认使用简短英文，有特殊要求时可用中文或日文。[\s\S]*Text: 台词/);
+ settings.profiles[0].model='nai-diffusion-4-5-full';
+ const englishOnly=injection.update();
+ assert.match(englishOnly,/对白默认使用简短英文。[\s\S]*Text: 台词/);
+ assert.doesNotMatch(englishOnly,/有特殊要求时可用中文或日文/);
+ settings.profiles[0].model='nai-diffusion-3';
+ assert.doesNotMatch(injection.update(),/Text: 台词/);
+ settings.profiles[0].model='nai-diffusion-5-full';
+ settings.promptConfig.modules.easterEgg=false;
+ assert.doesNotMatch(injection.update(),/Text: 台词/);
+});

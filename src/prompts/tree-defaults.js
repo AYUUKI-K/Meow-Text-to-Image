@@ -84,7 +84,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "注1:\n角色信息: (-sfw/nsfw-upperBody-sfw/nsfw-LowerBody)是否追加状态脏污、汗水、伤痕(轻微情趣向)等等。\n衣物信息: (原创服装:服装特色tag 并是否追加状态湿身、破损、脏污)只包含了服装的基本状态(比如是湿的，那么可以自行添加，关键词tag “Wet clothes”)\n只使用可见的服装部位，例如是赤裸则不进行调用。\n\n注2:\ntag结构：\n1.基础结构\n- 类型(选一:nsfw/sfw)\n- 画面总人数(必须明确：1girl/1boy/etc),\n- 质感提升词(controlled impasto/ soft thick paint / low saturation)\n- 构图(from front / close-up / full body / pov 等),\n- 背景(场景 + 时间 + 光照)\n- 添加增强稳定性tag:masterpiece, best quality,\n\n2.角色模板\n- 每个角色必须使用“()”进行包裹\n- 包裹必须包含详细的：(外貌 + 性别 + 服装 + 表情 + 动作)\n- (著名角色仅需包裹名字tag，除非特殊需求)\n- 每个角色必须加权重\n标准格式：\n(CharacterName or GirlA/BoyA:1.2,hair color, hairstyle,eye color,body type,clothing,expression,action)\n示例：\n(girlA:1.2, black hair, long hair, blue eyes, slim, school uniform, smile, standing),\n(1.2::Yuki Makoto::1.2::persona3::, black jacket slung over shoulders, deadpan but dominant expression, looking down, intimidating aura),\n- 每个角色必须使用不同“标签核心词”(如 GirlA / GirlB )\n- 禁止多个角色共用同一个模板tag\n- 禁止共享描述(例如只写一次 hair / eyes)\n- 多人图必须使用模板：必须写入角色括号内部 + 加权\n多角色交互时，核心交互须成对添加`#`前缀，发起方前缀为`source#`，承受方前缀为`target#`，如果是相互的则使用`mutual#`\n例:\n(角色Atag,source#kissing),\n(角色Btag,target#kissing)\n\n3.动作与交互\n- 角色之间的互动必须写在“角色模板括号外部”\n- 使用tag：hugging, holding hands, looking at each other\n\n前三点结合才是一个完整tag。\n\n4.禁止项\n- 禁止使用抽象词：beautiful,cute,amazing\n- 禁止模糊词：nice pose,good lighting,glowing,dominant\n- 禁止混合身份描述(例如两个角色共享外貌tag)\n- 禁止过分细致描写tag"
+            "body": "注1:\n角色信息: (-sfw/nsfw-upperBody-sfw/nsfw-LowerBody)是否追加状态脏污、汗水、伤痕(轻微情趣向)等等。\n衣物信息: (原创服装:服装特色tag 并是否追加状态湿身、破损、脏污)只包含了服装的基本状态(比如是湿的，那么可以自行添加，关键词tag “Wet clothes”)\n只使用可见的服装部位，例如是赤裸则不进行调用。\n\n注2:\ntag结构：\n1.基础结构\n- 类型(选一:nsfw/sfw)\n- 画面总人数(必须明确：1girl/1boy/etc),\n- 质感提升词(controlled impasto/ soft thick paint / low saturation)\n- 构图(from front / close-up / full body / pov 等),\n- 背景(场景 + 时间 + 光照)\n- 添加增强稳定性tag:masterpiece, best quality,\n\n2.角色模板\n- 每个角色必须使用“()”进行包裹\n- 包裹必须包含详细的：(外貌 + 性别 + 服装 + 表情 + 动作)\n- (著名角色仅需包裹名字tag，除非特殊需求)\n- 每个角色必须加权重\n标准格式：\n(CharacterName or GirlA/BoyA:1.2,hair color, hairstyle,eye color,body type,clothing,expression,action)\n示例：\n(girlA:1.2, black hair, long hair, blue eyes, slim, school uniform, smile, standing),\n(1.2::Yuki Makoto(Persona 3)::, black jacket slung over shoulders),\n- 每个角色必须使用不同“标签核心词”(如 GirlA / GirlB )\n- 禁止多个角色共用同一个模板tag\n- 禁止共享描述\n- 多人图必须使用模板：必须写入角色括号内部 + 加权\n多角色交互时，核心交互须成对添加`#`前缀，发起方前缀为`source#`，承受方前缀为`target#`，如果是相互的则使用`mutual#`\n例:\n(角色Atag,source#kissing),\n(角色Btag,target#kissing)\n\n3.动作与交互\n- 角色之间的互动必须写在“角色模板括号外部”\n- 使用tag：hugging, holding hands, looking at each other\n\n前三点结合才是一个完整tag。\n\n4.禁止项\n- 禁止使用抽象词：beautiful,cute,amazing\n- 禁止模糊词：nice pose,good lighting,glowing,dominant\n- 禁止过分细致描写tag"
         },
         "children": []
     },
@@ -278,7 +278,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": true,
         "slots": {
-            "body": "2.tag规范\n- 禁止使用自然语言句子\n- tag只能使用英文逗号`,`分割，禁止使用分号`;`\n- 禁止使用模糊或抽象词（如 beautiful, nice, amazing）\n- 优先使用“可视觉化”的具体tag（如：smile → gentle smile / smirk）"
+            "body": "2.tag规范\n- 画面 tag 用英文短语，以英文逗号分隔。\n- 漫画彩蛋的对白按 Text: 格式另起一行，多句台词之间空一行。\n- 禁止使用模糊或抽象词（如 beautiful, nice, amazing）\n- 优先使用“可视觉化”的具体tag（如：smile → gentle smile / smirk）"
         },
         "children": []
     },

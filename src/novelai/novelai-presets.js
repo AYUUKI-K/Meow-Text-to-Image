@@ -18,6 +18,15 @@ const none={id:'none',name:'none'};
 export function novelAIPresets(model,kind){return presets[model]?.[kind]??[none];}
 export function resolvePresetId(model,kind,id){return novelAIPresets(model,kind).some(p=>p.id===id)?id:'none';}
 export function selectedPreset(model,kind,id){return novelAIPresets(model,kind).find(p=>p.id===id)??none;}
+export function textRenderingLanguage(model){
+    if(/^nai-diffusion-5(?:-|$)/.test(model))return 'original';
+    return /^nai-diffusion-4(?:-|$)/.test(model)?'english':'none';
+}
+export function splitImageText(prompt){
+    const marker=/(?:^|\r?\n)[ \t]*text:(?!:)/i.exec(prompt);
+    const text=marker?prompt.slice(marker.index+marker[0].length).trim():'';
+    return text?{tags:prompt.slice(0,marker.index).trimEnd(),text}:{tags:prompt,text:''};
+}
 const join=(left,right)=>left.trimEnd()?`${left.trimEnd().replace(/,+$/,'')}, ${right}`:right;
 // V4+ applies quality only to the base caption, before text:, and UC only
 // to the first |-segment. Preserve quoted ||...|| prompt chunks verbatim.
@@ -41,9 +50,11 @@ function addQuality(prompt,preset,modern){
     const tail=text?base.slice(split).trimStart().replace(/^,\s*/,''):'';
     return join(base.slice(0,split),preset.suffix)+tail+prompt.slice(end);
 }
-export function applyNovelAIPresets(profile,prompt,negative){
+export function applyNovelAIPresets(profile,prompt,negative,{textRendering=false}={}){
     const modern=/^nai-diffusion-(?:4|5)/.test(profile.model);
-    prompt=addQuality(prompt,selectedPreset(profile.model,'quality',profile.qualityPreset),modern);
+    const quality=selectedPreset(profile.model,'quality',profile.qualityPreset);
+    const suffix=textRendering?quality.suffix?.replace(/(^|, )no text, /,'$1'):quality.suffix;
+    prompt=addQuality(prompt,{suffix},modern);
     const uc=selectedPreset(profile.model,'uc',profile.ucPreset);
     if(uc.id!=='none'&&uc.prefix){
         negative=uc.prefix+negative;

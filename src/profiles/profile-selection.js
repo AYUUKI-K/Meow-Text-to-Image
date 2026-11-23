@@ -1,3 +1,5 @@
+import {textRenderingLanguage} from '../novelai/novelai-presets.js';
+
 // Global generation policy; profile IDs remain independent of the editor index.
 export function reconcileProfileSelection(settings){
     const ids=new Set(settings.profiles.map(p=>p.id)),warnings=[];
@@ -21,4 +23,15 @@ export function selectGenerationProfile(settings,{egg=false,random=Math.random}=
     }else profile=settings.profiles[settings.active];
     if(!profile)throw Error('请先选择有效配置');
     return {profile:structuredClone(profile),profileId:profile.id,profileName:profile.name,source};
+}
+
+export function eggDialogueLanguage(settings){
+    const profiles=settings.profiles??[];
+    let candidates;
+    if(settings.eggProfileEnabled) candidates=profiles.filter(p=>p.id===settings.eggProfileId);
+    else if(settings.profileSelectionMode==='random') candidates=profiles.filter(p=>settings.randomProfileIds?.includes(p.id));
+    else candidates=profiles.slice(settings.active??0,(settings.active??0)+1);
+    const languages=candidates.map(p=>textRenderingLanguage(p.model));
+    if(!languages.length||languages.includes('none'))return 'none';
+    return languages.includes('english')?'english':'original';
 }

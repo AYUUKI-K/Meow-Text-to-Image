@@ -6,7 +6,7 @@ import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePrompt
 import {migrateTreeSettings} from './src/prompts/tree-settings.js';
 import {createPromptInjection} from './src/platform/prompt-injection.js';
 import {worldMacros,patchWorldMacros} from './src/resources/world-macros.js';
-import {selectGenerationProfile,reconcileProfileSelection} from './src/profiles/profile-selection.js';
+import {selectGenerationProfile,reconcileProfileSelection,eggDialogueLanguage} from './src/profiles/profile-selection.js';
 import {parseGenerationBody,generationCandidates,createEggMarkerCache} from './src/profiles/easter-egg-selection.js';
 import {prepareGeneration,sendPrepared} from './src/generation/generation-lifecycle.js';
 import {generationTimeoutSeconds} from './src/generation/generation-timeout.js';
@@ -1319,6 +1319,7 @@ async function runSecondaryTags(message,automatic){
             requestedBodyCount=limitDrawingCount({min:Math.max(0,output.count.min-existingOrdinary),max:output.count.max},available);
             const requestOutput={...output,count:requestedBodyCount,
                 egg:inline&&output.egg&&!!anchors.egg&&!existingEgg,
+                eggDialogue:eggDialogueLanguage(settings),
                 specialization:drawingSpecialization(promptConfig,output),nsfwRules:drawingNsfwRules(promptConfig,output)};
             if(!current()||controller.signal.aborted)return;
             if(!requestedBodyCount.max&&!requestOutput.egg){
@@ -1499,7 +1500,7 @@ async function init() {
     const sharedMacros={
         ...captureMacroValues({get start(){return settings.startTag;},get end(){return settings.endTag;}}),
         miao_image_count:()=>drawingOptions(settings.promptConfig).count.text,
-        miao_drawing_policy:()=>worldDrawingPolicy(settings.promptConfig),
+        miao_drawing_policy:()=>worldDrawingPolicy(settings.promptConfig,eggDialogueLanguage(settings)),
     };
     for(const [name,handler] of Object.entries(sharedMacros)){
         if(c.powerUserSettings?.experimental_macro_engine!==false&&typeof c.macros?.register==='function')c.macros.register(name,{handler});

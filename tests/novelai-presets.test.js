@@ -50,6 +50,21 @@ test('website preset composition preserves repeated and weighted tags without de
  const p={...profile,positive:'masterpiece, 1.2::masterpiece, no text::',positiveSuffix:'masterpiece',negative:'lowres, {{lowres}}, 0::ai-generated::',qualityPreset:'standard',ucPreset:'heavy'};
  const r=buildRequest(p,'masterpiece');assert.equal(r.prompt,'masterpiece, 1.2::masterpiece, no text::,\nmasterpiece,\nmasterpiece, very aesthetic, masterpiece, no text, ');assert.ok(r.negative_prompt.endsWith(', lowres, {{lowres}}, 0::ai-generated::'));
 });
+test('comic dialogue follows all base tags and quality terms, with its punctuation and blank lines intact',()=>{
+ const p={...profile,qualityPreset:'standard',negative:defaults.negative};
+ const dialogue="Where's my tea?\n\nSorry, I drank it!";
+ const request=buildRequest(p,`4koma, speech bubble, english text\nText: ${dialogue}`);
+ assert.equal(request.prompt,`front,\n4koma, speech bubble, english text,\nback, very aesthetic, masterpiece,\nText: ${dialogue}`);
+ assert.equal(request.negative_prompt,'lowres, bad anatomy, watermark');
+ assert.equal(naiPayload(request).parameters.v4_prompt.caption.base_caption,request.prompt);
+ assert.equal(buildRequest(p,'window').negative_prompt,defaults.negative);
+ assert.match(buildRequest(p,'window').prompt,/no text/);
+ assert.equal(buildRequest({...p,negative:'text, watermark'},'cat\nText: Hello').negative_prompt,'text, watermark');
+ assert.match(buildRequest(p,'0.8::text::, book').prompt,/no text/);
+ const structured=buildRequest(p,'Scene Composition: speech bubble; Character 1 Prompt: smiling|centers:B3;\nText: Hello!');
+ assert.match(structured.prompt,/Text: Hello!$/);
+ assert.equal(structured.characters[0].prompt,'smiling');
+});
 test('preset composition preserves V4 character captions, text and quoted chunks; V3 mixing keeps weights',()=>{
  const p={...profile,qualityPreset:'standard',ucPreset:'heavy'};
  const r=applyNovelAIPresets(p,'base ||quoted|chunk||, text:Hello|character','bad|character bad');

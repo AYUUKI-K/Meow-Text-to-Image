@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaults,buildRequest} from '../src/core/core.js';
 import {selectVibes} from '../src/vibe/vibe.js';
-import {selectGenerationProfile,reconcileProfileSelection} from '../src/profiles/profile-selection.js';
+import {selectGenerationProfile,reconcileProfileSelection,eggDialogueLanguage} from '../src/profiles/profile-selection.js';
 import {ensureProfileIds,moveProfile,planProfileRemoval} from '../src/profiles/profile-previews.js';
 import {runGenerationTask} from '../src/generation/generation-options.js';
 import {httpRequestError} from '../src/platform/request-errors.js';
@@ -38,6 +38,17 @@ test('selected parameters and Vibe come from one detached snapshot; egg override
         const request=buildRequest(selected.profile,'scene');request.vibes=selectVibes(selected.profile,[]);
         assert.equal(selected.profileId,'c');assert.equal(selected.profileName,'c');assert.equal(request.prompt.startsWith('c,'),true);assert.equal(request.width,640);assert.equal(request.seed,2);assert.deepEqual(request.vibes,[]);assert.equal(selected.profile.vibes.length,1);
     }
+});
+test('comic text language follows the egg override or a language supported across the random pool',()=>{
+    const settings={...fixture(),profileSelectionMode:'random',randomProfileIds:['a','b','c']};
+    settings.profiles[0].model='nai-diffusion-4-5-full';
+    settings.profiles[1].model='nai-diffusion-5-full';
+    settings.profiles[2].model='nai-diffusion-3';
+    assert.equal(eggDialogueLanguage(settings),'none');
+    settings.randomProfileIds=['a','b'];
+    assert.equal(eggDialogueLanguage(settings),'english');
+    Object.assign(settings,{eggProfileEnabled:true,eggProfileId:'b'});
+    assert.equal(eggDialogueLanguage(settings),'original');
 });
 test('deleting invalid IDs cleans pools and disables missing egg with explicit warnings and retain random mode',()=>{
     const settings={...fixture(),profileSelectionMode:'random',randomProfileIds:['a','b','a','missing'],eggProfileEnabled:true,eggProfileId:'a'};

@@ -133,7 +133,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             const presetPicker=page.getByRole('combobox',{name:'当前副 API 预设',exact:true});
             assert.equal(await presetPicker.inputValue(),'electronic-ghost');
             assert.equal(await presetPicker.locator('option').count(),1);
-            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵1.7（默认）');
+            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵1.8（默认）');
             const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
             assert.equal(await exportButton.isEnabled(),true);
             const messages=page.locator('.miao-secondary-preset-messages');
@@ -426,7 +426,7 @@ test('the configured drawing format writes into the active swipe and only expand
                 if(request)requests.push(request);
                 const role=request?.messages.some(message=>message.content.includes('试用人物 = black hair, yellow eyes'))?'$试用人物$':'short hair';
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
-                    json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P03">START-FIG $其他存档角色$, walking END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P01">START-FIG extra shot END-FIG</draw><draw egg="true"><tags>┈┈简单彩蛋┈┈\nSTART-FIG teacup END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
+                    json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P03">START-FIG $其他存档角色$, walking END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P01">START-FIG extra shot END-FIG</draw><draw egg="true"><tags>┈┈简单彩蛋┈┈\nSTART-FIG 4koma, teacup, text, speech bubble, english text\nText: From $5 to $10?\n\nI owe you one!END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(tt=>{
@@ -556,6 +556,7 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.match(wire,/\$试用人物\$ = black hair, yellow eyes/);
             assert.match(wire,/即使正文、User 人设、Char 角色卡或世界书也写了这些外观，也不要在同一角色组里另写一次/);
             assert.match(wire,/由你根据这张图创作标题、装饰符号和颜文字/);
+            assert.match(wire,/漫画彩蛋默认配一两句简短对白[\s\S]*对白默认使用简短英文/);
             assert.match(wire,/正文图 2 张[\s\S]*额外生成 1 张彩蛋图[\s\S]*\[bl\]/);
             assert.doesNotMatch(wire,/5~7|\[bg\]/);
             const [placed,original,updated]=await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]);
@@ -563,7 +564,7 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈✧·试用标题·\(≧▽≦\)·✧┈┈\s+START-FIGwarm light, \(\$试用人物\$, sitting\), \(red hair, holding a book\)END-FIG/);
             assert.doesNotMatch(placed,/Scene Composition|Character 1|centers|outdoors/);
             assert.match(placed.slice(0,boundary),/走到门口。\s+START-FIGextra shotEND-FIG\s+把窗推开。/);
-            assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+┈┈简单彩蛋┈┈\s+START-FIGteacupEND-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
+            assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+┈┈简单彩蛋┈┈\s+START-FIG4koma, teacup, text, speech bubble, english text\nText: From \$5 to \$10\?\n\nI owe you one!END-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
             assert.equal(placed.match(/<meowfm>/g).length,1);
             assert.doesNotMatch(placed,/\/meow_FM/i);
             assert.doesNotMatch(placed,/extra bonus/);
@@ -587,6 +588,11 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.match(nai,/\(black hair, yellow eyes, sitting\), \(red hair, holding a book\)/);
             assert.doesNotMatch(nai,/试用人物/);
             assert.equal(await page.evaluate(()=>window.preview.calls[0].characters),undefined);
+            await generate.last().click();
+            await page.waitForFunction(()=>window.preview.calls.length===2);
+            const bonus=await page.evaluate(()=>window.preview.calls[1].prompt??window.preview.calls[1].input);
+            assert.match(bonus,/speech bubble, english text[\s\S]*\nText: From \$5 to \$10\?\n\nI owe you one!$/);
+            assert.doesNotMatch(bonus,/no text/);
             await page.evaluate(async()=>{
                 const p=window.preview;
                 p.chatId='another-archive';p.context.chatMetadata={};
@@ -614,7 +620,7 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.equal(requests.length,2,'one finished reply may be published without a start event');
             assert.doesNotMatch(requests[1].messages.map(message=>message.content).join('\n'),/\$角色名\$|试用人物 =/);
             assert.match(await page.evaluate(()=>window.preview.chat.at(-1).mes),/\(short hair, sitting\)/);
-            assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),2);
 
             const beforeSave='第一段。\n\n第二段。\n\n第三段 START-FIGexisting viewEND-FIG';
             await page.evaluate(async beforeSave=>{

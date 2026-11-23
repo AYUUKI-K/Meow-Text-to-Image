@@ -72,27 +72,31 @@ export function drawingNsfwRules(config, options) {
 }
 
 export function drawingOutputRule(options, {existingEggMarker = false} = {}) {
-    const {count, egg, title, eggDescription} = options;
+    const {count, egg, title, eggDescription, eggDialogue = 'english'} = options;
+    const dialogue = eggDialogue === 'original' ? '对白默认使用简短英文，有特殊要求时可用中文或日文。' : '对白默认使用简短英文。';
     return [
         `本轮正文图 ${count.text} 张，普通图最多 ${count.max} 张。彩蛋不占正文图名额。`,
         egg ? `彩蛋开启，${existingEggMarker?'正文已有彩蛋标记时才':''}额外生成 1 张彩蛋图。` : '本轮不生成彩蛋图。',
+        egg && '漫画彩蛋可用 4koma、comic strip、comic panel，按格序写清楚动作和反应。普通插图沿用原有绘图 tag 格式。',
+        egg && (eggDialogue === 'none' ? '当前生图配置省略漫画彩蛋的画面文字。' :
+            `漫画彩蛋默认配一两句简短对白，纯视觉笑点可省略。加 text、speech bubble，英文再加 english text。${dialogue}在彩蛋绘图标签块末尾另起一行写 Text: 台词，台词后紧接结束标签；不同台词之间空一行。Text: 之后只写需要画出来的文字。`),
         title ? '小标题开启，为每张图写小标题。' : '小标题关闭，省略小标题。',
         egg && eggDescription ? '彩蛋解析开启，只为彩蛋附上一段解析。' : '彩蛋解析关闭，省略彩蛋解析。',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
 }
 
 export function sharedDrawingText(text) {
     return text.replace('在本轮基础配置指定的彩蛋标记后输出彩蛋；彩蛋标记必须独占一行。','只有正文已经出现彩蛋标记时，才在该标记之后输出彩蛋图。保持原有标记。');
 }
 
-export function worldDrawingPolicy(config) {
+export function worldDrawingPolicy(config, eggDialogue) {
     const options = drawingOptions(config);
     const versionTwo = config?.version === 2;
     const title = versionTwo ? treeText(config,'output.subtitle') : '┈┈[绘画主题]┈┈';
     const description = versionTwo ? treeText(config,'egg.description') : '用 <easter_egg> 和 </easter_egg> 包住彩蛋解析。';
     const eggMarker = String((versionTwo ? config.params.eggMarker : config?.fixed?.彩蛋标签) ?? '').trim();
     return [
-        drawingOutputRule(options),
+        drawingOutputRule({...options,eggDialogue}),
         options.egg && versionTwo && sharedDrawingText(treeText(config,'egg')),
         options.title && `起始标签之前单独一行输出小标题，格式为 ${title}`,
         options.egg && eggMarker && `彩蛋 tag 前，单独一行输出 ${eggMarker}。`,

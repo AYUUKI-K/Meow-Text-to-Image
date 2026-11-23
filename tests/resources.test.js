@@ -75,17 +75,19 @@ test('patch world upgrades cover old minor and patch versions without overwritin
     assert.equal(migrateWorldBindings({selected,chatMetadata},old,current),true);assert.deepEqual(selected,[current,'其他书']);assert.equal(chatMetadata.world_info,current);
 });
 
-test('bundled pack contains the main 2.2.3 worldbook and matching regex checksums',async()=>{
+test('bundled pack contains the 2.3.0 worldbook and matching regex checksums',async()=>{
     const manifest=JSON.parse(await readFile(new URL('../assets/resource-manifest.json',import.meta.url),'utf8'));
     const world=await readFile(new URL('../assets/worldbook.json',import.meta.url),'utf8');
     const regex=await readFile(new URL('../assets/regex.json',import.meta.url),'utf8');
     const hash=text=>createHash('sha256').update(text.replace(/\r\n/g,'\n')).digest('hex');
-    assert.equal(manifest.worldName,'[喵喵]文生图 2.2.3');
+    assert.equal(manifest.worldName,'[喵喵]文生图 2.3.0');
     assert.equal(manifest.worldName,WORLD_NAME);
     assert.equal(hash(world),manifest.worldSHA256);
     assert.equal(hash(regex),manifest.regexSHA256);
     const book=JSON.parse(world),rules=JSON.parse(regex);
     assert.equal(Object.keys(book.entries).length,13);
+    assert.match(book.entries[3].content,/彩蛋对白按 Text: 格式另起一行/);
+    assert.match(book.entries[4].content,/默认用简短英文，特殊需求时候使用中文和日文/);
     assert.ok(book.entries[10].content.includes('easter_egg'));
     assert.deepEqual(rules.map(rule=>rule.scriptName),['喵喵文生图1-去标签-1024','喵喵文生图2-去imagethink-1024','喵喵文生图3-居中美化-1107','喵喵文生图4-彩蛋介绍美化-1024']);
     assert.deepEqual(mergeWorldEntries(mergeWorldEntries({entries:{}},book),book),mergeWorldEntries({entries:{}},book));

@@ -1,4 +1,4 @@
-import {applyNovelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
+import {applyNovelAIPresets,resolvePresetId,splitImageText,textRenderingLanguage} from '../novelai/novelai-presets.js';
 import {parseStructuredScene} from '../novelai/character-prompts.js';
 export const defaults = {name:'默认',positive:'best quality, masterpiece',positiveSuffix:'',negative:'lowres, bad anatomy, text, watermark',qualityPreset:'standard',ucPreset:'heavy',model:'nai-diffusion-4-5-full',sampler:'k_euler_ancestral',scheduler:'karras',width:512,height:512,steps:20,scale:5,seed:-1,varietyBoost:false,vibeMode:'multiple',vibeEnabled:true};
 export function supportsVarietyBoost(model){return ['nai-diffusion-3','nai-diffusion-furry-3','nai-diffusion-4-full','nai-diffusion-4-curated-preview','nai-diffusion-4-5-full','nai-diffusion-4-5-curated'].includes(model);}
@@ -154,16 +154,23 @@ export function buildRequest(profile, prompt) {
     if (!Number.isInteger(+p.steps) || +p.steps<1 || +p.steps>50) throw new Error('步数须为 1～50');
     if (!Number.isFinite(+p.scale) || +p.scale<0 || +p.scale>10) throw new Error('Guidance 须为 0～10');
     if (!Number.isInteger(+p.seed) || +p.seed < -1 || +p.seed > 4294967295) throw new Error('种子须为 -1 或 0～4294967295');
-    const {scene,characters}=parseStructuredScene(prompt);
+    const canRenderText=textRenderingLanguage(p.model)!=='none';
+    const split=value=>canRenderText?splitImageText(value):{tags:value,text:''};
+    const body=split(prompt);
+    const {scene,characters}=parseStructuredScene(body.tags);
     if(characters.length){
         const modelVersion=/^nai-diffusion-([45])(?:-|$)/.exec(p.model)?.[1];
         if(!modelVersion)throw Error('独立角色提示词需要 NovelAI V4、V4.5 或 V5 模型');
         const limit=modelVersion==='5'?22:6;
         if(characters.length>limit)throw Error(`当前模型最多支持 ${limit} 个独立角色`);
     }
-    const positive=[p.positive,scene,p.positiveSuffix].map(s=>s.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
-    const prepared=applyNovelAIPresets(p,positive,p.negative);
-    const request={prompt:prepared.prompt,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model)};
+    const parts=[split(p.positive),{tags:scene,text:body.text},split(p.positiveSuffix)];
+    const positive=parts.map(({tags})=>tags.trim()).filter(Boolean).map(s=>s.endsWith(',')?s:`${s},`).join('\n');
+    const imageText=parts.map(({text})=>text).filter(Boolean).join('\n\n');
+    const negative=imageText&&p.negative===defaults.negative?p.negative.replace(', text,',','):p.negative;
+    const prepared=applyNovelAIPresets(p,positive,negative,{textRendering:Boolean(imageText)});
+    const caption=imageText?[prepared.prompt.trimEnd(),`Text: ${imageText}`].filter(Boolean).join('\n'):prepared.prompt;
+    const request={prompt:caption,negative_prompt:prepared.negative,model:p.model,sampler:p.sampler,scheduler:p.scheduler,width:+p.width,height:+p.height,steps:+p.steps,scale:+p.scale,seed:+p.seed<0?Math.floor(Math.random()*4294967296):+p.seed,sm:false,sm_dyn:false,upscale_ratio:1,decrisper:false,variety_boost:p.varietyBoost===true&&supportsVarietyBoost(p.model)};
     if(characters.length)request.characters=characters;
     return request;
 }

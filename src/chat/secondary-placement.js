@@ -1,3 +1,5 @@
+import {splitImageText} from '../novelai/novelai-presets.js';
+
 const captureMacros = /\{\{miao_image_(start|end)\}\}/g;
 
 export function captureMacroValues(capture) {
@@ -111,10 +113,12 @@ export function drawingResponse(text, capture, options) {
 }
 
 export function expandRoleTags(prompt, roles) {
-  return prompt.replace(/\$([^$￥\r\n]+)[$￥]/g, (_, name) => {
+  const {tags, text} = splitImageText(prompt);
+  const expanded = tags.replace(/\$([^$￥\r\n]+)[$￥]/g, (_, name) => {
     if (!roles.has(name)) throw Error(`当前存档未绑定「${name}」。`);
     return roles.get(name);
   });
+  return text?`${expanded}\nText: ${text}`:expanded;
 }
 
 export function insertDrawingTags(body, paragraphs, drawings, egg, maxOrdinary = Infinity) {

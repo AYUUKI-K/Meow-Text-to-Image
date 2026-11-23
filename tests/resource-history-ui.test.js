@@ -4,6 +4,7 @@ import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {homedir} from 'node:os';
 import {mkdir} from 'node:fs/promises';
+import {RESOURCE_VERSION,WORLD_NAME} from '../src/resources/resources.js';
 const require=createRequire(import.meta.url);
 
 test('resource upgrade preserves persona/options; TT retention protects examples and errors remain horizontal',{timeout:90000},async()=>{
@@ -21,21 +22,22 @@ test('resource upgrade preserves persona/options; TT retention protects examples
   });
   await page.locator('#miao-nai-menu').click();await page.locator('.miao-overview').getByRole('button',{name:'资源',exact:true}).click();
   await page.getByRole('button',{name:'更新资源',exact:true}).click();
-  try{await page.waitForFunction(()=>window.preview.settings.resourceVersion==='2.2.3-1107c',{},{timeout:6000});}
+  try{await page.waitForFunction(version=>window.preview.settings.resourceVersion===version,RESOURCE_VERSION,{timeout:6000});}
   catch(error){
    const diagnostic=await page.evaluate(()=>({errors:[...document.querySelectorAll('.miao-error-view')].map(n=>n.textContent),toasts:window.miaoTestToasts,writes:window.preview.worldWrites?.length,resource:window.preview.settings.resourceVersion}));
    throw Error('资源更新未完成：'+JSON.stringify(diagnostic));
   }
-  const upgraded=await page.evaluate(()=>{
-   const p=window.preview,book=p.worlds['[喵喵]文生图 2.2.3'],entry=name=>Object.values(book.entries).find(item=>item.comment===name);
-   return {header:entry('tag头').content,subtitle:entry('小标题[选开]').disable,bl:entry('bl[选一]').disable,user:entry('用户添加').content,selected:p.selectedWorlds,rules:p.regexScripts};
-  });
+  const upgraded=await page.evaluate(world=>{
+   const p=window.preview,book=p.worlds[world],entry=name=>Object.values(book.entries).find(item=>item.comment===name);
+   return {header:entry('tag头').content,subtitle:entry('小标题[选开]').disable,bl:entry('bl[选一]').disable,user:entry('用户添加').content,selected:p.selectedWorlds,rules:p.regexScripts,egg:entry('彩蛋[选开]').content};
+  },WORLD_NAME);
   for(const value of ['KEPT_PERSONA','{{user}}','custom_cot','::4}}'])assert.ok(upgraded.header.includes(value));assert.equal(upgraded.subtitle,true);assert.equal(upgraded.bl,false);assert.equal(upgraded.user,'用户自己的条目');
-  assert.deepEqual(upgraded.selected,['[喵喵]文生图 2.2.3']);assert.equal(upgraded.rules.filter(rule=>rule.scriptName.includes('居中美化')).length,1);assert.ok(upgraded.rules.find(rule=>rule.scriptName.includes('居中美化')).replaceString.includes('font-size:0.82em'));
-  await page.getByRole('checkbox',{name:'小标题',exact:true}).check();await page.waitForFunction(()=>Object.values(window.preview.worlds['[喵喵]文生图 2.2.3'].entries).find(entry=>entry.comment==='小标题[选开]').disable===false);
-  const bg=await page.evaluate(()=>Object.entries(window.preview.worlds['[喵喵]文生图 2.2.3'].entries).find(([,entry])=>entry.comment==='bg[选一]')[0]);await page.getByRole('combobox',{name:'世界书性向选项',exact:true}).selectOption(bg);
-  await page.waitForFunction(()=>Object.values(window.preview.worlds['[喵喵]文生图 2.2.3'].entries).find(entry=>entry.comment==='bl[选一]').disable===true);
-  const persona=page.getByRole('textbox',{name:'人格（setvar）',exact:true});await persona.fill('NEW_PERSONA');await page.getByRole('button',{name:'保存酒馆宏',exact:true}).click();await page.waitForFunction(()=>Object.values(window.preview.worlds['[喵喵]文生图 2.2.3'].entries).find(entry=>entry.comment==='tag头').content.includes('NEW_PERSONA'));
+  assert.deepEqual(upgraded.selected,[WORLD_NAME]);assert.equal(upgraded.rules.filter(rule=>rule.scriptName.includes('居中美化')).length,1);assert.ok(upgraded.rules.find(rule=>rule.scriptName.includes('居中美化')).replaceString.includes('font-size:0.82em'));
+  assert.match(upgraded.egg,/漫画彩蛋的分镜与对白/);
+  await page.getByRole('checkbox',{name:'小标题',exact:true}).check();await page.waitForFunction(world=>Object.values(window.preview.worlds[world].entries).find(entry=>entry.comment==='小标题[选开]').disable===false,WORLD_NAME);
+  const bg=await page.evaluate(world=>Object.entries(window.preview.worlds[world].entries).find(([,entry])=>entry.comment==='bg[选一]')[0],WORLD_NAME);await page.getByRole('combobox',{name:'世界书性向选项',exact:true}).selectOption(bg);
+  await page.waitForFunction(world=>Object.values(window.preview.worlds[world].entries).find(entry=>entry.comment==='bl[选一]').disable===true,WORLD_NAME);
+  const persona=page.getByRole('textbox',{name:'人格（setvar）',exact:true});await persona.fill('NEW_PERSONA');await page.getByRole('button',{name:'保存酒馆宏',exact:true}).click();await page.waitForFunction(world=>Object.values(window.preview.worlds[world].entries).find(entry=>entry.comment==='tag头').content.includes('NEW_PERSONA'),WORLD_NAME);
   await page.getByRole('button',{name:'更新资源',exact:true}).click();await page.waitForFunction(()=>window.preview.worldWrites.length>=5);
   assert.equal(await page.getByRole('textbox',{name:'人格（setvar）',exact:true}).inputValue(),'NEW_PERSONA');assert.equal(await page.getByRole('checkbox',{name:'小标题',exact:true}).isChecked(),true);
   assert.equal(await page.evaluate(()=>window.preview.calls.length),0);await page.close();

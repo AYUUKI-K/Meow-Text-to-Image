@@ -4,6 +4,7 @@ import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {homedir} from 'node:os';
 import {mkdir} from 'node:fs/promises';
+import {BUNDLED_RESOURCES,WORLD_NAME} from '../src/resources/resources.js';
 const require=createRequire(import.meta.url);
 async function browserRuntime(){
  try{return require('playwright');}catch{}
@@ -27,7 +28,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  const source=page.getByRole('combobox',{name:'来源',exact:true}),injection=()=>page.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text);
  await source.selectOption('external');await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');await page.locator('.miao-prompt-tree').waitFor({state:'detached'});
  assert.deepEqual(await page.locator('.miao-panel-body h3').allTextContents(),['提示词来源','出图规则','捕捉标签','世界书与正则','基础配置','世界书选开']);assert.equal(await page.locator('.miao-prompt-tree').count(),0);
- const previousWorld='[喵喵]文生图 2.2.2',currentWorld='[喵喵]文生图 2.2.3';
+ const previousWorld='[喵喵]文生图 2.2.3',currentWorld=WORLD_NAME;
  await page.evaluate(async previousWorld=>{
   const p=window.preview;
   p.worlds[previousWorld]={entries:{
@@ -42,7 +43,7 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
  },previousWorld);
  await page.getByRole('button',{name:'检查资源更新',exact:true}).click();
  await page.getByRole('button',{name:'更新资源',exact:true}).click();
- await page.waitForFunction(()=>window.preview.settings.resourceRevision===2026110703);
+ await page.waitForFunction(revision=>window.preview.settings.resourceRevision===revision,BUNDLED_RESOURCES.revision);
  const migrated=await page.evaluate(()=>{
   const p=window.preview,write=p.worldWrites.at(-1),entries=Object.values(write.data.entries);
   return {name:write.name,selection:p.displayedWorldSelection,savedSelection:p.worldInfo.globalSelect,

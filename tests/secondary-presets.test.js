@@ -40,7 +40,7 @@ test('full Tavern presets retain ordered enabled messages, prefill and inactive 
     const library=addSecondaryPreset(readSecondaryLibrary({}),original);
     const active=activeSecondaryPreset(library);
     assert.equal(active.id,'import-0');
-    assert.equal(secondaryPresets(library)[0].name,'电子幽灵1.7');
+    assert.equal(secondaryPresets(library)[0].name,'电子幽灵1.8');
     assert.deepEqual(active.entries.map(({name,enabled})=>[name,enabled]),[['场景',true],['正文',true],['示范',true],['未启用标记',false]]);
     assert.deepEqual(buildSecondaryMessages({preset:active},'场景正文'),[
         {role:'system',content:'  包含正文之外的完整设置  '},
@@ -50,17 +50,17 @@ test('full Tavern presets retain ordered enabled messages, prefill and inactive 
     assert.deepEqual(readSecondaryPreset(await secondaryPresetFile(active).blob.text()), original);
     const upgraded=readSecondaryLibrary({secondaryTagPresets:{activeId:'electronic-ghost',imports:[],electronicGhost:original}});
     assert.deepEqual(activeSecondaryPreset(upgraded),active);
-    assert.equal(activeSecondaryPreset({...upgraded,activeId:'electronic-ghost'}).name,'电子幽灵1.7');
+    assert.equal(activeSecondaryPreset({...upgraded,activeId:'electronic-ghost'}).name,'电子幽灵1.8');
 });
 
-test('the old placement import stays available while the built-in 1.7 becomes active', ()=>{
+test('the old placement import stays available while the current built-in preset becomes active', ()=>{
     const old={name:'电子幽灵1.6-段落定位',entries:[{name:'自定义正文',role:'system',enabled:true,content:'自定义指令\n{{正文}}'}]};
     for(const settings of [
         {secondaryTagPresets:{activeId:'import-0',imports:[old]}},
         {secondaryTagPresets:{activeId:'electronic-ghost',imports:[],electronicGhost:old}},
     ]){
         const library=readSecondaryLibrary(settings);
-        assert.equal(activeSecondaryPreset(library).name,'电子幽灵1.7');
+        assert.equal(activeSecondaryPreset(library).name,'电子幽灵1.8');
         const selected=readSecondaryLibrary({secondaryTagPresets:{...library,activeId:'import-0'}});
         assert.match(activeSecondaryPreset(selected).name,/旧版副本/);
         assert.deepEqual(activeSecondaryPreset(selected).entries,old.entries);
@@ -156,6 +156,8 @@ test('group replies use the author card and profile slots honor the preset selec
 
 test('the Electronic Ghost example shows a title for every enabled drawing, including the bonus',()=>{
     const preset=activeSecondaryPreset(readSecondaryLibrary({}));
+    assert.match(preset.entries.find(({name})=>name==='彩蛋').content,/默认配一两句贴合场景的简短对白/);
+    assert.match(preset.entries.find(({name})=>name==='绘画自检').content,/对白按 Text: 格式另起一行/);
     const defaults=drawingOptions(defaultPromptSettings());
     const example=options=>buildSecondaryMessages({maxTags:3,preset,output:{...defaults,...options}},'完整正文')
         .map(({content})=>content).join('\n').match(/<drawings>\n[\s\S]+?<\/drawings>/)?.[0];
@@ -163,8 +165,11 @@ test('the Electronic Ghost example shows a title for every enabled drawing, incl
     const draws=[...enabled.matchAll(/<draw [^>]+>([\s\S]*?)<\/draw>/g)];
     assert.equal(draws.length,3);
     assert.ok(draws.every(([, content])=>/<title>[^<]+<\/title>\s*<tags>/.test(content)));
-    assert.match(draws[2][0],/<draw egg="true">[\s\S]*<egg_description>/);
-    assert.doesNotMatch(example({title:false,egg:false}),/<title>|egg="true"|<egg_description>/);
+    assert.ok(draws.slice(0,2).every(([draw])=>!draw.includes('Text:')));
+    assert.match(draws[2][0],/<draw egg="true">[\s\S]*english text\nText: Where's my tea\?###<\/tags>\s*<egg_description>/);
+    assert.match(example({egg:true,eggDialogue:'original'}),/english text\nText: Where's my tea\?###<\/tags>/);
+    assert.doesNotMatch(example({egg:true,eggDialogue:'none'}),/Text:/);
+    assert.doesNotMatch(example({title:false,egg:false}),/<title>|egg="true"|<egg_description>|Text:/);
 });
 
 test('the bundled preset explains the fixed feature mapping and keeps the call in its drawing example',async()=>{

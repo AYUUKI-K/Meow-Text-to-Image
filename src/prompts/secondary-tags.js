@@ -7,6 +7,7 @@ import {drawingOutputRule} from './drawing-options.js';
 import {parseHeaderMacros} from '../resources/world-macros.js';
 import {hostFetch} from '../platform/host-fetch.js';
 import {parseStructuredScene} from '../novelai/character-prompts.js';
+import {splitImageText} from '../novelai/novelai-presets.js';
 
 export const secondaryPattern = delimiterPattern('image###', '###');
 export const secondaryEnabled = settings => settings.tagSource === 'secondary';
@@ -85,8 +86,10 @@ export function extractSecondaryTags(content, limit, pattern = secondaryPattern)
 
 export function flattenSecondaryPrompt(prompt) {
     if(!/(?:^|[;,；\r\n])\s*(?:Scene\s+Composition|Character\s+\d+\s+(?:Prompt|UC))\s*[:：]/i.test(prompt))return prompt;
-    const {scene, characters} = parseStructuredScene(prompt.replace(/\|\s*centers?\s*[:：][^;；\r\n]*/gi,''));
-    return characters.length ? [scene.replace(/,\s*$/, ''), ...characters.map(character=>`(${character.prompt})`)].join(', ') : scene;
+    const {tags, text} = splitImageText(prompt);
+    const {scene, characters} = parseStructuredScene(tags.replace(/\|\s*centers?\s*[:：][^;；\r\n]*/gi,''));
+    const flat=characters.length ? [scene.replace(/,\s*$/, ''), ...characters.map(character=>`(${character.prompt})`)].join(', ') : scene;
+    return text?`${flat}\nText: ${text}`:flat;
 }
 
 const flatTagExample = 'sfw, 1boy, 1girl, soft thick paint, medium close-up, cafe, window light, masterpiece, best quality, (1.2::Character Name(Series Name)::, offering a cup), (girlA:1.2, white hair, short hair, blue eyes, tan sweater, reaching out), looking at each other';
@@ -95,7 +98,7 @@ const fandomRule = '未绑定的著名同人或 ACGN 角色，使用世界书的
 const escapeXMLText = value => value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const drawingFormatHeading = '仅用 <drawings> 返回配图。';
 
-function drawingExample({title=true,egg=true,eggDescription=true,count={max:2},roleName,
+function drawingExample({title=true,egg=true,eggDescription=true,eggDialogue='english',count={max:2},roleName,
     capture={start:'{{miao_image_start}}',end:'{{miao_image_end}}'}}={}){
     const draw=(attributes,heading,tags)=>[
         `  <draw ${attributes}>`,
@@ -110,10 +113,12 @@ function drawingExample({title=true,egg=true,eggDescription=true,count={max:2},r
             : 'sfw, windowsill, morning light, opening window'),
         draw('after="P03" quote="拿起茶杯"','✧·杯中茶香·(≧▽≦)·✧','sfw, teacup, holding cup, soft lighting'),
     ];
+    const comic='4koma, comic strip, chibi, first panel reaching for a cup, last panel finding the cup empty';
+    const eggTags=eggDialogue==='none'?comic:`${comic}, text, speech bubble, english text\nText: Where's my tea?`;
     return [
         '<drawings>',
         ...ordinary.slice(0,count.max),
-        egg&&draw('egg="true"','☆·茶杯大冒险·(๑˃ᴗ˂)☆','chibi, playful smile, teacup'),
+        egg&&draw('egg="true"','☆·茶杯大冒险·(๑˃ᴗ˂)☆',eggTags),
         '</drawings>',
     ].filter(Boolean).join('\n');
 }
