@@ -24,7 +24,7 @@ export function migratePromptSettings(book){
     if(shared){
         const next=defaultTreeSettings('external');
         for(const [key,name] of Object.entries(paramNames))next.params[key]=config.fixed[name];
-        return validateTreeSettings(next);
+        return migrateTreeSettings(next);
     }
     const modified=[];
     for(const [key,template] of Object.entries(promptTemplates)){

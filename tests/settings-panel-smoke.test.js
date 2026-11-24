@@ -166,6 +166,30 @@ test('actual extension startup, fixed prompt tree, drafts, rollback, modes and n
   }
   assert.equal(await historical.evaluate(()=>window.preview.calls.length),0);await historical.close();
  }
+ for(const [variant,host] of [['partial','&tt'],['save-fail','']]){
+  const repaired=await browser.newPage();
+  repaired.on('pageerror',error=>errors.push(variant+': '+error.message));
+  await repaired.goto(url+'/?settings-smoke&prompt-v2='+variant+host);
+  await repaired.locator('#miao-nai-menu').click();
+  await repaired.locator('.miao-overview:visible, .miao-tabs:visible').getByRole('button',{name:'资源',exact:true}).click();
+  const count=repaired.getByRole('textbox',{name:'正文图张数',exact:true});
+  assert.equal(await count.inputValue(),'3');
+  assert.equal(await repaired.getByRole('textbox',{name:'人格',exact:true}).inputValue(),'V2_FIXTURE');
+  assert.match(await repaired.evaluate(()=>window.preview.injections.miao_nai_image_instruction.text),/V2_KEPT_COMPOSITION/);
+  assert.equal(await repaired.getByRole('switch',{name:'启用彩蛋任务',exact:true}).isChecked(),false);
+  if(variant==='save-fail'){
+   assert.ok(await repaired.evaluate(()=>window.miaoTestToasts.some(n=>n.message.includes('迁移或保存失败'))));
+   await repaired.evaluate(()=>window.preview.failSettingsSave=false);
+  }
+  await count.fill('4~6');await count.blur();
+  await repaired.waitForFunction(()=>JSON.parse(sessionStorage.getItem('miao-preview-prompt-state'))?.params.count==='4~6');
+  await repaired.reload();
+  await repaired.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text.includes('正文图 4~6 张'));
+  assert.deepEqual(await repaired.evaluate(()=>window.preview.settings.promptConfig.params),
+   {persona:'V2_FIXTURE',count:'4~6',eggMarker:'/fixture_marker',target:'User'});
+  assert.equal(await repaired.evaluate(()=>window.miaoTestToasts.some(n=>n.type==='error')),false);
+  await repaired.close();
+ }
  assert.deepEqual(errors,[]);
  }finally{await browser?.close();server.kill();}
 });

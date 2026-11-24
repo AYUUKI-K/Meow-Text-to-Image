@@ -2,8 +2,11 @@ import {promptTree, treeById, orientations} from './tree-defaults.js';
 import {promptTemplates} from './prompt-templates.js';
 
 export const paramNames = Object.freeze({persona:'人格', target:'对象', count:'张数', eggMarker:'彩蛋标签'});
+const defaultParams={persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'};
+const paramTextLimit=16000;
+const validParamText=value=>typeof value==='string'&&value.length<=paramTextLimit;
 export function defaultTreeSettings(mode = 'builtin') {
-    return {version:2, mode, params:{persona:'ELLA', target:'User', count:'2~3', eggMarker:'/meow_FM'},
+    return {version:2, mode, params:{...defaultParams},
         enabledById:Object.fromEntries(promptTree.filter(n => n.toggleable).map(n => [n.nodeId, n.defaultEnabled])),
         textOverridesById:{}, orientation:''};
 }
@@ -12,11 +15,28 @@ export function hasLegacyCustomizations(config) {
     return config?.version === 1 && Object.entries(config.overrides || {}).some(([key, text]) => text !== promptTemplates[key]?.content);
 }
 
+function restoreTreeParams(config) {
+    if(Object.keys(paramNames).every(key=>validParamText(config.params?.[key])))return config;
+    const params={...config.params};
+    const invalidParams={...config.invalidParams};
+    for(const [key,name] of Object.entries(paramNames)){
+        const value=config.params?.[key];
+        const earlier=config.legacyBackup?.config?.fixed?.[name];
+        if(validParamText(value))params[key]=value;
+        else if(key==='count'&&Number.isSafeInteger(value)&&value>0)params[key]=String(value);
+        else{
+            if(value!==undefined)invalidParams[key]=value;
+            params[key]=validParamText(earlier)?earlier:defaultParams[key];
+        }
+    }
+    return {...config,params,...(Object.keys(invalidParams).length?{invalidParams}:{})};
+}
+
 // A custom v1 document cannot be split losslessly. Keep its usable composer and editor
 // until the user explicitly chooses the tree; retain the entire original configuration.
 export function migrateTreeSettings(config, {adoptTree = false} = {}) {
     if (!config) return defaultTreeSettings();
-    if (config.version === 2) { validateTreeSettings(config); return config; }
+    if (config.version === 2) return validateTreeSettings(restoreTreeParams(config));
     if (config.version !== 1) throw Error('不支持的提示词配置版本，原配置已保留');
     if (hasLegacyCustomizations(config) && !adoptTree) return config;
     const next = defaultTreeSettings(config.mode);
@@ -26,14 +46,15 @@ export function migrateTreeSettings(config, {adoptTree = false} = {}) {
     for (const [key, id] of Object.entries(modules)) if (typeof config.modules?.[key] === 'boolean') next.enabledById[id] = config.modules[key];
     next.orientation = String(config.orientation || '').toUpperCase();
     if (config.migration) next.migration = structuredClone(config.migration);
-    validateTreeSettings(next);
-    return next;
+    return validateTreeSettings(restoreTreeParams(next));
 }
 
 export function validateTreeSettings(config) {
     if (config.version !== 2 || !['builtin','external'].includes(config.mode) || !orientations.includes(config.orientation)) throw Error('提示词配置无效');
-    for (const key of Object.keys(paramNames)) {
-        if (typeof config.params?.[key] !== 'string' || config.params[key].length > 16000) throw Error('任务参数需为不超过 16000 字符的文本');
+    for (const [key,name] of Object.entries(paramNames)) {
+        const value=config.params?.[key];
+        if (typeof value!=='string') throw Error(`「${name}」需为文本`);
+        if (value.length>paramTextLimit) throw Error(`「${name}」最多可填写 ${paramTextLimit} 字符`);
     }
     for (const [id, value] of Object.entries(config.enabledById || {})) if (!treeById[id]?.toggleable || typeof value !== 'boolean') throw Error('提示词开关无效');
     for (const [id, slots] of Object.entries(config.textOverridesById || {})) {

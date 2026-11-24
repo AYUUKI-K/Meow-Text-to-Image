@@ -115,7 +115,7 @@ const knownSecondaryFloors=new WeakSet();
 const promptInjection=createPromptInjection({context:ctx,settings,onError:()=>notices.error('D0 提示词注入失败，请检查宿主兼容性','提示词')});
 const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
 const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
-if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)save();
+if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)ctx().saveSettingsDebounced();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
 const favorites=createFavorites({settings,persist:persistSettings});
@@ -1483,7 +1483,7 @@ function scheduleRender(automatic=false) {
     clearTimeout(timer);timer=setTimeout(()=>guard(()=>{const auto=autoScheduled;autoScheduled=false;renderAll();if(auto)autoLatest();})(),80);
 }
 async function init() {
-    mountMenu();refreshFloating();const c=ctx();save();
+    const c=ctx();
     for(const message of c.chat)knownSecondaryFloors.add(message);
     if(c.eventTypes.WORLDINFO_ENTRIES_LOADED)c.eventSource.on(c.eventTypes.WORLDINFO_ENTRIES_LOADED,groups=>{
         if(!settings.enabled||(!secondaryEnabled(settings)&&settings.promptConfig?.mode!=='builtin')||!groups)return;
@@ -1520,10 +1520,15 @@ async function init() {
         try{await persistSettings();}catch{settings.promptConfig.mode='external';notices.warning('提示词迁移保存失败，已保留外部模式，请重新保存设置。','提示词');}
     }else{
         try{
-            const next=migrateTreeSettings(settings.promptConfig);
-            if(next!==settings.promptConfig)await savePromptConfig(next);
+            const previous=settings.promptConfig,next=migrateTreeSettings(previous);
+            if(next!==previous){
+                // Keep a repaired v2 config usable when the host fails to save it.
+                if(previous.version===2)settings.promptConfig=next;
+                await savePromptConfig(next);
+            }
         }catch{notices.warning('提示词结构迁移或保存失败，已保留原配置，可重试保存。','提示词');}
     }
+    mountMenu();refreshFloating();save();
     const previousLimit=settings.secondaryTagAPI?.maxTags;
     if (Number.isInteger(previousLimit)&&previousLimit>0) {
         const options=drawingOptions(settings.promptConfig);

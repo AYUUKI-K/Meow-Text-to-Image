@@ -92,6 +92,25 @@ test('ordinary parameter saving, marker cache and warnings share the same values
  const customFormat=withTreeText(defaultPromptSettings(),'output.format',{body:'CUSTOM_START\n[prompt]\nCUSTOM_END'});assert.ok(promptWarnings(customFormat,'image###','###').some(s=>s.includes('图片标签结构已自定义')));
 });
 
+test('stored v2 settings repair only invalid task parameters before editing unrelated options',()=>{
+ const config=defaultPromptSettings();
+ const oversized='X'.repeat(16001);
+ config.params={persona:'KEPT_PERSONA',count:4,eggMarker:oversized};
+ config.legacyBackup={version:1,config:{fixed:{对象:'{{user}}'}}};
+ config.enabledById.egg=false;
+ config.textOverridesById.composition={body:'KEPT_COMPOSITION'};
+ const before=structuredClone(config),restored=migrateTreeSettings(config);
+ assert.deepEqual(config,before);
+ assert.deepEqual(restored.params,{persona:'KEPT_PERSONA',target:'{{user}}',count:'4',eggMarker:'/meow_FM'});
+ assert.deepEqual(restored.invalidParams,{eggMarker:oversized});
+ assert.deepEqual(restored.enabledById,config.enabledById);
+ assert.deepEqual(restored.textOverridesById,config.textOverridesById);
+ assert.match(composePrompt(restored),/KEPT_PERSONA[\s\S]*KEPT_COMPOSITION/);
+ assert.equal(migrateTreeSettings(restored),restored);
+ assert.throws(()=>updateFixedMacros(restored,fixedMacroSnapshot(restored),{persona:oversized}),/「人格」最多可填写 16000 字符/);
+ assert.throws(()=>updateFixedMacros(restored,fixedMacroSnapshot(restored),{target:42}),/「对象」需为文本/);
+});
+
 test('D0 uses a single synchronous ID, clears external/disabled and can roll back a failed save',()=>{
  const calls=[],settings={enabled:true,promptConfig:defaultPromptSettings()};
  const injection=createPromptInjection({settings,context:()=>({setExtensionPrompt:(...args)=>calls.push(args)}),onError:()=>{}});
