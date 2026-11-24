@@ -313,8 +313,11 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             const layout=node('div',undefined,'miao-generation-layout'),preferences=node('div',undefined,'miao-generation-column'),account=node('div',undefined,'miao-generation-column');layout.append(preferences,account);body.append(layout);
             const interaction=section(preferences,'操作');
             const manualSecondary=manualSecondaryGeneration(settings);
-            if(!manualSecondary)field(interaction,'悬浮入口',settings.floatingEntry?'floating':'menu',v=>{settings.floatingEntry=v==='floating';floatingRerollRow.hidden=floatingOptions.hidden=!settings.floatingEntry;save();onChange();},{options:[['menu','关闭'],['floating','开启']]});
-            const floatingRerollRow=node('label',undefined,'miao-switch-row'),floatingRerollCheck=node('input');floatingRerollRow.hidden=manualSecondary||!settings.floatingEntry;floatingRerollCheck.type='checkbox';floatingRerollCheck.checked=!!settings.floatingReroll;floatingRerollCheck.onchange=()=>{settings.floatingReroll=floatingRerollCheck.checked;save();onChange();};floatingRerollRow.append(node('span','双击悬浮球生成最新一层所有图片'),floatingRerollCheck);interaction.append(floatingRerollRow);
+            if(!manualSecondary)field(interaction,'悬浮入口',settings.floatingEntry?'floating':'menu',v=>{
+                settings.floatingEntry=v==='floating';floatingRerollRow.hidden=settings.mode==='manual'||!settings.floatingEntry;
+                floatingOptions.hidden=!settings.floatingEntry;save();onChange();
+            },{options:[['menu','关闭'],['floating','开启']]});
+            const floatingRerollRow=node('label',undefined,'miao-switch-row'),floatingRerollCheck=node('input');floatingRerollRow.hidden=settings.mode==='manual'||!settings.floatingEntry;floatingRerollCheck.type='checkbox';floatingRerollCheck.checked=!!settings.floatingReroll;floatingRerollCheck.onchange=()=>{settings.floatingReroll=floatingRerollCheck.checked;save();onChange();};floatingRerollRow.append(node('span','双击悬浮球生成最新一层所有图片'),floatingRerollCheck);interaction.append(floatingRerollRow);
             const floatingOptions=node('div',undefined,'miao-floating-options');floatingOptions.hidden=!manualSecondary&&!settings.floatingEntry;interaction.append(floatingOptions);
             const iconType=field(floatingOptions,'悬浮图标',settings.floatingIconType,v=>{settings.floatingIconType=v;paintIcon();save();onChange();},{options:[['default','默认图标'],['fontawesome','Font Awesome']]});
             const iconChoice=node('div',undefined,'miao-floating-icon-choice'),iconPreview=node('span',undefined,'miao-floating-icon-preview');floatingOptions.append(iconChoice);iconChoice.append(iconPreview);
@@ -325,8 +328,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             field(interaction,'重新生图',String(settings.rerollClicks===3?3:2),v=>{settings.rerollClicks=Number(v);save();onChange();},{options:[['2','双击'],['3','三击']]});
             const main=section(preferences,'生成方式');
             const secondary=secondaryEnabled(settings);
-            const modes=secondary?[['manual','三击悬浮球 · 手动出图'],['auto','全文结束后出词 · 自动出图']]:
-                [['manual','手动'],['auto','回复后生成'],['stream','流式生成']];
+            const modes=secondary?[['manual','三击悬浮球出词 · 点击生图'],['auto','回复后自动出图']]:
+                [['manual','手动 · 点击生图'],['auto','回复后生成'],['stream','流式生成']];
             field(main,'生成模式',imageGenerationMode(settings),v=>{settings.mode=v;settings.enabled=true;save();onChange(true);render();},{options:modes});
             const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.autoRetryEnabled;retryCheck.onchange=()=>{settings.autoRetryEnabled=retryCheck.checked;save();};retry.append(node('span','遇到限流自动重试'),retryCheck);main.append(retry);
             main.append(node('p','仅 HTTP 429 限流允许重试，最多 3 次；其他错误不自动重试。','miao-muted'));
@@ -615,7 +618,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     let message,available=false;
                     try{
                         available=await secondaryKeyAvailable();
-                        message=available?'连接已配置 · 全文结束后出词':saved?.url?'当前浏览器缺少副 API Key，请重新填写并保存。':'请填写地址、模型和 Key 后保存。';
+                        message=available?'副 API 已配置':saved?.url?'当前浏览器缺少副 API Key，请重新填写并保存。':'请填写地址、模型和 Key 后保存。';
                     }catch{message='无法读取此设备保存的副 API Key。';}
                     if(settings.secondaryTagAPI===saved){
                         status.textContent=message;

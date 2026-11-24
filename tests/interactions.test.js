@@ -11,8 +11,8 @@ test('manual secondary gesture starts on the first docked tap and wins over doub
   Object.assign(win,{innerWidth:400,innerHeight:800,matchMedia:()=>({matches:mobile})});
   Object.assign(button,{style:{},setAttribute(){},remove(){}});
   let generated=0,opened=0,rerolled=0;
-  const dispose=createFloatingEntry({settings:{floatingReroll:true},save(){},open:()=>opened++,reroll:()=>rerolled++,
-   generateVisible:()=>generated++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+  const dispose=createFloatingEntry({settings:{mode:'manual',floatingReroll:true},save(){},open:()=>opened++,reroll:()=>rerolled++,
+   extractVisibleTags:()=>generated++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
   const tap=x=>{const event=new Event('click',{cancelable:true});Object.assign(event,{detail:1,button:0,clientX:x,clientY:10});button.dispatchEvent(event);};
   tap(mobile?8:40);tap(40);
   assert.deepEqual([generated,opened,rerolled],[0,0,0]);
@@ -20,6 +20,21 @@ test('manual secondary gesture starts on the first docked tap and wins over doub
   assert.deepEqual([generated,opened,rerolled],[1,0,0]);
   dispose();
  }
+});
+
+test('main manual mode ignores the saved floating double-reroll shortcut',()=>{
+ const button=new EventTarget(),win=new EventTarget();
+ Object.assign(win,{innerWidth:400,innerHeight:800});
+ Object.assign(button,{style:{},setAttribute(){},remove(){}});
+ let opened=0,rerolled=0;
+ const dispose=createFloatingEntry({settings:{mode:'manual',floatingEntry:true,floatingReroll:true},
+  save(){},open:()=>opened++,reroll:()=>rerolled++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+ for(const detail of [1,2]){
+  const event=new Event('click',{cancelable:true});Object.assign(event,{detail,button:0,clientX:10,clientY:10});button.dispatchEvent(event);
+ }
+ assert.equal(opened,2);
+ assert.equal(rerolled,0);
+ dispose();
 });
 
 test('visible floor selection uses the clipped chat viewport and excludes user and system rows',()=>{

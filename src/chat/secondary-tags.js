@@ -20,9 +20,9 @@ export function removeSecondarySwipe(message, removed) {
 }
 
 export function secondaryBlocks(message, swipe, text, mainCount) {
-    return readSecondaryTags(message, swipe).map(({prompt}, index) => ({
+    return readSecondaryTags(message, swipe).map(({prompt,egg}, index) => ({
         prompt, raw: `image###${prompt}###`, start: text.length + index + 1,
-        bodyIndex: mainCount + index, secondaryIndex: index, secondary: true,
+        bodyIndex: mainCount + index, secondaryIndex: index, secondary: true, egg,
     }));
 }
 

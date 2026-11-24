@@ -28,8 +28,18 @@ test('manual, after-reply and stream generation avoid duplicate, historical and 
    else{await page.waitForTimeout(60);assert.equal(await page.evaluate(()=>window.preview.calls.length),0);}
    await page.evaluate(async()=>{const p=window.preview;await p.emit('CHARACTER_MESSAGE_RENDERED',2);await p.emit('GENERATION_ENDED');await p.emit('GENERATION_ENDED');await p.emit('CHARACTER_MESSAGE_RENDERED',2);});
    if(mode==='manual'){
-    await page.locator('[mesid="2"] .miao-image-card').first().getByRole('button',{name:'生成插图',exact:true}).click();
+    const first=page.locator('[mesid="2"] .miao-image-card').first();
+    await first.getByRole('button',{name:'查看提示词',exact:true}).click();
+    const prompt=page.locator('.miao-prompt-view');
+    await prompt.getByRole('button',{name:'编辑提示词',exact:true}).click();
+    await prompt.getByRole('textbox',{name:'编辑本次 tag 提示词',exact:true}).fill('manual edit fixture');
+    await prompt.getByRole('button',{name:'保存提示词',exact:true}).click();
+    await prompt.waitFor({state:'detached'});
+    assert.match(await page.evaluate(()=>window.preview.chat[2].mes),/image###manual edit fixture###/);
+    assert.equal(await page.evaluate(()=>window.preview.calls.length),0,'saving an undrawn tag must not start generation');
+    await first.getByRole('button',{name:'生成插图',exact:true}).click();
     await page.waitForFunction(()=>window.preview.calls.length===1);
+    assert.match(await page.evaluate(()=>window.preview.calls[0].prompt),/manual edit fixture/);
     await page.locator('[mesid="2"] .miao-image-card').nth(1).getByRole('button',{name:'生成插图',exact:true}).click();
    }
    await page.waitForFunction(()=>Object.keys(window.preview.chat.at(-1).miao_nai_image_swipes?.[0]||{}).length===2);

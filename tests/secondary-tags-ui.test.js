@@ -52,7 +52,7 @@ test('updating the extension keeps device and tab keys available after reloading
             await page.getByRole('textbox',{name:'副 API 模型',exact:true}).fill('fixture');
             await page.getByLabel('副 API Key',{exact:true}).fill('fixture-secondary-key');
             await page.getByRole('button',{name:'保存副 API',exact:true}).click();
-            await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
+            await page.getByText('副 API 已配置',{exact:true}).waitFor();
             await page.evaluate(legacy=>{
                 const p=window.preview;
                 if(legacy)p.settings.secondaryTagAPI.remember=false;
@@ -68,7 +68,7 @@ test('updating the extension keeps device and tab keys available after reloading
             await page.reload();
             await page.locator('#miao-nai-menu').click();
             await page.locator('.miao-overview').getByRole('button',{name:'资源',exact:true}).click();
-            await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
+            await page.getByText('副 API 已配置',{exact:true}).waitFor();
             assert.equal(await page.getByLabel('副 API Key',{exact:true}).inputValue(),'');
             assert.equal(await page.getByLabel('副 API Key',{exact:true}).getAttribute('placeholder'),'已保存，留空沿用');
             assert.equal(await persistence.inputValue(),mode==='legacy-device'?'page':remember);
@@ -190,7 +190,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             if(tt)await page.getByRole('button',{name:'保存副 API',exact:true}).click();
             else await page.getByRole('button',{name:'保存',exact:true}).click();
             await page.waitForFunction(()=>!!window.preview.settings.secondaryTagAPI);
-            await page.getByText('连接已配置 · 全文结束后出词',{exact:true}).waitFor();
+            await page.getByText('副 API 已配置',{exact:true}).waitFor();
             assert.ok(!(await page.evaluate(()=>JSON.stringify(window.preview.settings))).includes('fixture-secondary-key'));
             assert.equal(await keyInput.inputValue(),'');
             if(!tt){
@@ -420,7 +420,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
     }finally{await browser?.close();server.kill();}
 });
 
-test('manual secondary gestures draw the visible floor and preserve the configured drawing format', {timeout:90000},async()=>{
+test('manual secondary gestures extract the visible floor and only the image button starts generation', {timeout:90000},async()=>{
     const {chromium}=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
     const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
     let browser;
@@ -566,7 +566,7 @@ test('manual secondary gestures draw the visible floor and preserve the configur
             const tapBall=()=>tt?ball.tap():ball.click();
             const tripleTap=async()=>{await tapBall();await tapBall();await tapBall();};
             await ball.waitFor();
-            assert.match(await ball.getAttribute('aria-label'),/三击/);
+            assert.match(await ball.getAttribute('aria-label'),/三击为当前 AI 楼层出词/);
             await tapBall();await tapBall();await page.waitForTimeout(420);
             assert.equal(requests.length,0,'manual mode waits for three taps');
             assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
@@ -608,6 +608,16 @@ test('manual secondary gestures draw the visible floor and preserve the configur
             assert.equal(disabled.egg,true);
             assert.equal(disabled.title,undefined);
             assert.equal(disabled.eggDescription,undefined);
+            const imageCards=id=>page.locator(`#chat [mesid="${id}"] .miao-image-card`);
+            const clickGenerate=async(id,count)=>{
+                for(let i=0;i<count;i++)await imageCards(id).nth(i).getByRole('button',{name:'生成插图',exact:true}).click();
+            };
+            await imageCards(0).nth(2).getByRole('button',{name:'生成插图',exact:true}).waitFor();
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
+            await tripleTap();await page.waitForFunction(()=>window.miaoTestToasts.some(t=>t.message==='本楼已有绘图提示词'));
+            assert.equal(requests.length,1);
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
+            await clickGenerate(0,3);
             await page.waitForFunction(()=>document.querySelectorAll('#chat .miao-image-card>img').length===3,null,{timeout:7500});
             const generated=await page.evaluate(()=>window.preview.calls.map(call=>call.prompt??call.input));
             assert.equal(generated.length,3);
@@ -665,31 +675,34 @@ test('manual secondary gestures draw the visible floor and preserve the configur
             assert.equal(requests.length,3);
             assert.match(requests[2].messages.map(message=>message.content).join('\n'),/第九楼专属正文/);
             assert.match(await page.evaluate(()=>window.preview.chat[9].mes),/雨 &amp; 灯[\s\S]*START-FIGrain, black umbrellaEND-FIG/);
+            await imageCards(9).nth(1).getByRole('button',{name:'生成插图',exact:true}).waitFor();
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),3);
+            await clickGenerate(8,2);await clickGenerate(9,2);
             await page.waitForFunction(()=>[8,9].every(id=>document.querySelectorAll(`#chat .mes[mesid="${id}"] .miao-image-card>img`).length===2),null,{timeout:18000});
             assert.equal(await page.evaluate(()=>window.preview.calls.length),7);
-            await showFloor(9);await tripleTap();
-            await page.waitForFunction(()=>{
-                const records=Object.values(window.preview.chat[9].miao_nai_image_swipes?.[0]??{});
-                return records.length===2&&records.every(record=>record.versions.length===2);
-            });
-            assert.equal(requests.length,3,'rerolling the same floor must reuse its existing tags');
-            assert.equal(await page.evaluate(()=>window.preview.calls.length),9);
 
             const fallbackText='无法定位的回填测试。\n\n夜里的车站。';
-            await page.evaluate(async text=>{
+            const normalWidth=await page.evaluate(async text=>{
                 const p=window.preview,id=p.chat.length,chat=document.getElementById('chat');
+                const profile=p.settings.profiles[p.settings.active];
+                p.settings.profiles.push({...profile,id:'fixture-egg-profile',width:profile.width===768?1024:768});
+                Object.assign(p.settings,{eggProfileEnabled:true,eggProfileId:'fixture-egg-profile'});
                 p.chat.push({name:'Reply',mes:text});
                 chat.insertAdjacentHTML('beforeend',`<div class="mes" mesid="${id}" style="min-height: 400px"><div class="mes_text"></div></div>`);
                 p.context.updateMessageBlock(id,p.chat[id]);
                 await p.emit('MESSAGE_RECEIVED',id,'normal');
+                return Number(profile.width);
             },fallbackText);
             await showFloor(10);await tripleTap();
             const fallbackCard=page.locator('#chat [mesid="10"] [data-miao-source="secondary"]');
             await fallbackCard.getByRole('button',{name:'生成插图',exact:true}).waitFor();
             assert.equal(requests.length,4);
             assert.deepEqual(await page.evaluate(()=>[window.preview.chat[10].mes,window.preview.chat[10].miao_nai_image_secondary_tags[0]]),
-                [fallbackText,[{prompt:'empty station, mist'}]]);
-            assert.equal(await page.evaluate(()=>window.preview.calls.length),9);
+                [fallbackText,[{prompt:'empty station, mist',egg:false}]]);
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),7);
+            await clickGenerate(10,1);
+            await fallbackCard.locator(':scope>img').waitFor();
+            assert.equal(await page.evaluate(()=>{const request=window.preview.calls.at(-1);return request.width??request.parameters.width;}),normalWidth);
 
             const beforeSave='第一段。\n\n第二段。\n\n第三段 START-FIGexisting viewEND-FIG';
             await page.evaluate(async beforeSave=>{

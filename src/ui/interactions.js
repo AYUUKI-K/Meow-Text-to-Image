@@ -23,10 +23,11 @@ export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now
     return reset;
 }
 
-export function createFloatingEntry({settings,save,open,reroll=()=>{},generateVisible,icon,documentImpl=document,windowImpl=window}){
-    if(!settings.floatingEntry&&!generateVisible)return ()=>{};
-    const clicks=generateVisible?3:settings.floatingReroll?2:0;
-    const shortcut=generateVisible?'三击生成当前可见的 AI 楼层图片':settings.floatingReroll?'双击生成最新楼层所有图片':'';
+export function createFloatingEntry({settings,save,open,reroll=()=>{},extractVisibleTags,icon,documentImpl=document,windowImpl=window}){
+    if(!settings.floatingEntry&&!extractVisibleTags)return ()=>{};
+    const doubleReroll=settings.mode!=='manual'&&settings.floatingReroll;
+    const clicks=extractVisibleTags?3:doubleReroll?2:0;
+    const shortcut=extractVisibleTags?'三击为当前 AI 楼层出词':doubleReroll?'双击生成最新楼层所有图片':'';
     const button=documentImpl.createElement('button');button.id='miao-nai-floating';button.type='button';
     button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label',['喵喵文生图：单击打开设置',shortcut].filter(Boolean).join('，'));button.title=['单击设置',shortcut,'拖动调整位置'].filter(Boolean).join(' · ');
     if(settings.floatingIconType==='fontawesome'&&validFontAwesomeIcon(settings.floatingIcon))button.replaceChildren(fontAwesomeElement(settings.floatingIcon,documentImpl));
@@ -56,14 +57,14 @@ export function createFloatingEntry({settings,save,open,reroll=()=>{},generateVi
         if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}
         if(button.dataset.collapsed==='true'){
             e.preventDefault();cancelGesture();expanded=true;button.dataset.collapsed='false';later();
-            if(!generateVisible||e.detail===0){e.stopImmediatePropagation();return;}
+            if(!extractVisibleTags||e.detail===0){e.stopImmediatePropagation();return;}
             revealClick=e;
         }
         if(expanded)later();
         if(e.detail===0||!clicks){e.stopImmediatePropagation();cancelGesture();open();}
     });
     const cancelGesture=bindImageGesture(button,{getClicks:()=>clicks,onSingle:e=>{if(e!==revealClick)open();},
-        onReroll:generateVisible??reroll,distance:generateVisible?48:24});
+        onReroll:extractVisibleTags??reroll,distance:extractVisibleTags?48:24});
     return ()=>{clearTimeout(collapseTimer);cancelGesture();button.remove();windowImpl.removeEventListener('resize',fit);windowImpl.visualViewport?.removeEventListener('resize',fit);};
 }
 export function clampImageView(view,{width,height,imageWidth,imageHeight}){

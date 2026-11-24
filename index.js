@@ -323,7 +323,7 @@ function generate(message,block,{automatic=false,egg}={}) {
         if(!current)throw Error('原 tag 已删除或修改，请重新生成');
         return startGeneration(live,current,{automatic,egg:egg===true});
     };
-    if(block.secondary&&egg===undefined)egg=settings.eggProfileEnabled&&blocks(message).filter(b=>b.secondary).at(-1)?.start===block.start;
+    if(block.secondary&&egg===undefined)egg=settings.eggProfileEnabled&&(block.egg??(blocks(message).filter(b=>b.secondary).at(-1)?.start===block.start));
     if(egg!==undefined||!settings.eggProfileEnabled){try{return start();}catch(error){generationError(error);return;}}
     return eggMarkerCache.read().then(marker=>{
         const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
@@ -364,7 +364,8 @@ function tagEditor(message,block){
         const root=document.querySelector(`#chat .mes[mesid="${ctx().chat.indexOf(live)}"] .mes_text`);
         const old=[...(root?.querySelectorAll('.miao-image-card')||[])].find(card=>card.dataset.miaoKey===`${swipe}:${blockSlot(block)}`);
         if(old){old._cancelGesture?.();old.replaceWith(makeCard(live,next.block));}
-        renderAll();generate(live,next.block);
+        renderAll();
+        if(settings.mode!=='manual'||imageVersions(record).some(version=>version.url&&!version.deleted))generate(live,next.block);
     };
 }
 function startGeneration(message,block,{automatic=false,egg=false}={}) {
@@ -500,7 +501,7 @@ function makeCard(message,block) {
     if(task){const progress=el('span',task.status,'miao-image-progress');progress.setAttribute('role','status');card.append(progress);}
     card.dataset.status=String(selected)+':'+versions.map(v=>v.url+':'+!!v.deleted).join('|')+':'+(task?.status||'')+':'+(settings.rerollClicks===3?3:2)+':favorites='+favoritesEnabled(settings);
     card.append(actions);
-    cardBindings.set(card,{message,controls:[...card.querySelectorAll('img,button')]});
+    cardBindings.set(card,{message,block,controls:[...card.querySelectorAll('img,button')]});
     return card;
 }
 function collectVisibleText(root) {
@@ -602,7 +603,8 @@ function renderAll() {
                 used.add(old);
                 old.dataset.theme=card.dataset.theme;
                 const bound=cardBindings.get(old),controls=[...old.querySelectorAll('img,button')];
-                const boundHere=bound?.message===message&&bound.controls.length===controls.length&&bound.controls.every(n=>old.contains(n));
+                const boundHere=bound?.message===message&&bound.block.start===block.start&&bound.block.raw===block.raw&&bound.block.egg===block.egg&&
+                    bound.controls.length===controls.length&&bound.controls.every(n=>old.contains(n));
                 const sameImage=old.querySelector('img')?.getAttribute('src')===card.querySelector('img')?.getAttribute('src');
                 const sameVersion=old.querySelector('.miao-version-count')?.textContent===card.querySelector('.miao-version-count')?.textContent;
                 if(old.dataset.status!==card.dataset.status||old.dataset.miaoKey!==card.dataset.miaoKey||!boundHere||!sameImage||!sameVersion){
@@ -987,7 +989,8 @@ async function showPrompt(prompt,vibes=[],profileName='',pending=false,vibeEnabl
     }catch(error){failed=true;note.textContent=['TimeoutError','AbortError'].includes(error.name)?'翻译超时，请重试':error instanceof TypeError?'翻译连接失败，请重试':String(error.message||error);note.hidden=false;fallback.hidden=provider!=='google';
     }finally{for(const [name,label] of providers){const item=buttons.get(name);item.disabled=false;item.textContent=failed&&name===provider?'重试 '+label:label;}}};
     if(onEdit){
-        const edit=el('button','编辑提示词','miao-button'),editor=el('div',undefined,'miao-tag-editor'),input=el('textarea'),controls=el('div',undefined,'miao-actions'),commit=el('button','保存并生成新图','miao-button'),cancel=el('button','取消编辑','miao-button'),error=el('p','','miao-muted');
+        const saveLabel=pending&&settings.mode==='manual'?'保存提示词':'保存并生成新图';
+        const edit=el('button','编辑提示词','miao-button'),editor=el('div',undefined,'miao-tag-editor'),input=el('textarea'),controls=el('div',undefined,'miao-actions'),commit=el('button',saveLabel,'miao-button'),cancel=el('button','取消编辑','miao-button'),error=el('p','','miao-muted');
         edit.type=commit.type=cancel.type='button';input.value=prompt;input.setAttribute('aria-label','编辑本次 tag 提示词');error.setAttribute('role','alert');editor.hidden=true;controls.append(commit,cancel);editor.append(input,controls,error);view.append(edit,editor);
         edit.onclick=()=>{editor.hidden=false;original.hidden=edit.hidden=actions.hidden=true;input.focus({preventScroll:true});};
         cancel.onclick=()=>{editor.hidden=true;original.hidden=edit.hidden=actions.hidden=false;error.textContent='';};
@@ -1194,18 +1197,19 @@ function mountMenu() {
 }
 function refreshFloating(){
     floatingDispose();floatingDispose=createFloatingEntry({settings,save,open:guard(openSettings),
-        generateVisible:manualSecondaryGeneration(settings)?guard(generateVisibleReply):undefined,reroll:guard(()=>{
+        extractVisibleTags:manualSecondaryGeneration(settings)?guard(extractVisibleReplyTags):undefined,reroll:guard(()=>{
+        if(settings.mode==='manual')return;
         if(streamActive&&generationChat===currentChat()){notices.info('请等待本次回复输出完成');return;}
         const message=latestImageMessage(ctx().chat),tags=message?blocks(message):[];
         if(!tags.length){notices.info('最新楼层没有可生成的 tag');return;}
         for(const block of tags)generate(message,block);
     }),icon:document.querySelector('#miao-nai-menu .extensionsMenuExtensionButton')?.innerHTML||'喵'});
 }
-async function generateVisibleReply(){
+async function extractVisibleReplyTags(){
     if(!settings.enabled||!manualSecondaryGeneration(settings))return;
     const host=ctx(),viewport=window.visualViewport;
     const message=visibleAssistantMessage(host.chat,document.getElementById('chat'),viewport?.offsetTop??0,viewport?.height??window.innerHeight);
-    if(!message){notices.info('请先滚动到要出图的 AI 楼层','喵喵文生图');return;}
+    if(!message){notices.info('请滚动到要出词的 AI 楼层','喵喵文生图');return;}
     const index=host.chat.indexOf(message),processor=host.streamingProcessor;
     const text=message.mes?.trim();
     if(!text||text==='...'||(processor?.messageId===index&&processor.isFinished===false)||
@@ -1215,8 +1219,7 @@ async function generateVisibleReply(){
     if(secondaryJob&&!secondaryJob.controller.signal.aborted){
         notices.info('副 API 正在出词，请稍候','喵喵文生图');return;
     }
-    const existing=blocks(message);
-    if(existing.length){for(const block of existing)generate(message,block);return;}
+    if(blocks(message).length){notices.info('本楼已有绘图提示词','喵喵文生图');return;}
     if(!settings.secondaryTagAPI)throw Error('请在「资源」页配置副 API');
     await runSecondaryTags(message,{manual:true});
 }
@@ -1360,7 +1363,7 @@ async function runSecondaryTags(message,{manual=false}={}){
                 if(inline&&!anchors.paragraphs.length&&remaining>0)throw Error('出站正则处理后的正文无法对应到存档段落');
                 return;
             }
-            notices.info(manual?'副 API 正在为当前楼层生成绘图 tag…':'正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
+            notices.info('副 API 正在生成绘图 tag…','喵喵文生图');
             return requestSecondaryTags({...connection,maxTags:requestedBodyCount.max,preset,capture,output:requestOutput},key,prepared.text,{
                 signal:controller.signal,macros,roleTags,
                 onPrepared:messages=>{
@@ -1390,7 +1393,7 @@ async function runSecondaryTags(message,{manual=false}={}){
                 const identity=promptIdentity(prompt);
                 if(known.has(identity))continue;
                 known.add(identity);
-                fallback.push({prompt});
+                fallback.push({prompt,egg:false});
             }
             if(!result.starts.size&&!fallback.length)throw Error('副 API 未返回可回填或保留的绘图 tag');
             const nextTags=[...previousTags,...fallback];
@@ -1419,15 +1422,15 @@ async function runSecondaryTags(message,{manual=false}={}){
             if(current()&&secondaryRequestPreview?.message===message)secondaryRequestPreview.text=result.text;
             if(current()&&result.starts.size)await refreshSecondaryMessage(message);
             if(current()){
-                if(result.starts.size)notices.success(`已写入 ${result.starts.size} 个绘图 tag`,'喵喵文生图');
-                if(fallback.length)notices.warning(`${fallback.length} 个 tag 未能定位段落，已保存在本楼的出图卡片中。`,'副 API 出词');
+                if(result.starts.size)notices.success(manual?'提示词已写入，点「生成插图」出图':`已写入 ${result.starts.size} 个绘图 tag`,'喵喵文生图');
+                if(fallback.length)notices.warning(`${fallback.length} 个提示词已保留在本楼出图卡片`,'副 API 出词');
                 if(result.unplaced>fallback.length)notices.warning(`${result.unplaced-fallback.length} 个 tag 段号无效、重复或超过张数上限，已跳过。`,'副 API 出词');
                 else if(ordinary+fallback.length<requestedBodyCount.min)notices.warning(`副 API 只返回了 ${ordinary+fallback.length} 张正文图，本轮至少请求了 ${requestedBodyCount.min} 张。`,'副 API 出词');
                 if(output.title&&result.missingTitles)notices.warning(`${result.missingTitles} 张图的副 API 返回缺少小标题。`,'副 API 出词');
             }
-            if(current()&&!controller.signal.aborted){
+            if(!manual&&current()&&!controller.signal.aborted){
                 const inserted=nextBlocks.filter(block=>result.starts.has(block.start));
-                for(const block of inserted)generate(message,block,{automatic:!manual,egg:settings.eggProfileEnabled&&output.egg&&result.eggStarts.has(block.start)});
+                for(const block of inserted)generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&output.egg&&result.eggStarts.has(block.start)});
             }
             return;
         }
@@ -1442,10 +1445,10 @@ async function runSecondaryTags(message,{manual=false}={}){
         writeSecondaryTags(message,swipe,next);
         try{if(await ctx().saveChat()===false)throw Error('保存失败');}
         catch{if(readSecondaryTags(message,swipe)===next)writeSecondaryTags(message,swipe,previous);throw Error('副 API 已返回 tag，但保存聊天失败');}
-        if(current())notices.success(`已生成 ${added.length} 个绘图 tag`,'喵喵文生图');
-        if(current()&&!controller.signal.aborted){
+        if(current())notices.success(manual?'提示词已写入，点「生成插图」出图':`已生成 ${added.length} 个绘图 tag`,'喵喵文生图');
+        if(!manual&&current()&&!controller.signal.aborted){
             for(const block of blocks(message).filter(block=>block.secondary&&block.secondaryIndex>=previous.length)){
-                generate(message,block,{automatic:!manual,egg:settings.eggProfileEnabled&&block.secondaryIndex===next.length-1});
+                generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&block.secondaryIndex===next.length-1});
             }
         }
     }catch(error){
