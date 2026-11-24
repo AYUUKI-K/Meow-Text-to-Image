@@ -17,7 +17,7 @@ import {FAVORITE_FOLDER,favoritesEnabled} from '../prompts/prompt-favorites.js';
 import {novelAIPresets,resolvePresetId} from '../novelai/novelai-presets.js';
 import {fontAwesomeElement} from './fontawesome-icons.js';
 import {onlineEncodingAvailable,resolveCustomEndpoints} from '../novelai/nai-connection.js';
-import {buildSecondaryMessages,secondaryEnabled,imageGenerationMode} from '../prompts/secondary-tags.js';
+import {buildSecondaryMessages,secondaryEnabled,manualSecondaryGeneration,imageGenerationMode} from '../prompts/secondary-tags.js';
 import {drawingOptions,drawingOrientations} from '../prompts/drawing-options.js';
 import {activeSecondaryPreset,addSecondaryPreset,listedSecondaryMacros,readSecondaryLibrary,readSecondaryPreset,replySlot,secondaryPresets,SECONDARY_PRESET_FILE_LIMIT} from '../prompts/secondary-presets.js';
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
@@ -312,9 +312,10 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
         } else if(activeTab==='generation') {
             const layout=node('div',undefined,'miao-generation-layout'),preferences=node('div',undefined,'miao-generation-column'),account=node('div',undefined,'miao-generation-column');layout.append(preferences,account);body.append(layout);
             const interaction=section(preferences,'操作');
-            field(interaction,'悬浮入口',settings.floatingEntry?'floating':'menu',v=>{settings.floatingEntry=v==='floating';floatingRerollRow.hidden=floatingOptions.hidden=!settings.floatingEntry;save();onChange();},{options:[['menu','关闭'],['floating','开启']]});
-            const floatingRerollRow=node('label',undefined,'miao-switch-row'),floatingRerollCheck=node('input');floatingRerollRow.hidden=!settings.floatingEntry;floatingRerollCheck.type='checkbox';floatingRerollCheck.checked=!!settings.floatingReroll;floatingRerollCheck.onchange=()=>{settings.floatingReroll=floatingRerollCheck.checked;save();onChange();};floatingRerollRow.append(node('span','双击悬浮球生成最新一层所有图片'),floatingRerollCheck);interaction.append(floatingRerollRow);
-            const floatingOptions=node('div',undefined,'miao-floating-options');floatingOptions.hidden=!settings.floatingEntry;interaction.append(floatingOptions);
+            const manualSecondary=manualSecondaryGeneration(settings);
+            if(!manualSecondary)field(interaction,'悬浮入口',settings.floatingEntry?'floating':'menu',v=>{settings.floatingEntry=v==='floating';floatingRerollRow.hidden=floatingOptions.hidden=!settings.floatingEntry;save();onChange();},{options:[['menu','关闭'],['floating','开启']]});
+            const floatingRerollRow=node('label',undefined,'miao-switch-row'),floatingRerollCheck=node('input');floatingRerollRow.hidden=manualSecondary||!settings.floatingEntry;floatingRerollCheck.type='checkbox';floatingRerollCheck.checked=!!settings.floatingReroll;floatingRerollCheck.onchange=()=>{settings.floatingReroll=floatingRerollCheck.checked;save();onChange();};floatingRerollRow.append(node('span','双击悬浮球生成最新一层所有图片'),floatingRerollCheck);interaction.append(floatingRerollRow);
+            const floatingOptions=node('div',undefined,'miao-floating-options');floatingOptions.hidden=!manualSecondary&&!settings.floatingEntry;interaction.append(floatingOptions);
             const iconType=field(floatingOptions,'悬浮图标',settings.floatingIconType,v=>{settings.floatingIconType=v;paintIcon();save();onChange();},{options:[['default','默认图标'],['fontawesome','Font Awesome']]});
             const iconChoice=node('div',undefined,'miao-floating-icon-choice'),iconPreview=node('span',undefined,'miao-floating-icon-preview');floatingOptions.append(iconChoice);iconChoice.append(iconPreview);
             const paintIcon=()=>{iconType.value=settings.floatingIconType;iconChoice.hidden=settings.floatingIconType!=='fontawesome';iconPreview.replaceChildren(fontAwesomeElement(settings.floatingIcon),node('span',settings.floatingIcon.name.slice(3)));};
@@ -324,7 +325,7 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             field(interaction,'重新生图',String(settings.rerollClicks===3?3:2),v=>{settings.rerollClicks=Number(v);save();onChange();},{options:[['2','双击'],['3','三击']]});
             const main=section(preferences,'生成方式');
             const secondary=secondaryEnabled(settings);
-            const modes=secondary?[['manual','全文结束后出词 · 手动出图'],['auto','全文结束后出词 · 自动出图']]:
+            const modes=secondary?[['manual','三击悬浮球 · 手动出图'],['auto','全文结束后出词 · 自动出图']]:
                 [['manual','手动'],['auto','回复后生成'],['stream','流式生成']];
             field(main,'生成模式',imageGenerationMode(settings),v=>{settings.mode=v;settings.enabled=true;save();onChange(true);render();},{options:modes});
             const retry=node('label',undefined,'miao-switch-row'),retryCheck=node('input');retryCheck.type='checkbox';retryCheck.checked=!!settings.autoRetryEnabled;retryCheck.onchange=()=>{settings.autoRetryEnabled=retryCheck.checked;save();};retry.append(node('span','遇到限流自动重试'),retryCheck);main.append(retry);

@@ -5,6 +5,7 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {homedir} from 'node:os';
 const require=createRequire(import.meta.url);
+const fixturePNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=','base64');
 
 async function previewAddress(server){
     return new Promise((resolve,reject)=>{
@@ -127,6 +128,14 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.locator('#miao-nai-menu').click();
             const nav=page.locator('.miao-overview:visible, .miao-tabs:visible');
+            if(tt){
+                await page.route('**/fixture-nai.zip',route=>route.fulfill({contentType:'image/png',body:fixturePNG}));
+                await nav.getByRole('button',{name:'生成',exact:true}).tap();
+                await page.getByLabel('API Key',{exact:true}).fill('automatic-draw-fixture-key');
+                await page.getByRole('button',{name:'保存密钥',exact:true}).tap();
+                await page.waitForFunction(()=>!!window.preview.settings.keyHash);
+                await page.getByRole('button',{name:'返回主页',exact:true}).tap();
+            }
             await nav.getByRole('button',{name:'资源',exact:true}).click();
             await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
             await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');
@@ -219,7 +228,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             const rawReply='<think>private reasoning</think>正文：猫跳上窗台。 ┈┈绘图标题┈┈ <easter_egg>彩蛋介绍</easter_egg> image###inline main tag###';
             await page.evaluate(async({tt,meowRegex,rawReply})=>{
                 const p=window.preview;
-                Object.assign(p.settings,{mode:tt?'manual':'stream',cloudQueue:false,eggProfileEnabled:false});
+                Object.assign(p.settings,{mode:tt?'auto':'stream',cloudQueue:false,eggProfileEnabled:false});
                 p.context.powerUserSettings.experimental_macro_engine=false;
                 const local=new Map([['角色启用列表','cats']]),global=new Map();
                 const scope=store=>({has:key=>store.has(key),get:key=>store.get(key)});
@@ -294,8 +303,8 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             assert.ok(calls.at(-1).raw.includes('┈┈绘图标题┈┈'),'Meow scripts must see the original decorations');
             assert.equal(await page.evaluate(()=>window.preview.regexBatchCalls??0),tt?1:0);
             if(tt){
-                assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
-                await secondary.getByRole('button',{name:'生成插图',exact:true}).waitFor();
+                await secondary.locator(':scope>img').waitFor();
+                assert.equal(await page.evaluate(()=>window.preview.calls.length),1);
                 await page.locator('#miao-nai-menu').tap();
                 await nav.getByRole('button',{name:'资源',exact:true}).tap();
                 await messages.getByText('最近发送 · 宏展开后',{exact:true}).tap();
@@ -376,7 +385,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 release=null;
                 await page.evaluate(async()=>{
                     const p=window.preview;
-                    p.settings.mode='manual';
+                    p.settings.mode='auto';
                     window.completeSecondaryFixtureReply=async text=>{
                         p.chat.push({name:'Reply',mes:text});
                         window.drawSecondaryFixture();
@@ -394,6 +403,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                     assert.equal(requests.length,4,'an older request must not block a newly finished floor');
                     assert.match(requests[3].body.messages.at(-1).content,/Newer completed reply/);
                     assert.equal(await page.evaluate(()=>window.preview.chat.at(-2).miao_nai_image_secondary_tags),undefined);
+                    await page.waitForFunction(()=>window.preview.calls.length===2);
                 }finally{release();}
                 await page.evaluate(async()=>{
                     const p=window.preview;
@@ -403,14 +413,14 @@ test('the secondary tag API sees only completed reply text and saves tags to the
                 });
                 await page.waitForFunction(()=>window.miaoTestToasts.some(t=>t.type==='error'&&t.message.includes('保存聊天失败')));
                 assert.equal(requests.length,5);
-                assert.deepEqual(await page.evaluate(()=>[Object.keys(window.preview.chat.at(-1).miao_nai_image_secondary_tags??{}),window.preview.calls.length]),[[],1]);
+                assert.deepEqual(await page.evaluate(()=>[Object.keys(window.preview.chat.at(-1).miao_nai_image_secondary_tags??{}),window.preview.calls.length]),[[],2]);
             }
             assert.deepEqual(errors,[]);await page.close();
         }
     }finally{await browser?.close();server.kill();}
 });
 
-test('the configured drawing format writes into the active swipe and only expands role tags for NAI', {timeout:45000},async()=>{
+test('manual secondary gestures draw the visible floor and preserve the configured drawing format', {timeout:90000},async()=>{
     const {chromium}=require(process.env.MIAO_PLAYWRIGHT_MODULE||`${homedir()}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`);
     const server=spawn(process.execPath,['tests/preview-server.mjs'],{env:{...process.env,MIAO_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
     let browser;
@@ -425,6 +435,14 @@ test('the configured drawing format writes into the active swipe and only expand
                 const request=route.request().method()==='POST'?route.request().postDataJSON():null;
                 if(request)requests.push(request);
                 const role=request?.messages.some(message=>message.content.includes('试用人物 = black hair, yellow eyes'))?'$试用人物$':'short hair';
+                const messages=request?.messages.map(message=>message.content).join('\n')??'';
+                const recovered=messages.includes('无法定位的回填测试。')?'START-FIG empty station, mist END-FIG':
+                    messages.includes('第九楼专属正文。')?'整理如下：\n```xml\n<drawings><draw after="P01"><title>雨 & 灯</title><tags>rain, black umbrella</tags></draw><draw after="P02"><tags>START-FIG window light END-FIG</tags></draw></drawings>\n```\n完成。':null;
+                if(recovered){
+                    await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
+                        json:{choices:[{message:{content:recovered}}]}});
+                    return;
+                }
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
                     json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P03">START-FIG $其他存档角色$, walking END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P01">START-FIG extra shot END-FIG</draw><draw egg="true"><tags>┈┈简单彩蛋┈┈\nSTART-FIG 4koma, teacup, text, speech bubble, english text\nText: From $5 to $10?\n\nI owe you one!END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
             });
@@ -437,6 +455,7 @@ test('the configured drawing format writes into the active swipe and only expand
                     name1:'玩家 A',
                     chatMetadata:{scenario:'当前聊天的场景。',miao_nai_image_role_bindings:'已有角色 = silver hair\n第二角色 = blue eyes'},
                     saveMetadata:async()=>{},updateMessageBlock(index,message){
+                        if(index===9&&message.mes.includes('START-FIG'))throw Error('fixture: host refresh failed');
                         document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`).textContent=message.mes;
                     }});
                 p.context.powerUserSettings.persona_description='{{user}} 穿蓝色外套。';
@@ -445,6 +464,7 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.locator('#miao-nai-menu').click();
             const nav=page.locator('.miao-overview:visible, .miao-tabs:visible');
             if(tt){
+                await page.route('**/fixture-nai.zip',route=>route.fulfill({contentType:'image/png',body:fixturePNG}));
                 await nav.getByRole('button',{name:'生成',exact:true}).tap();
                 await page.getByLabel('API Key',{exact:true}).fill('inline-drawings-fixture-key');
                 await page.getByRole('button',{name:'保存密钥',exact:true}).tap();
@@ -542,8 +562,16 @@ test('the configured drawing format writes into the active swipe and only expand
                 await p.emit('MESSAGE_RECEIVED',0,'normal');
                 await p.emit('CHARACTER_MESSAGE_RENDERED',0,'normal');
             },{prose,tt});
-            const generate=page.getByRole('button',{name:'生成插图',exact:true});
-            await generate.first().waitFor();
+            const ball=page.locator('#miao-nai-floating');
+            const tapBall=()=>tt?ball.tap():ball.click();
+            const tripleTap=async()=>{await tapBall();await tapBall();await tapBall();};
+            await ball.waitFor();
+            assert.match(await ball.getAttribute('aria-label'),/三击/);
+            await tapBall();await tapBall();await page.waitForTimeout(420);
+            assert.equal(requests.length,0,'manual mode waits for three taps');
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
+            await tripleTap();
+            await page.waitForFunction(()=>window.preview.chat[0].mes.includes('START-FIG'));
             assert.equal(requests.length,1);
             assert.match(requests[0].messages[0].content,/START-FIGtagEND-FIG/);
             const wire=requests[0].messages.map(message=>message.content).join('\n');
@@ -580,17 +608,14 @@ test('the configured drawing format writes into the active swipe and only expand
             assert.equal(disabled.egg,true);
             assert.equal(disabled.title,undefined);
             assert.equal(disabled.eggDescription,undefined);
-            assert.equal(await generate.count(),3);
-            assert.equal(await page.evaluate(()=>window.preview.calls.length),0,'manual mode extracts tags without generating an image');
-            await generate.nth(placed.indexOf('START-FIGextra shot')<placed.indexOf('START-FIGwarm light')?1:0).click();
-            await page.waitForFunction(()=>window.preview.calls.length===1);
-            const nai=await page.evaluate(()=>window.preview.calls[0].prompt??window.preview.calls[0].input);
+            await page.waitForFunction(()=>document.querySelectorAll('#chat .miao-image-card>img').length===3,null,{timeout:7500});
+            const generated=await page.evaluate(()=>window.preview.calls.map(call=>call.prompt??call.input));
+            assert.equal(generated.length,3);
+            const nai=generated.find(text=>text.includes('warm light'));
             assert.match(nai,/\(black hair, yellow eyes, sitting\), \(red hair, holding a book\)/);
             assert.doesNotMatch(nai,/试用人物/);
-            assert.equal(await page.evaluate(()=>window.preview.calls[0].characters),undefined);
-            await generate.last().click();
-            await page.waitForFunction(()=>window.preview.calls.length===2);
-            const bonus=await page.evaluate(()=>window.preview.calls[1].prompt??window.preview.calls[1].input);
+            assert.ok(await page.evaluate(()=>window.preview.calls.every(call=>!call.characters)));
+            const bonus=generated.find(text=>text.includes('speech bubble'));
             assert.match(bonus,/speech bubble, english text[\s\S]*\nText: From \$5 to \$10\?\n\nI owe you one!$/);
             assert.doesNotMatch(bonus,/no text/);
             await page.evaluate(async()=>{
@@ -608,25 +633,69 @@ test('the configured drawing format writes into the active swipe and only expand
             await page.getByRole('button',{name:'关闭设置',exact:true}).click();
             await page.evaluate(async()=>{
                 const p=window.preview;
+                const chat=document.getElementById('chat');
+                Object.assign(chat.style,{height:'360px',overflowY:'auto',overflowAnchor:'none'});
+                for(let id=1;id<=7;id++)p.chat.push({name:'User',mes:'用户楼层 '+id,is_user:true});
                 p.chat.push({name:'Reply',mes:'另一个 RP 回复。\n\n炉边有一杯茶。\n\n结束。'});
-                const id=p.chat.length-1;
-                document.getElementById('chat').insertAdjacentHTML('beforeend',`<div class="mes" mesid="${id}"><div class="mes_text"></div></div>`);
-                p.context.updateMessageBlock(id,p.chat[id]);
-                await p.emit('MESSAGE_RECEIVED',id,'normal');
-                await p.emit('CHARACTER_MESSAGE_RENDERED',id,'normal');
+                p.chat.push({name:'Reply',mes:'第九楼专属正文。\n\n门外下雨。\n\n结束。'});
+                for(const id of [7,8,9]){
+                    chat.insertAdjacentHTML('beforeend',`<div class="mes" mesid="${id}" style="min-height: 400px"><div class="mes_text"></div></div>`);
+                    p.context.updateMessageBlock(id,p.chat[id]);
+                    await p.emit('MESSAGE_RECEIVED',id,'normal');
+                    await p.emit('CHARACTER_MESSAGE_RENDERED',id,'normal');
+                }
                 await p.emit('GENERATION_ENDED',p.chat.length);
             });
-            await page.waitForFunction(()=>window.preview.chat.at(-1).mes.includes('START-FIG'));
-            assert.equal(requests.length,2,'one finished reply may be published without a start event');
+            const showFloor=id=>page.locator(`#chat .mes[mesid="${id}"]`).evaluate(row=>{
+                const parent=row.parentElement,rect=row.getBoundingClientRect();
+                parent.scrollTop+=rect.top-parent.getBoundingClientRect().top+(rect.height-parent.clientHeight)/2;
+            });
+            await showFloor(7);await tripleTap();await page.waitForTimeout(150);
+            assert.equal(requests.length,1,'the visible user floor must not generate');
+            await showFloor(8);await tripleTap();
+            await page.waitForFunction(()=>window.preview.chat[8].mes.includes('START-FIG'));
+            assert.equal(requests.length,2);
+            assert.match(requests[1].messages.map(message=>message.content).join('\n'),/另一个 RP 回复/);
+            assert.doesNotMatch(requests[1].messages.map(message=>message.content).join('\n'),/第九楼专属正文/);
             assert.doesNotMatch(requests[1].messages.map(message=>message.content).join('\n'),/\$角色名\$|试用人物 =/);
-            assert.match(await page.evaluate(()=>window.preview.chat.at(-1).mes),/\(short hair, sitting\)/);
-            assert.equal(await page.evaluate(()=>window.preview.calls.length),2);
+            assert.match(await page.evaluate(()=>window.preview.chat[8].mes),/\(short hair, sitting\)/);
+            assert.doesNotMatch(await page.evaluate(()=>window.preview.chat[9].mes),/START-FIG/);
+            await showFloor(9);await tripleTap();
+            await page.waitForFunction(()=>window.preview.chat[9].mes.includes('START-FIG'));
+            assert.equal(requests.length,3);
+            assert.match(requests[2].messages.map(message=>message.content).join('\n'),/第九楼专属正文/);
+            assert.match(await page.evaluate(()=>window.preview.chat[9].mes),/雨 &amp; 灯[\s\S]*START-FIGrain, black umbrellaEND-FIG/);
+            await page.waitForFunction(()=>[8,9].every(id=>document.querySelectorAll(`#chat .mes[mesid="${id}"] .miao-image-card>img`).length===2),null,{timeout:18000});
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),7);
+            await showFloor(9);await tripleTap();
+            await page.waitForFunction(()=>{
+                const records=Object.values(window.preview.chat[9].miao_nai_image_swipes?.[0]??{});
+                return records.length===2&&records.every(record=>record.versions.length===2);
+            });
+            assert.equal(requests.length,3,'rerolling the same floor must reuse its existing tags');
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),9);
+
+            const fallbackText='无法定位的回填测试。\n\n夜里的车站。';
+            await page.evaluate(async text=>{
+                const p=window.preview,id=p.chat.length,chat=document.getElementById('chat');
+                p.chat.push({name:'Reply',mes:text});
+                chat.insertAdjacentHTML('beforeend',`<div class="mes" mesid="${id}" style="min-height: 400px"><div class="mes_text"></div></div>`);
+                p.context.updateMessageBlock(id,p.chat[id]);
+                await p.emit('MESSAGE_RECEIVED',id,'normal');
+            },fallbackText);
+            await showFloor(10);await tripleTap();
+            const fallbackCard=page.locator('#chat [mesid="10"] [data-miao-source="secondary"]');
+            await fallbackCard.getByRole('button',{name:'生成插图',exact:true}).waitFor();
+            assert.equal(requests.length,4);
+            assert.deepEqual(await page.evaluate(()=>[window.preview.chat[10].mes,window.preview.chat[10].miao_nai_image_secondary_tags[0]]),
+                [fallbackText,[{prompt:'empty station, mist'}]]);
+            assert.equal(await page.evaluate(()=>window.preview.calls.length),9);
 
             const beforeSave='第一段。\n\n第二段。\n\n第三段 START-FIGexisting viewEND-FIG';
             await page.evaluate(async beforeSave=>{
                 const p=window.preview,{writeSwipeImage}=await import('/scripts/extensions/third-party/test/src/chat/swipe-history.js');
                 p.context.saveChat=()=>new Promise(resolve=>{p.failSecondarySave=()=>resolve(false);});
-                p.settings.mode='manual';
+                p.settings.mode='auto';
                 const message={name:'Reply',mes:beforeSave,swipes:['另一分支',beforeSave],swipe_id:1};
                 writeSwipeImage(message,1,'body:0:existing view',{url:'/user/images/miao-nai/miao-1792737847709.png'});
                 p.chat.push(message);

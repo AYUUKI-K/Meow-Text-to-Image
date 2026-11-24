@@ -16,6 +16,7 @@ publicFiles.add('src/prompts/secondary-macros.js');
 publicFiles.add('src/prompts/secondary-presets.js');
 publicFiles.add('src/prompts/electronic-ghost.js');
 publicFiles.add('src/chat/secondary-placement.js');
+publicFiles.add('src/chat/visible-message.js');
 publicFiles.add('src/prompts/drawing-options.js');
 publicFiles.add('src/chat/secondary-tags.js');
 publicFiles.add('tests/support/prompt-tree-preview.mjs');

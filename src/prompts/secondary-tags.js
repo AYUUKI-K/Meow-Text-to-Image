@@ -11,6 +11,7 @@ import {splitImageText} from '../novelai/novelai-presets.js';
 
 export const secondaryPattern = delimiterPattern('image###', '###');
 export const secondaryEnabled = settings => settings.tagSource === 'secondary';
+export const manualSecondaryGeneration = settings => secondaryEnabled(settings) && settings.mode === 'manual';
 export const imageGenerationMode = settings => secondaryEnabled(settings) && settings.mode === 'stream' ? 'auto' : settings.mode;
 export const inlineSecondaryPreset = preset => preset?.entries?.some(entry =>
     entry.enabled && entry.content.includes('<drawings>') && entry.content.includes('after=')) ?? false;
@@ -283,17 +284,30 @@ export async function requestSecondaryTags(connection, key, body, {signal, fetch
     if (choice?.finish_reason === 'length') throw Error('副 API 输出被截断，请检查模型输出长度限制');
     const content = choice?.message?.content;
     const text = Array.isArray(content) ? content.filter(part => part?.type === 'text').map(part => part.text).join('\n') : content;
+    if(typeof text!=='string'||!text.trim())throw Error('副 API 未返回可见的绘图提示词');
+    if(text.length>100000)throw Error('副 API 返回的绘图提示词过长');
     if (inlineSecondaryPreset(connection.preset)) {
-        if (typeof text !== 'string' || text.length > 100000) throw Error('副 API 绘图返回无效');
-        const {drawings, errors} = drawingResponse(maskReasoning(text), capture, connection.output);
-        if (!drawings.length) throw Error(errors[0] ?? '副 API 未返回可用的 <draw> 绘图条目');
+        const visible=maskReasoning(text);
+        if(!visible.trim())throw Error('副 API 未返回可见的绘图提示词');
+        if(!/<(?:drawings|draw)\b|<!DOCTYPE/i.test(visible)){
+            const tags=extractSecondaryTags(visible,maxTags,delimiterPattern(capture.start,capture.end))
+                .filter(({prompt})=>!/<\/?[a-z][^>]*>/i.test(prompt));
+            if(tags.length)return tags;
+        }
+        const {drawings, errors} = drawingResponse(visible, capture, connection.output);
         const egg = drawings.findLast(drawing=>drawing.egg);
-        return drawings.filter(drawing=>!drawing.egg||drawing===egg).map(drawing=>{
-            const prompt=flattenSecondaryPrompt(drawing.prompt);
-            return {...drawing,prompt,tag:capture.start+prompt+capture.end};
-        });
+        const prepared=[];
+        for(const drawing of drawings){
+            if(drawing.egg&&drawing!==egg)continue;
+            try{
+                const prompt=flattenSecondaryPrompt(drawing.prompt);
+                prepared.push({...drawing,prompt,tag:capture.start+prompt+capture.end});
+            }catch{errors.push('有一张图的独立角色提示词格式有误。');}
+        }
+        if(!prepared.length)throw Error(errors[0]??'副 API 未返回可用的 <draw> 绘图条目');
+        return prepared;
     }
-    const tags = typeof text === 'string' && text.length <= 100000 ? extractSecondaryTags(text, maxTags, delimiterPattern(capture.start,capture.end)) : [];
+    const tags = extractSecondaryTags(text, maxTags, delimiterPattern(capture.start,capture.end));
     if (!tags.length) throw Error('副 API 未输出完整的绘图标签，请检查捕捉标签配置');
     return tags;
 }

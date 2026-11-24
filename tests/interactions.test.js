@@ -3,6 +3,37 @@ import assert from 'node:assert/strict';
 import {bindImageGesture} from '../src/ui/interactions.js';
 import {createFloatingEntry} from '../src/ui/interactions.js';
 import {bindImageZoom,clampImageView} from '../src/ui/interactions.js';
+import {visibleAssistantMessage} from '../src/chat/visible-message.js';
+
+test('manual secondary gesture starts on the first docked tap and wins over double reroll',()=>{
+ for(const mobile of [true,false]){
+  const button=new EventTarget(),win=new EventTarget();
+  Object.assign(win,{innerWidth:400,innerHeight:800,matchMedia:()=>({matches:mobile})});
+  Object.assign(button,{style:{},setAttribute(){},remove(){}});
+  let generated=0,opened=0,rerolled=0;
+  const dispose=createFloatingEntry({settings:{floatingReroll:true},save(){},open:()=>opened++,reroll:()=>rerolled++,
+   generateVisible:()=>generated++,icon:'',windowImpl:win,documentImpl:{createElement:()=>button,body:{append(){}}}});
+  const tap=x=>{const event=new Event('click',{cancelable:true});Object.assign(event,{detail:1,button:0,clientX:x,clientY:10});button.dispatchEvent(event);};
+  tap(mobile?8:40);tap(40);
+  assert.deepEqual([generated,opened,rerolled],[0,0,0]);
+  tap(40);
+  assert.deepEqual([generated,opened,rerolled],[1,0,0]);
+  dispose();
+ }
+});
+
+test('visible floor selection uses the clipped chat viewport and excludes user and system rows',()=>{
+ const chat=Array.from({length:12},(_,id)=>({id}));
+ chat[7].is_user=true;chat[10].role='user';chat[11].is_system=true;
+ const row=(id,top,bottom)=>({getAttribute:()=>String(id),getBoundingClientRect:()=>({top,bottom})});
+ let rows=[row(7,60,105),row(8,105,390),row(9,390,750)];
+ const root={getBoundingClientRect:()=>({top:60,bottom:560}),querySelectorAll:()=>rows};
+ assert.equal(visibleAssistantMessage(chat,root,0,800),chat[8]);
+ rows=[row(8,-50,110),row(9,110,450),row(10,450,560)];
+ assert.equal(visibleAssistantMessage(chat,root,0,800),chat[9]);
+ rows=[row(7,60,400),row(11,400,560),row(9,560,750)];
+ assert.equal(visibleAssistantMessage(chat,root,0,800),null);
+});
 
 test('mobile edge entry expands on first tap, then supports reroll; desktop never collapses',async()=>{
  for(const mobile of [true,false]){

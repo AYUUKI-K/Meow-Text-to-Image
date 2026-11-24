@@ -1,6 +1,6 @@
 import {validFontAwesomeIcon,fontAwesomeElement} from './fontawesome-icons.js';
 // One click stream for mouse, pen and touch. Do not also handle touchend/dblclick.
-export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now,delay=380}){
+export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now,delay=380,distance=24}){
     let count=0,last=0,point=null,down=null,blocked=false,timer;
     const reset=()=>{count=0;clearTimeout(timer);};
     image.addEventListener('pointerdown',e=>{
@@ -14,21 +14,23 @@ export function bindImageGesture(image,{getClicks,onSingle,onReroll,now=Date.now
     image.addEventListener('pointerup',()=>{if(down&&now()-down.time>500){blocked=true;reset();}down=null;});
     image.addEventListener('click',e=>{
         if(e.button>0||blocked)return;
-        const time=now(),near=!point||Math.hypot(e.clientX-point.x,e.clientY-point.y)<=24;
+        const time=now(),near=!point||Math.hypot(e.clientX-point.x,e.clientY-point.y)<=distance;
         count=time-last<=delay&&near?count+1:1;last=time;point={x:e.clientX,y:e.clientY};clearTimeout(timer);
         if(count===(getClicks()===3?3:2)){reset();e.preventDefault();onReroll();return;}
-        const clicks=count;timer=setTimeout(()=>{if(clicks===1)onSingle();count=0;},delay);
+        const clicks=count;timer=setTimeout(()=>{if(clicks===1)onSingle(e);count=0;},delay);
     });
     image.addEventListener('dblclick',e=>e.preventDefault());
     return reset;
 }
 
-export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,documentImpl=document,windowImpl=window}){
-    if(!settings.floatingEntry)return ()=>{};
+export function createFloatingEntry({settings,save,open,reroll=()=>{},generateVisible,icon,documentImpl=document,windowImpl=window}){
+    if(!settings.floatingEntry&&!generateVisible)return ()=>{};
+    const clicks=generateVisible?3:settings.floatingReroll?2:0;
+    const shortcut=generateVisible?'三击生成当前可见的 AI 楼层图片':settings.floatingReroll?'双击生成最新楼层所有图片':'';
     const button=documentImpl.createElement('button');button.id='miao-nai-floating';button.type='button';
-    button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label',settings.floatingReroll?'喵喵文生图：单击打开设置，双击生成最新楼层所有图片':'喵喵文生图：单击打开设置');button.title=settings.floatingReroll?'单击设置 · 双击生成最新楼层所有图片 · 拖动调整位置':'单击设置 · 拖动调整位置';
+    button.className='miao-floating-entry';button.innerHTML=icon;button.setAttribute('aria-label',['喵喵文生图：单击打开设置',shortcut].filter(Boolean).join('，'));button.title=['单击设置',shortcut,'拖动调整位置'].filter(Boolean).join(' · ');
     if(settings.floatingIconType==='fontawesome'&&validFontAwesomeIcon(settings.floatingIcon))button.replaceChildren(fontAwesomeElement(settings.floatingIcon,documentImpl));
-    documentImpl.body.append(button);let down,moved=false,collapseTimer,docked=null,expanded=false;
+    documentImpl.body.append(button);let down,moved=false,collapseTimer,docked=null,expanded=false,revealClick;
     button.dataset??={};
     const mobile=()=>!!windowImpl.matchMedia?.('(pointer:coarse), (max-width:680px)').matches;
     const collapse=()=>{expanded=false;button.dataset.collapsed=String(!!docked&&mobile());};
@@ -50,8 +52,18 @@ export function createFloatingEntry({settings,save,open,reroll=()=>{},icon,docum
     button.addEventListener('pointermove',e=>{if(!down||e.pointerId!==down.id)return;const dx=e.clientX-down.x,dy=e.clientY-down.y;if(Math.hypot(dx,dy)>8)moved=true;if(!moved)return;button.dataset.collapsed='false';cancelGesture();const b=bounds();button.style.left=clamp(down.left+dx,b.minX,b.x)+'px';button.style.top=clamp(down.top+dy,b.minY,b.y)+'px';});
     button.addEventListener('pointerup',e=>{if(!down||e.pointerId!==down.id)return;if(moved){const b=bounds();settings.floatingPosition={x:b.x?button.offsetLeft/b.x:0,y:b.y?button.offsetTop/b.y:0,...dock(button.offsetLeft,button.offsetTop,b)};fit();save();}down=null;});
     button.addEventListener('pointercancel',()=>{down=null;moved=true;fit();});
-    button.addEventListener('click',e=>{if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}if(button.dataset.collapsed==='true'){e.preventDefault();e.stopImmediatePropagation();cancelGesture();expanded=true;button.dataset.collapsed='false';later();return;}if(expanded)later();if(e.detail===0||!settings.floatingReroll){e.stopImmediatePropagation();cancelGesture();open();}});
-    const cancelGesture=bindImageGesture(button,{getClicks:()=>2,onSingle:open,onReroll:()=>{if(settings.floatingReroll)reroll();}});
+    button.addEventListener('click',e=>{
+        if(moved&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();moved=false;cancelGesture();return;}
+        if(button.dataset.collapsed==='true'){
+            e.preventDefault();cancelGesture();expanded=true;button.dataset.collapsed='false';later();
+            if(!generateVisible||e.detail===0){e.stopImmediatePropagation();return;}
+            revealClick=e;
+        }
+        if(expanded)later();
+        if(e.detail===0||!clicks){e.stopImmediatePropagation();cancelGesture();open();}
+    });
+    const cancelGesture=bindImageGesture(button,{getClicks:()=>clicks,onSingle:e=>{if(e!==revealClick)open();},
+        onReroll:generateVisible??reroll,distance:generateVisible?48:24});
     return ()=>{clearTimeout(collapseTimer);cancelGesture();button.remove();windowImpl.removeEventListener('resize',fit);windowImpl.visualViewport?.removeEventListener('resize',fit);};
 }
 export function clampImageView(view,{width,height,imageWidth,imageHeight}){

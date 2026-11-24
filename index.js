@@ -32,7 +32,8 @@ import {showImageBatchExport} from './src/ui/image-batch-export.js';
 import {readGenerationMetadata,generationInfo} from './src/images/image-metadata.js';
 import {promptFileData,promptBundleData,promptFilename,PROMPT_FILE_LIMIT,PROMPT_BUNDLE_LIMIT} from './src/prompts/prompt-files.js';
 import {editedTag} from './src/prompts/tag-edit.js';
-import {secondaryEnabled,imageGenerationMode,secondaryConnection,secondaryChatURL,requestSecondaryModels,secondaryBody,requestSecondaryTags,secondaryPattern,inlineSecondaryPreset} from './src/prompts/secondary-tags.js';
+import {secondaryEnabled,manualSecondaryGeneration,secondaryConnection,secondaryChatURL,requestSecondaryModels,secondaryBody,requestSecondaryTags,secondaryPattern,inlineSecondaryPreset} from './src/prompts/secondary-tags.js';
+import {assistantMessage,visibleAssistantMessage} from './src/chat/visible-message.js';
 import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile,listedSecondaryMacros} from './src/prompts/secondary-presets.js';
 import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,prepareSecondaryChat,secondaryProfiles} from './src/chat/secondary-tags.js';
 import {captureMacroValues,expandRoleTags,insertDrawingTags,numberedReply,roleList} from './src/chat/secondary-placement.js';
@@ -637,7 +638,7 @@ async function savePromptConfig(next,{useMainAPI=false}={}){
     if(useMainAPI)settings.tagSource='main';
     try{
         promptInjection.update();await persistSettings();eggMarkerCache.invalidate();
-        if(useMainAPI){secondarySession=null;secondaryJob?.controller.abort();renderAll();}
+        if(useMainAPI){secondarySession=null;secondaryJob?.controller.abort();refreshFloating();renderAll();}
     }
     catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;settings.tagSource=previousSource;refreshPrompt();}throw error;}
     finally{promptConfigSaving=false;}
@@ -668,6 +669,7 @@ async function saveSecondarySettings(source,values,library){
         promptInjection.update();
         await persistSettings();
         autoSession=null;secondarySession=null;secondaryJob?.controller.abort();
+        if(previous!==source)refreshFloating();
         renderAll();
     }catch(error){
         settings.tagSource=previous;settings.secondaryTagAPI=previousConnection;settings.secondaryTagPresets=previousLibrary;refreshPrompt();
@@ -1139,7 +1141,12 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
             return {url,signature:sampleSignature(profile,settings.vibeLibrary,settings.samplePrompt),created:Date.now()};
         },
         onChange:async reason=>{
-            if(reason!=='favorites'){autoSession=null;refreshFloating();}renderAll();
+            if(reason!=='favorites'){
+                autoSession=null;
+                if(secondaryJob&&!secondaryJob.current())secondaryJob.controller.abort();
+                refreshFloating();
+            }
+            renderAll();
         },
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
@@ -1148,9 +1155,9 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         saveSecondaryPresets:library=>saveSecondarySettings('secondary',undefined,library),
         exportSecondaryPreset:preset=>{const {blob,name}=secondaryPresetFile(preset);return prepareFileDownload(blob,name);},
         lastSecondaryRequest:preset=>{
-            const last=secondaryRequestPreview,message=latestImageMessage(ctx().chat);
-            return last?.chat===currentChat()&&last.message===message&&last.text===message?.mes&&
-                last.swipe===(message?.swipe_id??0)&&last.preset===preset.id?last.messages:null;
+            const last=secondaryRequestPreview,message=last?.message;
+            return last?.chat===currentChat()&&ctx().chat.includes(message)&&last.text===message.mes&&
+                last.swipe===(message.swipe_id??0)&&last.preset===preset.id?last.messages:null;
         },
         chooseFloatingIcon:selected=>showFloatingIconPicker({parent:settingsPopup.dlg,selected}),
         checkUpdate:force=>updater.check(force),installUpdate:async()=>{await persistSettings();return updater.install();},refreshPage:()=>location.reload(),
@@ -1186,12 +1193,32 @@ function mountMenu() {
     const menu=document.getElementById('extensionsMenu');if(menu)menu.append(item);
 }
 function refreshFloating(){
-    floatingDispose();floatingDispose=createFloatingEntry({settings,save,open:guard(openSettings),reroll:guard(()=>{
+    floatingDispose();floatingDispose=createFloatingEntry({settings,save,open:guard(openSettings),
+        generateVisible:manualSecondaryGeneration(settings)?guard(generateVisibleReply):undefined,reroll:guard(()=>{
         if(streamActive&&generationChat===currentChat()){notices.info('请等待本次回复输出完成');return;}
         const message=latestImageMessage(ctx().chat),tags=message?blocks(message):[];
         if(!tags.length){notices.info('最新楼层没有可生成的 tag');return;}
         for(const block of tags)generate(message,block);
     }),icon:document.querySelector('#miao-nai-menu .extensionsMenuExtensionButton')?.innerHTML||'喵'});
+}
+async function generateVisibleReply(){
+    if(!settings.enabled||!manualSecondaryGeneration(settings))return;
+    const host=ctx(),viewport=window.visualViewport;
+    const message=visibleAssistantMessage(host.chat,document.getElementById('chat'),viewport?.offsetTop??0,viewport?.height??window.innerHeight);
+    if(!message){notices.info('请先滚动到要出图的 AI 楼层','喵喵文生图');return;}
+    const index=host.chat.indexOf(message),processor=host.streamingProcessor;
+    const text=message.mes?.trim();
+    if(!text||text==='...'||(processor?.messageId===index&&processor.isFinished===false)||
+        (message===latestImageMessage(host.chat)&&streamActive&&generationChat===currentChat())){
+        notices.info('请等待本楼回复完成','喵喵文生图');return;
+    }
+    if(secondaryJob&&!secondaryJob.controller.signal.aborted){
+        notices.info('副 API 正在出词，请稍候','喵喵文生图');return;
+    }
+    const existing=blocks(message);
+    if(existing.length){for(const block of existing)generate(message,block);return;}
+    if(!settings.secondaryTagAPI)throw Error('请在「资源」页配置副 API');
+    await runSecondaryTags(message,{manual:true});
 }
 async function autoLatest() {
     const session=autoSession;
@@ -1248,18 +1275,25 @@ function secondaryRawBody(text,pattern,format){
     }
     return visible.replace(/<\/?(?:content|message)>/gi,tag=>' '.repeat(tag.length));
 }
-function refreshSecondaryMessage(message){
+async function refreshSecondaryMessage(message){
     const host=ctx(),index=host.chat.indexOf(message);
-    if(typeof host.updateMessageBlock==='function')host.updateMessageBlock(index,message);
-    else{
-        const root=document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`);
-        if(root&&typeof host.messageFormatting==='function')root.innerHTML=host.messageFormatting(message.mes,message.name,false,false,index);
+    if(index<0)return;
+    if(typeof host.updateMessageBlock==='function'){
+        try{await host.updateMessageBlock(index,message);return;}catch{}
     }
+    if(ctx().chat[index]!==message)return;
+    const root=document.querySelector(`#chat .mes[mesid="${index}"] .mes_text`);
+    if(root&&typeof host.messageFormatting==='function')root.innerHTML=host.messageFormatting(message.mes,message.name,false,false,index);
 }
-async function runSecondaryTags(message,automatic){
+async function runSecondaryTags(message,{manual=false}={}){
     const connection=settings.secondaryTagAPI,chat=currentChat(),swipe=message.swipe_id??0,text=message.mes;
+    const matchesTarget=()=>{
+        const messages=ctx().chat;
+        return manual===manualSecondaryGeneration(settings)&&assistantMessage(message)&&
+            (manual?messages.includes(message):message===latestImageMessage(messages));
+    };
     if(secondaryJob?.controller.signal.aborted)secondaryJob=null;
-    if(!settings.enabled||!secondaryEnabled(settings)||!connection||secondarySession||secondaryJob||message!==latestImageMessage(ctx().chat))return;
+    if(!settings.enabled||!secondaryEnabled(settings)||!connection||(!manual&&secondarySession)||secondaryJob||!matchesTarget())return;
     const library=settings.secondaryTagPresets,preset=activeSecondaryPreset(readSecondaryLibrary(settings));
     const inline=inlineSecondaryPreset(preset),capture=captureSettings(),initialBlocks=inline?blocks(message):[];
     const promptConfig=settings.promptConfig,output=drawingOptions(promptConfig);
@@ -1270,11 +1304,11 @@ async function runSecondaryTags(message,automatic){
     const current=()=>{
         if(!settings.enabled||!secondaryEnabled(settings)||settings.secondaryTagAPI!==connection||settings.secondaryTagPresets!==library||getCurrentUserHandle()!==directUser||
             settings.promptConfig!==promptConfig||capture.start!==settings.startTag||capture.end!==settings.endTag||chat!==currentChat()||
-            message!==latestImageMessage(ctx().chat)||(message.swipe_id??0)!==swipe||message.mes!==expectedText)return false;
+            !matchesTarget()||(message.swipe_id??0)!==swipe||message.mes!==expectedText)return false;
         const latest=roleBindingSnapshot();
         return latest.scope.cardId===binding.scope.cardId&&latest.scope.chatId===binding.scope.chatId&&latest.text===binding.text;
     };
-    const job={controller,message,swipe,current};
+    const job={controller,message,swipe,current,manual};
     secondaryJob=job;
     renderAll();
     const timeout=setTimeout(()=>controller.abort(Error('副 API 出词超时')),90000);
@@ -1326,7 +1360,7 @@ async function runSecondaryTags(message,automatic){
                 if(inline&&!anchors.paragraphs.length&&remaining>0)throw Error('出站正则处理后的正文无法对应到存档段落');
                 return;
             }
-            notices.info('正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
+            notices.info(manual?'副 API 正在为当前楼层生成绘图 tag…':'正文已完成，副 API 正在生成绘图 tag…','喵喵文生图');
             return requestSecondaryTags({...connection,maxTags:requestedBodyCount.max,preset,capture,output:requestOutput},key,prepared.text,{
                 signal:controller.signal,macros,roleTags,
                 onPrepared:messages=>{
@@ -1346,9 +1380,20 @@ async function runSecondaryTags(message,automatic){
         if(roleError)notices.warning(`已跳过使用未知角色调用的图。${roleError.message}`,'副 API 出词');
         if(inline){
             const result=insertDrawingTags(text,anchors.paragraphs,tags,anchors.egg,requestedBodyCount.max);
-            if(!result.starts.size)throw Error('副 API 未返回能对应到正文段落的绘图 tag');
             const swipes=message.swipes,oldSwipe=swipes?.[swipe];
             const nextBlocks=parseBodyBlocks(result.text,settings.pattern,reasoningFormat());
+            const previousTags=readSecondaryTags(message,swipe),known=new Set([...nextBlocks,...previousTags].map(block=>promptIdentity(block.prompt)));
+            const ordinary=result.starts.size-result.eggStarts.size;
+            const fallback=[];
+            for(const {prompt} of result.unplacedDrawings){
+                if(ordinary+fallback.length>=requestedBodyCount.max)break;
+                const identity=promptIdentity(prompt);
+                if(known.has(identity))continue;
+                known.add(identity);
+                fallback.push({prompt});
+            }
+            if(!result.starts.size&&!fallback.length)throw Error('副 API 未返回可回填或保留的绘图 tag');
+            const nextTags=[...previousTags,...fallback];
             const retained=nextBlocks.filter(block=>!result.starts.has(block.start));
             const moves=initialBlocks.filter(block=>!block.secondary).flatMap((old,index)=>{
                 const next=retained[index];
@@ -1358,6 +1403,7 @@ async function runSecondaryTags(message,automatic){
             });
             expectedText=message.mes=result.text;
             if(typeof oldSwipe==='string')swipes[swipe]=result.text;
+            if(fallback.length)writeSecondaryTags(message,swipe,nextTags);
             for(const {from,to,record} of [...moves].reverse())moveSwipeImage(message,swipe,from,to,record);
             try{if(await ctx().saveChat()===false)throw Error('保存失败');}
             catch{
@@ -1365,22 +1411,23 @@ async function runSecondaryTags(message,automatic){
                 const ownsSwipe=message.swipes===swipes&&swipes?.[swipe]===result.text;
                 if(active)message.mes=text;
                 if(ownsSwipe)swipes[swipe]=oldSwipe;
+                if(fallback.length&&readSecondaryTags(message,swipe)===nextTags)writeSecondaryTags(message,swipe,previousTags);
                 if(active||ownsSwipe)for(const {from,to,record} of moves)moveSwipeImage(message,swipe,to,from,record);
                 expectedText=text;
                 throw Error('副 API 已返回 tag，但保存聊天失败');
             }
             if(current()&&secondaryRequestPreview?.message===message)secondaryRequestPreview.text=result.text;
+            if(current()&&result.starts.size)await refreshSecondaryMessage(message);
             if(current()){
-                refreshSecondaryMessage(message);
-                notices.success(`已写入 ${result.starts.size} 个绘图 tag`,'喵喵文生图');
-                const ordinary=result.starts.size-result.eggStarts.size;
-                if(result.unplaced)notices.warning(`${result.unplaced} 张正文图的段号无效或重复，已跳过。`,'副 API 出词');
-                else if(ordinary<requestedBodyCount.min)notices.warning(`副 API 只返回了 ${ordinary} 张正文图，本轮至少请求了 ${requestedBodyCount.min} 张。`,'副 API 出词');
+                if(result.starts.size)notices.success(`已写入 ${result.starts.size} 个绘图 tag`,'喵喵文生图');
+                if(fallback.length)notices.warning(`${fallback.length} 个 tag 未能定位段落，已保存在本楼的出图卡片中。`,'副 API 出词');
+                if(result.unplaced>fallback.length)notices.warning(`${result.unplaced-fallback.length} 个 tag 段号无效、重复或超过张数上限，已跳过。`,'副 API 出词');
+                else if(ordinary+fallback.length<requestedBodyCount.min)notices.warning(`副 API 只返回了 ${ordinary+fallback.length} 张正文图，本轮至少请求了 ${requestedBodyCount.min} 张。`,'副 API 出词');
                 if(output.title&&result.missingTitles)notices.warning(`${result.missingTitles} 张图的副 API 返回缺少小标题。`,'副 API 出词');
             }
-            if(current()&&!controller.signal.aborted&&automatic&&imageGenerationMode(settings)!=='manual'){
+            if(current()&&!controller.signal.aborted){
                 const inserted=nextBlocks.filter(block=>result.starts.has(block.start));
-                for(const block of inserted)generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&output.egg&&result.eggStarts.has(block.start)});
+                for(const block of inserted)generate(message,block,{automatic:!manual,egg:settings.eggProfileEnabled&&output.egg&&result.eggStarts.has(block.start)});
             }
             return;
         }
@@ -1396,9 +1443,9 @@ async function runSecondaryTags(message,automatic){
         try{if(await ctx().saveChat()===false)throw Error('保存失败');}
         catch{if(readSecondaryTags(message,swipe)===next)writeSecondaryTags(message,swipe,previous);throw Error('副 API 已返回 tag，但保存聊天失败');}
         if(current())notices.success(`已生成 ${added.length} 个绘图 tag`,'喵喵文生图');
-        if(current()&&!controller.signal.aborted&&automatic&&imageGenerationMode(settings)!=='manual'){
+        if(current()&&!controller.signal.aborted){
             for(const block of blocks(message).filter(block=>block.secondary&&block.secondaryIndex>=previous.length)){
-                generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&block.secondaryIndex===next.length-1});
+                generate(message,block,{automatic:!manual,egg:settings.eggProfileEnabled&&block.secondaryIndex===next.length-1});
             }
         }
     }catch(error){
@@ -1445,7 +1492,7 @@ function scheduleSecondaryFinish(session){
         secondarySession=null;
         knownSecondaryFloors.add(message);
         secondaryWorldInfo.set(message,{chat:session.chat,text:message.mes,swipe:message.swipe_id??0,content:session.worldInfo??''});
-        void runSecondaryTags(message,imageGenerationMode(settings)!=='manual');
+        if(!manualSecondaryGeneration(settings))void runSecondaryTags(message);
     },0);
 }
 function receiveSecondaryReply(event,messageId,type){
@@ -1464,7 +1511,7 @@ function receiveSecondaryReply(event,messageId,type){
         const known=knownSecondaryFloors.has(message);
         knownSecondaryFloors.add(message);
         if(known||!secondaryReady())return;
-        secondaryJob?.controller.abort();
+        if(secondaryJob&&!secondaryJob.manual)secondaryJob.controller.abort();
         secondarySession={chat:currentChat(),type};
     }
     if(secondarySession.chat!==currentChat()||!isNewSecondaryReply(secondarySession,message))return;
@@ -1586,7 +1633,7 @@ async function init() {
         // Quiet prompts and prompt previews do not render a chat reply and may
         // never emit GENERATION_ENDED. They must not hide the last floor's cards.
         if(dryRun||type==='quiet'||type==='impersonate')return;
-        secondaryJob?.controller.abort();
+        if(secondaryJob&&!secondaryJob.manual)secondaryJob.controller.abort();
         secondarySession=null;
         if(secondaryReady()){
             const message=latestImageMessage(ctx().chat);

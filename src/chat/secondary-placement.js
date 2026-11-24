@@ -68,9 +68,12 @@ const escapeDecoration = text => text.replace(/[&<>]/g, char => ({'&':'&amp;', '
 const normalizeParagraph = text => text.replace(/<\/?(?:p|em|strong|b|i|span)\b[^>]*>/gi, '').replace(/\s+/g, ' ').trim();
 
 export function drawingResponse(text, capture, options) {
-  const xml = text.trim().replace(/^```(?:xml)?\s*([\s\S]*?)\s*```$/i, '$1');
-  if (!xml) return {drawings: [], errors: []};
-  if (/<!DOCTYPE/i.test(xml)) throw Error('请直接返回 <drawings> XML。');
+  if (!text.trim()) return {drawings: [], errors: []};
+  if (/<!DOCTYPE/i.test(text)) throw Error('请直接返回 <drawings> XML。');
+  const sections = [...text.matchAll(/<drawings(?:\s[^<>]*)?>[\s\S]*?<\/drawings\s*>/g)];
+  if(sections.length!==1)throw Error('副 API 须返回一组完整的 <drawings>。');
+  const xml=sections[0][0].replace(/<!\[CDATA\[[\s\S]*?\]\]>|&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g,
+    value=>value==='&'?'&amp;':value);
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   const root = doc.documentElement;
   if (root?.tagName !== 'drawings' || doc.querySelector('parsererror')) throw Error('返回须为有效的 <drawings> XML。');
@@ -84,15 +87,15 @@ export function drawingResponse(text, capture, options) {
     let raw = (plain ? draw.textContent : fields.get('tags')?.textContent ?? '').trim();
     const prefix = raw.startsWith(capture.start) ? null : /^┈{2,}([^\r\n]+?)┈{2,}\s*/.exec(raw);
     if (prefix) raw = raw.slice(prefix[0].length);
+    const wrapped = raw.startsWith(capture.start) && raw.endsWith(capture.end);
+    const prompt = wrapped ? raw.slice(capture.start.length,-capture.end.length).trim() : fields.has('tags') ? raw : '';
     const invalidFields = fields.size !== draw.childElementCount ||
       [...fields].some(([name, child]) => !['tags','title','egg_description'].includes(name) || child.childElementCount);
-    if (draw.tagName !== 'draw' || invalidFields || !raw.startsWith(capture.start) ||
-        !raw.endsWith(capture.end) || raw.length <= capture.start.length + capture.end.length) {
+    if (draw.tagName !== 'draw' || invalidFields || !prompt) {
       errors.push('有一张图的返回格式或标签边界与当前配置不一致。');
       continue;
     }
-    const prompt = raw.slice(capture.start.length, -capture.end.length).trim();
-    if (!prompt || prompt.includes(capture.end) || prompt.includes(capture.start) || /<\/?[a-z][^>]*>/i.test(prompt)) {
+    if (prompt.includes(capture.end) || prompt.includes(capture.start) || /<\/?[a-z][^>]*>/i.test(prompt)) {
       errors.push('有一张图的 tag 不完整或包含额外标记。');
     } else {
       const quote = draw.getAttribute('quote');
@@ -128,6 +131,7 @@ export function insertDrawingTags(body, paragraphs, drawings, egg, maxOrdinary =
   const byOffset = new Map();
   const ordinary = drawings.filter(drawing => !drawing.egg);
   const reserved = new Set(), assigned = new Map();
+  const unplacedDrawings = [];
   let unplaced = 0;
   for (const drawing of ordinary) {
     if (assigned.size >= maxOrdinary) break;
@@ -136,7 +140,11 @@ export function insertDrawingTags(body, paragraphs, drawings, egg, maxOrdinary =
     const matches = quote.length >= 4 && (!byNumber || !normalizeParagraph(byNumber.text ?? '').includes(quote))
       ? paragraphs.filter(paragraph => normalizeParagraph(paragraph.text ?? '').includes(quote)) : [];
     const offset = (matches.length === 1 ? matches[0] : byNumber)?.end;
-    if (offset === undefined || reserved.has(offset)) {unplaced++;continue;}
+    if (offset === undefined || reserved.has(offset)) {
+      unplaced++;
+      if(offset===undefined)unplacedDrawings.push(drawing);
+      continue;
+    }
     assigned.set(drawing, offset);
     reserved.add(offset);
   }
@@ -166,7 +174,7 @@ export function insertDrawingTags(body, paragraphs, drawings, egg, maxOrdinary =
     cursor = offset;
   }
   text += body.slice(cursor);
-  return {text, starts, eggStarts, unplaced,
+  return {text, starts, eggStarts, unplaced, unplacedDrawings,
     missingTitles: [...assigned.keys()].filter(drawing => !drawing.title).length};
 }
 

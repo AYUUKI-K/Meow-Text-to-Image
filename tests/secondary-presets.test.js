@@ -91,6 +91,7 @@ test('normal figures stay in distinct prose paragraphs and the bonus reuses the 
     assert.match(result.text,/第一段。\s+\[B\]\s+第二段。\s+\[A\]\s+第三段。\s+\[C\]\s+<Meow_FM>彩蛋内容<\/Meow_FM>\s+\[EGG\]\s+末尾信息。/);
     assert.equal(result.text.replace(/\n\n\[(?:A|B|C|EGG)\]/g,''),raw);
     assert.equal(result.unplaced,2);
+    assert.deepEqual(result.unplacedDrawings,[drawings[3]]);
     assert.equal(insertDrawingTags('单段。',[{id:'P01',end:3}],drawings.slice(-1)).starts.size,0);
 });
 
