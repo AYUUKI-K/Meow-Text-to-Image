@@ -38,7 +38,7 @@
     "scriptName": "喵喵文生图3-居中美化-1107",
     "disabled": false,
     "runOnEdit": true,
-    "findRegex": "/[\\t ]*┈┈[\\t ]*([\\s\\S]*?)[\\t ]*┈┈(?:[\\t ]*(?:\\r?\\n[\\t ]*)*(?=image###))?/gi",
+    "findRegex": "/[\\t ]*┈┈[\\t ]*([^\\r\\n]*?)[\\t ]*┈┈(?:[\\t ]*(?:\\r?\\n[\\t ]*)*(?=image###))?/gi",
     "trimStrings": [],
     "replaceString": "<div class=\"miao-image-caption\" style=\"display:block;width:100%;max-width:100%;min-width:0;margin:0.25em auto 0.1em;padding:0;box-sizing:border-box;text-align:center;color:inherit;font-size:0.82em;font-weight:500;line-height:1.5;letter-spacing:0;white-space:normal;overflow-wrap:anywhere;word-break:normal;\">$1</div>",
     "placement": [

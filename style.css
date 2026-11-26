@@ -996,6 +996,11 @@
 #chat .mes_text .miao-image-caption+p:has(>.miao-image-card:first-child) {
     margin-top: 0;
 }
+#chat .mes_text .miao-image-card>.miao-image-caption {
+    width: 100%;
+    margin-block: 0;
+    font-size: 0.82rem;
+}
 
 .miao-image-tools[hidden] {
     display: none !important;

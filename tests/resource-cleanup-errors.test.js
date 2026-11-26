@@ -45,4 +45,5 @@ test('updated centering regex replaces old family and uses a plain small caption
  const expression=()=>new RegExp(rule.findRegex.slice(1,rule.findRegex.lastIndexOf('/')),'gi');
  assert.ok('┈┈标题┈┈\n\n\nimage###scene###'.replace(expression(),rule.replaceString).endsWith('</div>image###scene###'));
  assert.ok('┈┈标题┈┈\n\n普通正文'.replace(expression(),rule.replaceString).endsWith('</div>\n\n普通正文'),'ordinary paragraph breaks must be preserved');
+ assert.equal('┈┈没闭合\n正文\n后面有┈┈'.replace(expression(),rule.replaceString),'┈┈没闭合\n正文\n后面有┈┈');
 });

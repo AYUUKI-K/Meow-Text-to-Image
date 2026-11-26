@@ -65,7 +65,7 @@ export const electronicGhost = {
         {
             "name": "格式模板",
             "role": "system",
-            "content": "仅用 <drawings> 返回配图。普通图按段尾编号落图，彩蛋使用独立条目。\n<drawings>\n  <draw after=\"P01\" quote=\"推开窗户\">\n    <title>✦·窗边晨光·(｡•ᴗ•｡)·✦</title>\n    <tags>{{miao_image_start}}sfw, windowsill, morning light, opening window{{miao_image_end}}</tags>\n  </draw>\n  <draw after=\"P03\" quote=\"拿起茶杯\">\n    <title>✧·杯中茶香·(≧▽≦)·✧</title>\n    <tags>{{miao_image_start}}sfw, teacup, holding cup, soft lighting{{miao_image_end}}</tags>\n  </draw>\n  <draw egg=\"true\">\n    <title>☆·茶杯大冒险·(๑˃ᴗ˂)☆</title>\n    <tags>{{miao_image_start}}chibi, playful smile, teacup{{miao_image_end}}</tags>\n    <egg_description>今天的茶是胜利品。</egg_description>\n  </draw>\n</drawings>\n示例只说明字段。实际张数、小标题、彩蛋和解析以本轮插件设置为准。开启小标题时，每张图都必须返回各自的 title。\n使用正文里实际存在的编号，转义 XML 文本中的 &amp; 和尖括号。",
+            "content": "仅用 <drawings> 返回配图。普通图按段尾编号落图，彩蛋使用独立条目。\n<drawings>\n  <draw after=\"P01\" quote=\"推开窗户\">\n    <title>✦·窗边晨光·(｡•ᴗ•｡)·✦</title>\n    <tags>{{miao_image_start}}sfw, windowsill, morning light, opening window{{miao_image_end}}</tags>\n  </draw>\n  <draw after=\"P03\" quote=\"拿起茶杯\">\n    <title>✧·杯中茶香·(≧▽≦)·✧</title>\n    <tags>{{miao_image_start}}sfw, teacup, holding cup, soft lighting{{miao_image_end}}</tags>\n  </draw>\n  <draw egg=\"true\">\n    <title>☆·茶杯大冒险·(๑˃ᴗ˂)☆</title>\n    <tags>{{miao_image_start}}chibi, playful smile, teacup{{miao_image_end}}</tags>\n    <egg_description>今天的茶是胜利品。</egg_description>\n  </draw>\n</drawings>\n示例只说明字段。实际张数、小标题、彩蛋和解析以本轮插件设置为准。开启小标题时，每张图的 title 字段只填一行标题正文，例如 ✦·窗边晨光·(｡•ᴗ•｡)·✦。\n使用正文里实际存在的编号，转义 XML 文本中的 &amp; 和尖括号。",
             "enabled": true
         },
         {

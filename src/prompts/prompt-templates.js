@@ -245,7 +245,7 @@ export const promptTemplates={
     "key": [],
     "keysecondary": [],
     "comment": "小标题[选开]",
-    "content": "{{setglobalvar::小标题::┈┈[胡里花哨的符号+本次绘画的主题文字+可爱颜文字]┈┈}}",
+    "content": "{{setglobalvar::小标题::小标题放在绘图标签块内第一行，下一行写画面 tag。标题只写一行正文，以 ✦ 等装饰符号起头，如 ✦·窗边晨光·(｡•ᴗ•｡)·✦。}}",
     "constant": true,
     "vectorized": false,
     "selective": true,

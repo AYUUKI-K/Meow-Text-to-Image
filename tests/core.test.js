@@ -38,6 +38,16 @@ test('duplicate prompts retain separate positions',()=>{
  const b=parseBlocks('image###a### image###a###');assert.equal(b.length,2);assert.notEqual(b[0].index,b[1].index);
 });
 test('custom capture protocol',()=>assert.equal(parseBlocks('<draw>cat</draw>','<draw>([\\s\\S]*?)</draw>')[0].prompt,'cat'));
+test('drawing tags keep plain and stored titles separate from the NovelAI prompt',()=>{
+ const block=parseBlocks('image###\n✦·标题·(￣▽￣)ゞ·✦\ncat, indoors\n\nText: Hello###')[0];
+ assert.equal(block.title,'✦·标题·(￣▽￣)ゞ·✦');
+ assert.equal(block.prompt,'cat, indoors\n\nText: Hello');
+ const stored=parseBlocks('image###\n<miao-title>猫 &amp; 茶 &lt;3</miao-title>\ncat###')[0];
+ assert.equal(stored.title,'猫 & 茶 <3');
+ assert.equal(stored.prompt,'cat');
+ assert.equal(parseBlocks('image###cat\n\nText: Hi###')[0].title,undefined);
+ assert.equal(parseBlocks('image###✦只有标题✦\n###').length,0);
+});
 test('positive ordering, negative isolation and profile snapshot',()=>{
  const profile={...defaults,positive:'quality',artists:'artist',negative:'bad',seed:42};
  const r=buildRequest(profile,'scene'); profile.artists='changed';

@@ -1,4 +1,4 @@
-import {delimiterPattern, maskReasoning, parseBodyBlocks} from '../core/core.js';
+import {delimiterPattern, embedDrawingTitle, maskReasoning, parseBodyBlocks} from '../core/core.js';
 import {validateEndpoint} from '../novelai/nai-connection.js';
 import {replySlot} from './secondary-presets.js';
 import {createSecondaryMacroExpander} from './secondary-macros.js';
@@ -131,7 +131,7 @@ export function secondaryTagTemplate(text) {
         .replaceAll('sfw, 1boy, 1girl, close-up, warm light, (1.2::name A(series)::, dark hair, sitting), (name B:1.2, light hair, looking at another), indoor',flatTagExample)
         .replace(/^ *- 每个角色必须有坐标[^\n]*$/gm,'   - 每个角色的词放在各自的括号内，场景与角色组用逗号连接。')
         .replace(/^只返回一个 <drawings>。每张图用一个 <draw[^\n]*\n<drawings>[\s\S]*?<\/drawings>/,'仅用 <drawings> 返回配图。普通图按段尾编号落图，彩蛋使用独立条目。\n'+drawingExample())
-        .replace(/^示例只说明字段。[^\n]*/m,'示例只说明字段。实际张数、小标题、彩蛋和解析以本轮插件设置为准。开启小标题时，每张图都必须返回各自的 title。')
+        .replace(/^示例只说明字段。[^\n]*/m,'示例只说明字段。实际张数、小标题、彩蛋和解析以本轮插件设置为准。开启小标题时，每张图的 title 只填一行标题正文。')
         .replace(/3\.你需要思考:如果角色是著名ACGN角色[^\n]*/,'3. '+fandomRule)
         .replace('- 原创作画：每张图片都是独一无二的，必须完整、逐字逐句地以“角色DNA“描述角色','- 原创角色按正文写可见的发型、瞳色、身形和衣着。著名角色和已绑定角色按各自规则写。')
         .replace('* 根据正文分别描写出镜角色的外貌，并补充当下的动作和表情。','* 按本轮角色规则写各角色的身份组，并补充当下的动作和表情。')
@@ -211,7 +211,7 @@ function secondaryOutputRule(options, inline, capture, {specializationInPreset =
         rule.push(`最终回复只包含一个 <drawings> XML。每张图用一个 <draw>。正文图用 after 指定真实的段尾编号，再用 quote 原样摘录同段短语。每个条目的 <tags> 仅包含一组 ${escapeXMLText(capture.start)}tag${escapeXMLText(capture.end)}；出镜绑定角色的调用记号属于这组 tag 的人物特征字段。省略 Markdown 围栏和说明文字。`);
         rule.push('先从开头到结尾挑选不同剧情节点，再给每个节点写画面；有足够段落时覆盖至少一个前半段情节。每张图只能描绘其编号段落里的场景，按段号顺序输出；普通图不可共用段号或集中选最后几段。');
         rule.push('普通图只能放在正文段落，避开 meowfm 彩蛋区。不要复述正文，也不要返回 meowfm 标记。');
-        if (options.title) rule.push(`每张正文图和彩蛋图的 <draw> 内都必须有一个非空的 <title>，写在 <tags> 前。由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。在 <title> 中只写标题内容，省略世界书的 ┈┈ 边框。返回前逐张检查标题。`);
+        if (options.title) rule.push(`每张正文图和彩蛋图都用 <title> 填一行标题正文。由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。例如 ✦·窗边晨光·(｡•ᴗ•｡)·✦。`);
         if (options.egg) rule.push('正文已有彩蛋位置。仅一张彩蛋图使用 egg="true"，插件会将它放到原有彩蛋标记之后。');
         else rule.push('本楼不输出彩蛋条目。');
         if (options.egg && options.eggDescription) rule.push('彩蛋的 <draw> 用 <egg_description> 返回解析，其他插图不加。');
@@ -301,7 +301,9 @@ export async function requestSecondaryTags(connection, key, body, {signal, fetch
             if(drawing.egg&&drawing!==egg)continue;
             try{
                 const prompt=flattenSecondaryPrompt(drawing.prompt);
-                prepared.push({...drawing,prompt,tag:capture.start+prompt+capture.end});
+                const caption=embedDrawingTitle(drawing.title);
+                const fits=!caption.includes(capture.start)&&!caption.includes(capture.end);
+                prepared.push({...drawing,title:fits?drawing.title:undefined,prompt,tag:capture.start+(fits?caption:'')+prompt+capture.end});
             }catch{errors.push('有一张图的独立角色提示词格式有误。');}
         }
         if(!prepared.length)throw Error(errors[0]??'副 API 未返回可用的 <draw> 绘图条目');

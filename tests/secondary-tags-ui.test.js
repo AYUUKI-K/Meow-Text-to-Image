@@ -437,7 +437,7 @@ test('manual secondary gestures extract the visible floor and only the image but
                 const role=request?.messages.some(message=>message.content.includes('试用人物 = black hair, yellow eyes'))?'$试用人物$':'short hair';
                 const messages=request?.messages.map(message=>message.content).join('\n')??'';
                 const recovered=messages.includes('无法定位的回填测试。')?'START-FIG empty station, mist END-FIG':
-                    messages.includes('第九楼专属正文。')?'整理如下：\n```xml\n<drawings><draw after="P01"><title>雨 & 灯</title><tags>rain, black umbrella</tags></draw><draw after="P02"><tags>START-FIG window light END-FIG</tags></draw></drawings>\n```\n完成。':null;
+                    messages.includes('第九楼专属正文。')?'整理如下：\n```xml\n<drawings><draw after="P01"><title>┈雨 & 灯┈┈</title><tags>rain, black umbrella</tags></draw><draw after="P02"><title>缺少结束标签<tags>START-FIG window light END-FIG</tags></draw></drawings>\n```\n完成。':null;
                 if(recovered){
                     await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
                         json:{choices:[{message:{content:recovered}}]}});
@@ -589,10 +589,11 @@ test('manual secondary gestures extract the visible floor and only the image but
             assert.doesNotMatch(wire,/5~7|\[bg\]/);
             const [placed,original,updated]=await page.evaluate(()=>[window.preview.chat[0].mes,...window.preview.chat[0].swipes]);
             const boundary=placed.indexOf('<meowfm>');
-            assert.match(placed.slice(0,boundary),/把窗推开。\s+┈┈✧·试用标题·\(≧▽≦\)·✧┈┈\s+START-FIGwarm light, \(\$试用人物\$, sitting\), \(red hair, holding a book\)END-FIG/);
+            assert.match(placed.slice(0,boundary),/把窗推开。\s+START-FIG\n<miao-title>✧·试用标题·\(≧▽≦\)·✧<\/miao-title>\nwarm light, \(\$试用人物\$, sitting\), \(red hair, holding a book\)END-FIG/);
             assert.doesNotMatch(placed,/Scene Composition|Character 1|centers|outdoors/);
             assert.match(placed.slice(0,boundary),/走到门口。\s+START-FIGextra shotEND-FIG\s+把窗推开。/);
-            assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+┈┈简单彩蛋┈┈\s+START-FIG4koma, teacup, text, speech bubble, english text\nText: From \$5 to \$10\?\n\nI owe you one!END-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
+            assert.match(placed.slice(boundary),/^<meowfm>彩蛋正文。<\/meowfm>\s+START-FIG\n<miao-title>简单彩蛋<\/miao-title>\n4koma, teacup, text, speech bubble, english text\nText: From \$5 to \$10\?\n\nI owe you one!END-FIG\s+<easter_egg>\s+彩蛋 &amp; 茶/);
+            assert.doesNotMatch(placed,/┈/);
             assert.equal(placed.match(/<meowfm>/g).length,1);
             assert.doesNotMatch(placed,/\/meow_FM/i);
             assert.doesNotMatch(placed,/extra bonus/);
@@ -626,6 +627,7 @@ test('manual secondary gestures extract the visible floor and only the image but
             assert.doesNotMatch(nai,/试用人物/);
             assert.ok(await page.evaluate(()=>window.preview.calls.every(call=>!call.characters)));
             const bonus=generated.find(text=>text.includes('speech bubble'));
+            assert.ok(generated.every(text=>!/miao-title|试用标题|简单彩蛋/.test(text)));
             assert.match(bonus,/speech bubble, english text[\s\S]*\nText: From \$5 to \$10\?\n\nI owe you one!$/);
             assert.doesNotMatch(bonus,/no text/);
             await page.evaluate(async()=>{
@@ -674,7 +676,10 @@ test('manual secondary gestures extract the visible floor and only the image but
             await page.waitForFunction(()=>window.preview.chat[9].mes.includes('START-FIG'));
             assert.equal(requests.length,3);
             assert.match(requests[2].messages.map(message=>message.content).join('\n'),/第九楼专属正文/);
-            assert.match(await page.evaluate(()=>window.preview.chat[9].mes),/雨 &amp; 灯[\s\S]*START-FIGrain, black umbrellaEND-FIG/);
+            const recovered=await page.evaluate(()=>window.preview.chat[9].mes);
+            assert.match(recovered,/START-FIG\n<miao-title>雨 &amp; 灯<\/miao-title>\nrain, black umbrellaEND-FIG/);
+            assert.match(recovered,/START-FIGwindow lightEND-FIG/);
+            assert.doesNotMatch(recovered,/┈|缺少结束标签/);
             await imageCards(9).nth(1).getByRole('button',{name:'生成插图',exact:true}).waitFor();
             assert.equal(await page.evaluate(()=>window.preview.calls.length),3);
             await clickGenerate(8,2);await clickGenerate(9,2);

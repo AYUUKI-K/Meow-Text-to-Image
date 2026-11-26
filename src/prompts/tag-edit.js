@@ -9,7 +9,7 @@ export function editedTag(text,block,prompt,pattern,format={}){
     let match;try{match=new RegExp(pattern,'id').exec(current.raw);}catch{match=new RegExp(pattern,'i').exec(current.raw);}
     if(!match?.[1])throw Error('无法定位 tag 提示词');
     const at=match.indices?.[1]?.[0]??current.raw.indexOf(match[1]);
-    const start=current.start+at,end=start+match[1].length;
+    const start=current.start+at+(current.promptOffset??0),end=current.start+at+match[1].length;
     const next=text.slice(0,start)+prompt+text.slice(end),after=parseBodyBlocks(next,pattern,format),replacement=after[current.bodyIndex];
     if(after.length!==before.length||!replacement||replacement.prompt!==prompt||before.some((item,i)=>i!==current.bodyIndex&&item.raw!==after[i].raw))throw Error('提示词不能包含捕捉标签的起始或结束标记');
     return {text:next,block:replacement};

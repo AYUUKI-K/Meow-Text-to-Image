@@ -10,6 +10,7 @@ export const drawingModules = Object.freeze({
     nsfw: ['nsfw', 'nsfw'],
 });
 export const drawingOrientations = [['', '不指定'], ['BG', 'BG'], ['BL', 'BL'], ['GL', 'GL'], ['INTERSEX', '双性']];
+export const mainDrawingTitleRule = '把小标题写在绘图标签块内的第一行。只写标题正文，以 ✦ 等装饰符号起头，下一行写画面 tag。';
 
 export function drawingCount(value) {
     const match = /^\s*(\d+)\s*(?:[~～–—至-]\s*(\d+))?\s*$/.exec(String(value ?? ''));
@@ -31,8 +32,8 @@ export function drawingOptions(config) {
     const modules = Object.fromEntries(Object.entries(drawingModules).map(([key,[id, legacy]]) => [
         key, config?.version === 2 ? savedEnabled(config,id) : Boolean(config?.modules?.[legacy]),
     ]));
-    const titleStyle = config?.version === 2 ? treeText(config,'output.subtitle') :
-        '┈┈[装饰符号 + 绘画主题 + 可爱颜文字]┈┈';
+    const titleStyle = config?.version === 2 ? treeText(config,'output.subtitle').replace(/┈+/g,'') :
+        '带装饰符号和颜文字的一行绘画标题';
     return {count, ...modules, titleStyle, orientation: String(config?.orientation ?? '').toUpperCase()};
 }
 
@@ -92,13 +93,12 @@ export function sharedDrawingText(text) {
 export function worldDrawingPolicy(config, eggDialogue) {
     const options = drawingOptions(config);
     const versionTwo = config?.version === 2;
-    const title = versionTwo ? treeText(config,'output.subtitle') : '┈┈[绘画主题]┈┈';
     const description = versionTwo ? treeText(config,'egg.description') : '用 <easter_egg> 和 </easter_egg> 包住彩蛋解析。';
     const eggMarker = String((versionTwo ? config.params.eggMarker : config?.fixed?.彩蛋标签) ?? '').trim();
     return [
         drawingOutputRule({...options,eggDialogue}),
         options.egg && versionTwo && sharedDrawingText(treeText(config,'egg')),
-        options.title && `起始标签之前单独一行输出小标题，格式为 ${title}`,
+        options.title && `${mainDrawingTitleRule} 标题风格：${options.titleStyle}。`,
         options.egg && eggMarker && `彩蛋 tag 前，单独一行输出 ${eggMarker}。`,
         options.egg && options.eggDescription && description,
         options.selfCheck && '出图前自检每张图的人物、姿势、构图和 tag 格式。',

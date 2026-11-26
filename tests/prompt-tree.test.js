@@ -11,7 +11,7 @@ import {createPromptInjection,PROMPT_ID} from '../src/platform/prompt-injection.
 import {createEggMarkerCache} from '../src/profiles/easter-egg-selection.js';
 const source=JSON.parse(readFileSync(new URL('./support/prompt-tree-source.json',import.meta.url),'utf8'));
 
-test('fixed registry preserves the source blocks and the two updated 2.3.0 blocks',()=>{
+test('fixed registry preserves the source blocks and updated drawing instructions',()=>{
  assert.equal(validatePromptTree(),true);assert.equal(new Set(promptTree.map(n=>n.nodeId)).size,promptTree.length);
  assert.deepEqual(treeRoots.map(id=>treeById[id].displayId),['00','01','02','03','04','05']);
  assert.equal(treeById['selfcheck.egg'].parentId,'selfcheck');assert.equal(treeById['egg.description'].parentId,'egg');
@@ -22,6 +22,7 @@ test('fixed registry preserves the source blocks and the two updated 2.3.0 block
  const updated={
   'tags.rules':'198c08b69210771cf628c926acc28a697b5c9d0785651fb7292c803712b9766c',
   'selfcheck.item2':'beed0cade6f19ad7000fd88ef0ee30c99f7c2411ef6ce1e292620331ec385b7e',
+  'output.subtitle':'7932aba016435108d3da8b26b0d35ad3648db865d3b15578e766ffe48d117e16',
  };
  for(const [displayId,{nodeId,slot,sha256}] of Object.entries(source)){
   const body=treeById[nodeId].slots[slot];assert.equal(createHash('sha256').update(body).digest('hex'),updated[nodeId]??sha256,displayId+' changed');

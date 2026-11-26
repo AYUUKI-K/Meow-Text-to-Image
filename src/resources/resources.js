@@ -1,7 +1,7 @@
 import {preserveWorldMacros} from './world-macros.js';
 import {randomId} from '../platform/browser-crypto.js';
 import {promptTemplates} from '../prompts/prompt-templates.js';
-export const BUNDLED_RESOURCES={"schema":1,"version":"2.3.0-1123","revision":2026112301,"worldName":"[喵喵]文生图 2.3.0","worldSHA256":"f9f31f2bd33716d1665bfa9bc51c91dec2960d3179ed0bb50ce83c7f95860743","regexSHA256":"a0f551a33db9c3870ba93d8e9b308f8f4cce86e91aaf149711050333a6119179"};
+export const BUNDLED_RESOURCES={"schema":1,"version":"2.3.0-1126","revision":2026112601,"worldName":"[喵喵]文生图 2.3.0","worldSHA256":"fc8720309d66e4c602315e024022e8a856eae511116539107787fa0161fd8786","regexSHA256":"2677ce390279f687e6873acf940635d1e5becd546b7458532f3adc718b32711f"};
 export const RESOURCE_VERSION=BUNDLED_RESOURCES.version;
 export const WORLD_NAME=BUNDLED_RESOURCES.worldName;
 const drawingEntryTitles=new Set([...Object.values(promptTemplates).map(entry=>entry.comment),'使用说明']);

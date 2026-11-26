@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {editedTag} from '../src/prompts/tag-edit.js';
+
+test('editing a titled drawing changes only its NovelAI prompt',()=>{
+ for(const title of ['✦·窗边晨光·✦','<miao-title>猫 &amp; 茶</miao-title>']){
+  const pattern=delimiterPattern('<pic>','</pic>'),source=`正文。<pic>\n${title}\ncat</pic>`;
+  const {text,block}=editedTag(source,parseBodyBlocks(source,pattern)[0],'dog',pattern);
+  assert.equal(text,`正文。<pic>\n${title}\ndog</pic>`);
+  assert.equal(block.prompt,'dog');
+  assert.equal(block.title,title.startsWith('<')?'猫 & 茶':title);
+ }
+});
 import {parseBodyBlocks,delimiterPattern} from '../src/core/core.js';
 import {writeSwipeImage,readSwipeImage,moveSwipeImage} from '../src/chat/swipe-history.js';
 const pattern=delimiterPattern('image###','###');

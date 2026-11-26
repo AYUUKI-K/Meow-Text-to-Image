@@ -439,6 +439,7 @@ function makeCard(message,block) {
     card.dataset.miaoSource=block.secondary?'secondary':'main';
     card.dataset.miaoBodyIndex=String(block.bodyIndex);
     card.dataset.miaoOccurrence=String(matchingBlocks(blocks(message),block).findIndex(b=>b.start===block.start));
+    if(block.title)card.append(el('div',block.title,'miao-image-caption'));
     const record=state(message,key);
     const task=taskFor(message,block);
     const versions=imageVersions(record),wanted=Math.min(record?.selected??versions.length-1,versions.length-1),selected=versions[wanted]?.deleted?versions.findLastIndex(v=>!v.deleted):wanted,current=versions[selected];
@@ -603,7 +604,7 @@ function renderAll() {
                 used.add(old);
                 old.dataset.theme=card.dataset.theme;
                 const bound=cardBindings.get(old),controls=[...old.querySelectorAll('img,button')];
-                const boundHere=bound?.message===message&&bound.block.start===block.start&&bound.block.raw===block.raw&&bound.block.egg===block.egg&&
+                const boundHere=bound?.message===message&&bound.block.start===block.start&&bound.block.raw===block.raw&&bound.block.egg===block.egg&&bound.block.title===block.title&&
                     bound.controls.length===controls.length&&bound.controls.every(n=>old.contains(n));
                 const sameImage=old.querySelector('img')?.getAttribute('src')===card.querySelector('img')?.getAttribute('src');
                 const sameVersion=old.querySelector('.miao-version-count')?.textContent===card.querySelector('.miao-version-count')?.textContent;
@@ -1388,12 +1389,12 @@ async function runSecondaryTags(message,{manual=false}={}){
             const previousTags=readSecondaryTags(message,swipe),known=new Set([...nextBlocks,...previousTags].map(block=>promptIdentity(block.prompt)));
             const ordinary=result.starts.size-result.eggStarts.size;
             const fallback=[];
-            for(const {prompt} of result.unplacedDrawings){
+            for(const {prompt,title} of result.unplacedDrawings){
                 if(ordinary+fallback.length>=requestedBodyCount.max)break;
                 const identity=promptIdentity(prompt);
                 if(known.has(identity))continue;
                 known.add(identity);
-                fallback.push({prompt,egg:false});
+                fallback.push({prompt,egg:false,...(title?{title}:{})});
             }
             if(!result.starts.size&&!fallback.length)throw Error('副 API 未返回可回填或保留的绘图 tag');
             const nextTags=[...previousTags,...fallback];

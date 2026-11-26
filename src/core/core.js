@@ -45,9 +45,27 @@ export function imageDay(filename) {
     if(!Number.isFinite(date.getTime()))return null;
     return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 }
+export function cleanDrawingTitle(text) {
+    return text.replace(/[\r\n]+/g,' ').replace(/^[\s┈]+|[\s┈]+$/g,'');
+}
+const titleEntities = {'&':'&amp;','<':'&lt;','>':'&gt;'};
+const decodedTitleEntities = Object.fromEntries(Object.entries(titleEntities).map(([key,value])=>[value,key]));
+export function embedDrawingTitle(title) {
+    return title ? `\n<miao-title>${title.replace(/[&<>]/g,char=>titleEntities[char])}</miao-title>\n` : '';
+}
+function drawingContent(content) {
+    // The model's decorative title can be a plain first line. The plugin's
+    // saved title field also accepts titles that start with ordinary text.
+    const header=/^\s*(?:<miao-title>([^\r\n]*?)<\/miao-title>|([\p{So}][^\r\n]*))\r?\n/u.exec(content);
+    if(!header)return {prompt:content.trim()};
+    const title=cleanDrawingTitle((header[1]??header[2]).replace(/&(?:amp|lt|gt);/g,entity=>decodedTitleEntities[entity]));
+    return {prompt:content.slice(header[0].length).trim(),title,promptOffset:header[0].length};
+}
 export function parseBlocks(text, pattern = delimiterPattern('image###','###')) {
     const regex = new RegExp(pattern, 'gi');
-    return [...String(text).matchAll(regex)].filter(m => m[1]?.trim()).map((m, index) => ({index, raw:m[0], prompt:m[1].trim(), start:m.index}));
+    return [...String(text).matchAll(regex)].filter(match=>match[1]?.trim())
+        .map(match=>({...drawingContent(match[1]),raw:match[0],start:match.index}))
+        .filter(block=>block.prompt).map((block,index)=>({...block,index}));
 }
 // Markdown may split lines into paragraphs, or consume a hash-only closing line.
 // Keep offsets into the rendered text so a DOM Range replaces the original spot.
@@ -62,7 +80,7 @@ export function renderedBlockRange(text,raw,startTag,endTag){
         .replace(/<\/?[A-Za-z][^>]*>/g,'')
         .replace(/`{1,3}|\*{2}|_{2}|~~/g,'');
     const find=value=>{
-        const candidates=[String(value),stripMarkdown(value)];
+        const candidates=[String(value),value.replace(/<\/?miao-title>/g,''),stripMarkdown(value)];
         for(const candidate of candidates){
             const needle=candidate.replace(/\s/g,'');if(!needle)continue;
             const at=compact.indexOf(needle);if(at>=0)return {start:offsets[at],end:offsets[at+needle.length-1]+1};
@@ -135,10 +153,12 @@ export function pageItems(items,page=0,size=24){
     return {items:items.slice(current*size,(current+1)*size),page:current,pages,total:items.length};
 }
 export function parseBodyBlocks(text,pattern,format={}){
-    const original=String(text??''),previous=parseBlocks(original,pattern);
-    return parseBlocks(maskReasoning(original,format),pattern)
+    const original=String(text??''),visible=maskReasoning(original,format),previous=parseBlocks(original,pattern);
+    if(visible===original)return previous.map(block=>({...block,bodyIndex:block.index}));
+    const indices=new Map(previous.map(({start,index})=>[start,index]));
+    return parseBlocks(visible,pattern)
         .filter(b=>original.slice(b.start,b.start+b.raw.length)===b.raw)
-        .map((b,bodyIndex)=>({...b,bodyIndex,index:previous.find(old=>old.start===b.start)?.index??b.index}));
+        .map((b,bodyIndex)=>({...b,bodyIndex,index:indices.get(b.start)??b.index}));
 }
 export const sizePresets=[{name:'方图',width:1024,height:1024},{name:'竖图',width:832,height:1216},{name:'横图',width:1216,height:832}];
 export function delimiterPattern(start,end) {

@@ -483,7 +483,7 @@ const definitions = [
         "toggleable": true,
         "defaultEnabled": false,
         "slots": {
-            "body": "┈┈[胡里花哨的符号+本次绘画的主题文字+可爱颜文字]┈┈"
+            "body": "带装饰符号和可爱颜文字的一行绘画标题，例如 ✦·窗边晨光·(｡•ᴗ•｡)·✦。"
         },
         "children": []
     },

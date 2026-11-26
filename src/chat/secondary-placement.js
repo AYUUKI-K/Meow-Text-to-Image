@@ -1,4 +1,5 @@
 import {splitImageText} from '../novelai/novelai-presets.js';
+import {cleanDrawingTitle} from '../core/core.js';
 
 const captureMacros = /\{\{miao_image_(start|end)\}\}/g;
 
@@ -74,7 +75,13 @@ export function drawingResponse(text, capture, options) {
   if(sections.length!==1)throw Error('副 API 须返回一组完整的 <drawings>。');
   const xml=sections[0][0].replace(/<!\[CDATA\[[\s\S]*?\]\]>|&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g,
     value=>value==='&'?'&amp;':value);
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const parser = new DOMParser();
+  let doc = parser.parseFromString(xml, 'application/xml');
+  if(doc.querySelector('parsererror')){
+    const repaired=xml.replace(/<title\b[^<>]*>([\s\S]*?)(<\/title\s*>|(?=<(?:tags|egg_description)\b|<\/draw\s*>))|<\/title\s*>/gi,
+      (match,content,end)=>end&&!/[<>]/.test(content)?match:'');
+    doc=parser.parseFromString(repaired,'application/xml');
+  }
   const root = doc.documentElement;
   if (root?.tagName !== 'drawings' || doc.querySelector('parsererror')) throw Error('返回须为有效的 <drawings> XML。');
   const drawings = [], errors = [];
@@ -89,8 +96,9 @@ export function drawingResponse(text, capture, options) {
     if (prefix) raw = raw.slice(prefix[0].length);
     const wrapped = raw.startsWith(capture.start) && raw.endsWith(capture.end);
     const prompt = wrapped ? raw.slice(capture.start.length,-capture.end.length).trim() : fields.has('tags') ? raw : '';
-    const invalidFields = fields.size !== draw.childElementCount ||
-      [...fields].some(([name, child]) => !['tags','title','egg_description'].includes(name) || child.childElementCount);
+    const substantive = [...draw.children].filter(child=>child.tagName!=='title');
+    const invalidFields = new Set(substantive.map(child=>child.tagName)).size !== substantive.length ||
+      substantive.some(child => !['tags','egg_description'].includes(child.tagName) || child.childElementCount);
     if (draw.tagName !== 'draw' || invalidFields || !prompt) {
       errors.push('有一张图的返回格式或标签边界与当前配置不一致。');
       continue;
@@ -101,8 +109,8 @@ export function drawingResponse(text, capture, options) {
       const quote = draw.getAttribute('quote');
       const drawing = {anchor, prompt, tag: capture.start + prompt + capture.end};
       if (quote) drawing.quote = quote;
-      const title = (fields.get('title')?.textContent.trim() || prefix?.[1] || '').replace(/[\r\n]+/g,' ').replace(/^┈{2,}|┈{2,}$/g,'').trim();
-      if (options?.title && title) drawing.title = escapeDecoration(title);
+      const title = cleanDrawingTitle(fields.get('title')?.textContent.trim() || prefix?.[1] || '');
+      if (options?.title && title) drawing.title = title;
       if (draw.getAttribute('egg') === 'true') {
         if (!options?.egg) continue;
         drawing.egg = true;
@@ -160,9 +168,8 @@ export function insertDrawingTags(body, paragraphs, drawings, egg, maxOrdinary =
   const eggStarts = new Set();
   for (const [offset, tags] of [...byOffset].sort(([a], [b]) => a - b)) {
     text += body.slice(cursor, offset);
-    for (const {tag, title, egg, eggDescription} of tags) {
+    for (const {tag, egg, eggDescription} of tags) {
       text += gap;
-      if (title) text += '┈┈' + title + '┈┈' + gap;
       starts.add(text.length);
       if (egg) eggStarts.add(text.length);
       text += tag;

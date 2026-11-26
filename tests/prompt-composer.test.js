@@ -23,7 +23,7 @@ test('all module combinations remove virtual references and preserve fixed macro
  assert.equal(text.includes('(+1)'),c.modules.easterEgg);
  assert.equal(text.includes('## 自检'),c.modules.selfCheck);
  assert.equal(text.includes('<easter_egg>'),c.modules.easterEgg&&c.modules.easterEggDescription);
- assert.equal(text.includes('胡里花哨'),c.modules.subtitle);
+ assert.equal(text.includes('小标题放在绘图标签块内第一行'),c.modules.subtitle);
  assert.equal(text.includes('15.NSFW:'),c.modules.nsfw);
  assert.ok(text.includes('{{setvar::cot_xml::star_cot}}'));assert.ok(text.includes('{{getvar::人格}}'));
  }
