@@ -142,7 +142,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             const presetPicker=page.getByRole('combobox',{name:'当前副 API 预设',exact:true});
             assert.equal(await presetPicker.inputValue(),'electronic-ghost');
             assert.equal(await presetPicker.locator('option').count(),1);
-            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵1.8（默认）');
+            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵1.9（默认）');
             const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
             assert.equal(await exportButton.isEnabled(),true);
             const messages=page.locator('.miao-secondary-preset-messages');
@@ -444,7 +444,7 @@ test('manual secondary gestures extract the visible floor and only the image but
                     return;
                 }
                 await route.fulfill({headers:{'access-control-allow-origin':'*','access-control-allow-headers':'authorization,content-type'},
-                    json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P03">START-FIG $其他存档角色$, walking END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P01">START-FIG extra shot END-FIG</draw><draw egg="true"><tags>┈┈简单彩蛋┈┈\nSTART-FIG 4koma, teacup, text, speech bubble, english text\nText: From $5 to $10?\n\nI owe you one!END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
+                    json:{choices:[{message:{content:`<drawings><draw after="P01" egg="true">START-FIG extra bonus END-FIG</draw><draw after="P03">START-FIG $其他存档角色$, walking END-FIG</draw><draw after="P02"><title>✧·试用标题·(≧▽≦)·✧</title><tags>START-FIG Scene Composition: warm light;Character 1 Prompt:${role}, sitting|centers:B3;Character 1 UC: outdoors;Character 2 Prompt: red hair, holding a book; END-FIG</tags></draw><draw after="P01">START-FIG extra shot END-FIG</draw><draw egg="true"><tags>┈┈简单彩蛋┈┈\nSTART-FIG 4koma, teacup, text, speech bubble, english text\nText: From $5 to $10?\n\nText: I owe you one!END-FIG</tags><egg_description>彩蛋 &amp; 茶</egg_description></draw></drawings>`}}]}});
             });
             await page.goto(base+'/?settings-smoke'+(tt?'&tt':''));
             await page.evaluate(tt=>{

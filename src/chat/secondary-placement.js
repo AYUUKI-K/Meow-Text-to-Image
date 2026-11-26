@@ -107,12 +107,19 @@ export function drawingResponse(text, capture, options) {
       errors.push('有一张图的 tag 不完整或包含额外标记。');
     } else {
       const quote = draw.getAttribute('quote');
+      const egg = draw.getAttribute('egg') === 'true';
+      if (egg && !options?.egg) continue;
       const drawing = {anchor, prompt, tag: capture.start + prompt + capture.end};
       if (quote) drawing.quote = quote;
       const title = cleanDrawingTitle(fields.get('title')?.textContent.trim() || prefix?.[1] || '');
       if (options?.title && title) drawing.title = title;
-      if (draw.getAttribute('egg') === 'true') {
-        if (!options?.egg) continue;
+      if (egg) {
+        const {tags, text} = splitImageText(prompt);
+        const dialogue = text.replace(/(?:\r?\n[ \t]*)+text:(?!:)[ \t]*/gi, '\n\n');
+        if (dialogue !== text) {
+          drawing.prompt = `${tags}\nText: ${dialogue}`;
+          drawing.tag = capture.start + drawing.prompt + capture.end;
+        }
         drawing.egg = true;
         const description = fields.get('egg_description')?.textContent.trim();
         if (options.eggDescription && description) drawing.eggDescription = escapeDecoration(description);

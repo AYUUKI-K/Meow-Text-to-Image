@@ -192,15 +192,16 @@ function sharedTemplate(text, options) {
 }
 
 function secondaryOutputRule(options, inline, capture, {specializationInPreset = false, roleText = '', roleSlot = false} = {}) {
-    const rule = [drawingOutputRule(options),'插图尽量分布在不同段落。',
+    const rule = [drawingOutputRule(options),
         '每张图使用一段逗号分隔的 NovelAI tag。公共场景词在前，每个角色的特征和动作各放进一组括号，最后接共享动作或氛围。保留有效权重。省略字段名、独立负面词、坐标和分号分栏。',
         '公共场景词依次写 sfw 或 nsfw、画面人数、质感、构图、地点、时间与光影。角色组分别写本段可见的状态、表情、视线和动作。多人互动可在对应的角色组内成对使用 source#、target#，相互动作使用 mutual#。',
-        `格式示例：${flatTagExample}`,fandomRule];
+        fandomRule];
+    if (!inline) rule.push('插图尽量分布在不同段落。', `格式示例：${flatTagExample}`);
     if (roleText) {
         const bindings = roleText.split('\n').map(line => line.replace(/^(.+?) = /, (_, name) => `$${name}$ = `));
         rule.push('当前存档的固定特征对照表。等号右侧是左侧调用记号已经代表的完整特征，只供辨认和避免重复。最终绘图 tag 只抄左侧记号。\n'+bindings.join('\n'));
         rule.push('逐张核对出镜人物。每位在绑定表中且确实出镜的角色都必须在自己的括号组里写一次 $角色名$，照抄对照表左侧的实际名字和两个 $。角色组按 (girlA:1.2, $角色名$, school uniform, smile, standing) 排列。权重放在人物标识上，记号保持原样。');
-        rule.push('绑定角色组在调用记号之后只补本段可见的服饰、表情和动作。发色、瞳色、发型、身材等固定特征由记号负责。即使正文、User 人设、Char 角色卡或世界书也写了这些外观，也不要在同一角色组里另写一次。');
+        rule.push('绑定角色组在调用记号之后只补本段可见的服饰、表情和动作。发色、瞳色、发型、身材等固定特征由记号负责。即使正文、User 人设、Char 角色卡或世界书也写了这些外观，也不要在同一角色组里另写一次。固定特征和动作写在一起时，只保留动作。例如瞳色与眯眼一起出现，就只写 squinting；发色与头发随风飘动一起出现，就只写 hair blowing in wind。');
         rule.push('未出镜角色省略。其他出镜角色由你根据正文和人物资料直接写英文外貌和动作 tag。提交前逐张检查，确保每个绑定角色的固定特征只以调用记号出现。');
         if(roleSlot)rule.push('自定义预设里的角色固定 tag 同样作为参考，输出时使用对照表左侧的调用记号。');
     } else rule.push('每个出镜角色都由你根据正文直接写英文外貌和动作 tag。');
@@ -208,11 +209,14 @@ function secondaryOutputRule(options, inline, capture, {specializationInPreset =
     if (options.nsfwRules) rule.push(options.nsfwRules);
     if (options.specialization&&!specializationInPreset) rule.push(options.specialization);
     if (inline) {
-        rule.push(`最终回复只包含一个 <drawings> XML。每张图用一个 <draw>。正文图用 after 指定真实的段尾编号，再用 quote 原样摘录同段短语。每个条目的 <tags> 仅包含一组 ${escapeXMLText(capture.start)}tag${escapeXMLText(capture.end)}；出镜绑定角色的调用记号属于这组 tag 的人物特征字段。省略 Markdown 围栏和说明文字。`);
-        rule.push('先从开头到结尾挑选不同剧情节点，再给每个节点写画面；有足够段落时覆盖至少一个前半段情节。每张图只能描绘其编号段落里的场景，按段号顺序输出；普通图不可共用段号或集中选最后几段。');
-        rule.push('普通图只能放在正文段落，避开 meowfm 彩蛋区。不要复述正文，也不要返回 meowfm 标记。');
-        if (options.title) rule.push(`每张正文图和彩蛋图都用 <title> 填一行标题正文。由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。例如 ✦·窗边晨光·(｡•ᴗ•｡)·✦。`);
-        if (options.egg) rule.push('正文已有彩蛋位置。仅一张彩蛋图使用 egg="true"，插件会将它放到原有彩蛋标记之后。');
+        rule.push(`只返回一个 <drawings> XML，每张图一个 <draw>。每个 <tags> 包含一组 ${escapeXMLText(capture.start)}tag${escapeXMLText(capture.end)}。省略 Markdown 围栏、解释、正文和 meowfm 标记。`);
+        if (options.count.max > 0) {
+            rule.push('先从有段尾编号的正文中选出本轮需要的不同剧情节点，再逐张写画面。有多个配图段落可选时，至少选一个前半段情节。每张图只描绘其所在段的场景，按段号顺序输出，避开彩蛋区。');
+            rule.push('正文图在 after 填段尾编号（例如 P02，不带方括号），在 quote 原样摘录同段连续的短语，优先选至少 4 个字且能区分该段的引文。每个段号最多用一次。');
+        } else rule.push('本轮没有可新增的正文图，省略正文图条目。');
+        if (options.title) rule.push(`每个 <draw>（包括彩蛋）都必须有且仅有一个 <title>，放在 <tags> 前，不可留空。只填一行标题正文，省略分隔线。由你根据这张图创作标题、装饰符号和颜文字。标题风格：${options.titleStyle}。例如 ✦·窗边晨光·(｡•ᴗ•｡)·✦。`);
+        else rule.push('省略 <title> 字段。');
+        if (options.egg) rule.push('最后用独立的 <draw egg="true"> 返回一张彩蛋图，省略 after 和 quote。插件会将它放到原有彩蛋标记之后。');
         else rule.push('本楼不输出彩蛋条目。');
         if (options.egg && options.eggDescription) rule.push('彩蛋的 <draw> 用 <egg_description> 返回解析，其他插图不加。');
         rule.push('XML 文本中的 & 和尖括号按 XML 规则转义。');

@@ -80,7 +80,7 @@ export function drawingOutputRule(options, {existingEggMarker = false} = {}) {
         egg ? `彩蛋开启，${existingEggMarker?'正文已有彩蛋标记时才':''}额外生成 1 张彩蛋图。` : '本轮不生成彩蛋图。',
         egg && '漫画彩蛋可用 4koma、comic strip、comic panel，按格序写清楚动作和反应。普通插图沿用原有绘图 tag 格式。',
         egg && (eggDialogue === 'none' ? '当前生图配置省略漫画彩蛋的画面文字。' :
-            `漫画彩蛋默认配一两句简短对白，纯视觉笑点可省略。加 text、speech bubble，英文再加 english text。${dialogue}在彩蛋绘图标签块末尾另起一行写 Text: 台词，台词后紧接结束标签；不同台词之间空一行。Text: 之后只写需要画出来的文字。`),
+            `漫画彩蛋默认配一两句简短对白，纯视觉笑点可省略。加 text、speech bubble，英文再加 english text。${dialogue}在彩蛋绘图标签块末尾另起一行写 Text: 台词。Text: 只写一次，多句台词用空行分隔。最后一句后紧接结束标签。`),
         title ? '小标题开启，为每张图写小标题。' : '小标题关闭，省略小标题。',
         egg && eggDescription ? '彩蛋解析开启，只为彩蛋附上一段解析。' : '彩蛋解析关闭，省略彩蛋解析。',
     ].filter(Boolean).join('\n');
