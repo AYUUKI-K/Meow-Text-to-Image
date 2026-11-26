@@ -79,7 +79,12 @@ export function drawingResponse(text, capture, options) {
   let doc = parser.parseFromString(xml, 'application/xml');
   if(doc.querySelector('parsererror')){
     const repaired=xml.replace(/<title\b[^<>]*>([\s\S]*?)(<\/title\s*>|(?=<(?:tags|egg_description)\b|<\/draw\s*>))|<\/title\s*>/gi,
-      (match,content,end)=>end&&!/[<>]/.test(content)?match:'');
+      (_, content, end) => {
+        if (!end) return '';
+        const title = content.replace(/<!\[CDATA\[[\s\S]*?\]\]>|[<>]/g,
+          part => part === '<' ? '&lt;' : part === '>' ? '&gt;' : part);
+        return `<title>${title}</title>`;
+      });
     doc=parser.parseFromString(repaired,'application/xml');
   }
   const root = doc.documentElement;

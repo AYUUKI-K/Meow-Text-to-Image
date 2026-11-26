@@ -1315,7 +1315,7 @@ async function runSecondaryTags(message,{manual=false}={}){
     const job={controller,message,swipe,current,manual};
     secondaryJob=job;
     renderAll();
-    const timeout=setTimeout(()=>controller.abort(Error('副 API 出词超时')),90000);
+    const timeout=setTimeout(()=>controller.abort(Error('副 API 出词超过 150 秒')),150000);
     const cancelled=new Promise((_,reject)=>controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true}));
     try{
         const roleTags=roleList(binding.text);

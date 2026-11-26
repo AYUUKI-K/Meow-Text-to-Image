@@ -601,6 +601,13 @@ test('manual secondary gestures extract the visible floor and only the image but
             assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(t=>t.type==='warning'&&t.message.includes('未知角色调用'))),true);
             assert.deepEqual([original,updated],['另一条分支',placed]);
             assert.equal(await page.evaluate(()=>window.miaoTestToasts.some(t=>t.type==='warning'&&t.message.includes('1 张图的副 API 返回缺少小标题'))),true);
+            const repairedTitle=await page.evaluate(async()=>{
+                const {drawingResponse}=await import('/scripts/extensions/third-party/test/src/chat/secondary-placement.js');
+                return drawingResponse('<drawings><draw after="P01"><title>✦·雨 & 灯·(>_<)·✦</title><tags>START-FIG umbrella END-FIG</tags></draw></drawings>',
+                    {start:'START-FIG',end:'END-FIG'},{title:true}).drawings[0];
+            });
+            assert.equal(repairedTitle.title,'✦·雨 & 灯·(>_<)·✦');
+            assert.equal(repairedTitle.prompt,'umbrella');
             const disabled=await page.evaluate(async()=>{
                 const {drawingResponse}=await import('/scripts/extensions/third-party/test/src/chat/secondary-placement.js');
                 return drawingResponse('<drawings><draw after="P01" egg="true"><title>标题</title><tags>START-FIG cat END-FIG</tags><egg_description>解析</egg_description></draw></drawings>',
