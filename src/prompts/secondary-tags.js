@@ -238,6 +238,7 @@ export function buildSecondaryMessages({maxTags, preset, output, roleText = '', 
     };
     if (preset.entries) {
         const messages = preset.entries.filter(entry => entry.enabled && entry.content.trim() &&
+            (!entry.when || output?.[entry.when] === true) &&
             (entry.content.includes(replySlot) ||
                 (entry.name !== '彩蛋' || output?.egg !== false) && (entry.name !== '绘画自检' || output?.selfCheck !== false)))
             .map(({role, content}) => ({role, content: render(content)}))

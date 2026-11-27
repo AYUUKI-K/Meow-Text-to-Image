@@ -2439,30 +2439,3 @@ dialog.miao-settings-window[open]:has(.miao-settings[data-section=overview]) {he
 @container miao-settings (max-width:480px) {
     .miao-settings-window .miao-header {gap:3px;padding-inline:6px;}
 }
-
-/* Fixed prompt tree: visibility state is separate from saved content. */
-.miao-prompt-module{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--mi-line);flex-wrap:wrap;min-width:0}
-.miao-prompt-module>strong{flex:1;min-width:100px;overflow-wrap:anywhere}
-.miao-prompt-module button{min-height:36px;min-width:36px}
-.miao-prompt-module>.miao-field{flex-basis:100%}
-.miao-tree-children{margin-left:18px;padding-left:12px;border-left:1px solid var(--mi-line)}
-.miao-tree-children[hidden]{display:none}
-.miao-tree-status{font-size:.8em;flex-basis:100%;order:5;padding-left:4px}
-.miao-tree-expand,.miao-tree-edit{padding:4px;flex:0 0 36px}
-.miao-prompt-switch{display:inline-flex;position:relative;flex:0 0 42px;min-height:36px;align-items:center;cursor:pointer}
-.miao-prompt-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
-.miao-prompt-switch-track{width:42px;height:24px;border-radius:24px;background:var(--mi-line);border:1px solid var(--mi-muted);box-sizing:border-box;pointer-events:none;transition:background .15s}
-.miao-prompt-switch-track::after{content:'';display:block;width:18px;height:18px;margin:2px;border-radius:50%;background:var(--mi-ink);transition:transform .15s}
-.miao-prompt-switch input:checked+.miao-prompt-switch-track{background:var(--mi-blue);border-color:var(--mi-blue)}
-.miao-prompt-switch input:checked+.miao-prompt-switch-track::after{transform:translateX(18px);background:var(--mi-bg)}
-.miao-prompt-switch input:focus-visible+.miao-prompt-switch-track{outline:2px solid var(--mi-blue);outline-offset:3px}
-.miao-prompt-switch input:disabled+.miao-prompt-switch-track{opacity:.55}
-.miao-prompt-editor{position:absolute;inset:0;z-index:20;background:var(--mi-bg,var(--SmartThemeBlurTintColor));color:var(--mi-ink,var(--SmartThemeBodyColor));height:min(100%,var(--miao-editor-height,100dvh));display:flex;padding:16px;box-sizing:border-box}
-.miao-prompt-editor-card{display:flex;flex-direction:column;gap:10px;width:100%;min-height:0;overflow:hidden}
-.miao-prompt-editor-card h3,.miao-prompt-editor-card p{margin:0;flex-shrink:0}
-.miao-prompt-editor-fields{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px}
-.miao-prompt-editor-field{display:flex;flex:1;flex-direction:column;gap:6px;min-height:130px}
-.miao-prompt-editor-field textarea{flex:1;min-height:100px;width:100%;box-sizing:border-box;resize:none;font-family:monospace;line-height:1.5;white-space:pre;overflow:auto;background:var(--mi-field);color:inherit}
-.miao-prompt-editor-card>.miao-actions{flex-shrink:0;background:var(--mi-bg,var(--SmartThemeBlurTintColor));padding:8px 0}
-@media(max-width:680px){.miao-prompt-editor{padding:10px}.miao-prompt-module{gap:6px}.miao-tree-children{margin-left:8px;padding-left:8px}.miao-prompt-editor-field textarea{font-size:16px}.miao-prompt-editor-card .miao-button{min-height:44px}}
-@media(prefers-reduced-motion:reduce){.miao-prompt-switch-track,.miao-prompt-switch-track::after{transition:none}}

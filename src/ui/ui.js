@@ -1,6 +1,4 @@
 import {createWorldOptionsView} from './world-options-view.js';
-import {createPromptModulesView} from './prompt-modules-view.js';
-import {hasLegacyCustomizations,migrateTreeSettings,promptWarnings} from '../prompts/tree-settings.js';
 import {reconcileProfileSelection} from '../profiles/profile-selection.js';
 import {createResourceMacrosView} from './resource-macros-view.js';
 import {validateQueueURL} from '../queue/cloud-queue.js';
@@ -23,8 +21,8 @@ import {activeSecondaryPreset,addSecondaryPreset,listedSecondaryMacros,readSecon
 const models=[['nai-diffusion-5-full','V5 Full'],['nai-diffusion-5-curated','V5 Curated'],['nai-diffusion-4-5-full','V4.5 Full'],['nai-diffusion-4-5-curated','V4.5 Curated'],['nai-diffusion-4-full','V4 Full'],['nai-diffusion-4-curated-preview','V4 Curated'],['nai-diffusion-3','V3 Anime'],['nai-diffusion-furry-3','V3 Furry']];
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const panelMemory=new WeakMap();
-export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,readWorldOptions,saveWorldOptions,readWorldMacroSettings,saveWorldMacroSettings,savePromptConfig,saveSecondarySettings,secondaryKeyAvailable,listSecondaryModels,saveDrawingRules,saveSecondaryPresets,exportSecondaryPreset,lastSecondaryRequest,readRoleBindings,saveRoleBindings,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
-    const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);memory.promptExpanded??=new Set();
+export function createSettingsPanel({settings,save,persistSettings,confirmDeleteProfiles,confirmCustomVibeOrigin,exportPromptFile,restorePromptPreview,refreshProfilePreview,getPreviewState,initialTab,initialFavorite,favorites,saveFavorite,removeFavorite,generateFavorite,sceneFromImage,collectImage,buildThumbnails,getResourceStatus,checkResources,theme,onTheme,onChange,onError,saveKey,saveCustomConnection,testImage,installDefaults,installWorld,installRegex,readWorldOptions,saveWorldOptions,readWorldMacroSettings,saveWorldMacroSettings,saveSecondarySettings,secondaryKeyAvailable,listSecondaryModels,saveDrawingRules,saveSecondaryPresets,exportSecondaryPreset,lastSecondaryRequest,readRoleBindings,saveRoleBindings,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,chooseFloatingIcon,checkUpdate,installUpdate,refreshPage,listVibes,importVibeFiles,exportVibeFiles,encodeVibe,deleteVibe,renameVibe,directKeyStatus,clearDirectKey,setRememberDirectKey,closeSettings}) {
+    const memory=panelMemory.get(settings)||{galleryTop:0};panelMemory.set(settings,memory);
     const root=node('section',undefined,'miao-settings');root.id='miao-nai-settings';
     const versionLabel=node('span','版本读取中…','miao-version');
     let activeTab=initialTab||'overview',fieldId=0,promptTab='positive',selectedVibeId=null,samplePromptDraft=memory.samplePromptDraft,sortingProfiles=false;
@@ -561,22 +559,19 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 for(const [control] of controls)control.disabled=true;
                 try{return await run();}finally{for(const [control,disabled] of controls)control.disabled=disabled;}
             };
-            const savePanelPrompt=next=>withPromptLock(()=>savePromptConfig(next));
-            let promptModules,savingRules;
+            let savingRules,worldMacrosView;
             const options=drawingOptions(settings.promptConfig),controls={};
             let switching=false;
-            const selectedSource=()=>secondaryEnabled(settings)?'secondary':settings.promptConfig.mode;
+            const selectedSource=()=>secondaryEnabled(settings)?'secondary':'external';
             const source=field(resources,'来源',selectedSource(),async value=>{
                 if(switching)return;switching=true;source.disabled=true;
                 try{
-                    await commitRules();
-                    if(!secondaryEnabled(settings))await commitPage();
-                    if(value==='secondary')await withPromptLock(()=>saveSecondarySettings('secondary'));
-                    else await withPromptLock(()=>savePromptConfig({...settings.promptConfig,mode:value},{useMainAPI:true}));
+                    if(secondaryEnabled(settings))await commitRules();else await commitPage();
+                    await withPromptLock(()=>saveSecondarySettings(value==='secondary'?'secondary':'main'));
                     render();
                 }
                 catch(error){source.value=selectedSource();onError(error);}finally{switching=false;source.disabled=false;}
-            },{options:[['builtin','主 API · 插件内置指令'],['external','主 API · 外部预设／世界书'],['secondary','副 API · 正文结束后出词']]});
+            },{options:[['external','主 API · 酒馆世界书／预设'],['secondary','副 API · 正文结束后出词']]});
             const rules=section(body,'出图规则');
             const count=field(rules,'正文图张数',options.count.text,()=>{});
             count.placeholder='例如 2 或 2~3';
@@ -585,7 +580,6 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                 const current=drawingOptions(settings.promptConfig);
                 count.value=current.count.text;orientation.value=current.orientation;
                 for(const [key,control] of Object.entries(controls))control.checked=current[key];
-                promptModules?.refresh();
             };
             const commitRules=()=>{
                 if(savingRules)return savingRules;
@@ -675,30 +669,13 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
                     await saveArchiveRoles();
                 };
             }else{
-                let macrosView;
-                const warnings=node('div');
-                const paintWarnings=()=>{warnings.replaceChildren();for(const text of promptWarnings(settings.promptConfig))warnings.append(node('p',text,'miao-notice'));};
-                if(settings.promptConfig.mode==='builtin'){
-                    resources.append(node('p','内置模式注入 D0；请检查配套世界书，避免重复指令。','miao-muted'));
-                    if(settings.promptConfig.migration?.modified?.length)resources.append(node('p','旧世界书正文修改不会自动继承至内置模板。','miao-notice'));
-                    if(settings.promptConfig.version===1){
-                        resources.append(node('p',(hasLegacyCustomizations(settings.promptConfig)?'检测到旧版自定义正文，已保留兼容组装与编辑。':'旧版配置尚未完成迁移，可重新保存为新树。')+'选择新树会使用定稿正文，并保留完整旧配置备份。','miao-notice'));
-                        action(resources,'使用新树结构（保留旧版备份）',async()=>{await commitPage();await savePanelPrompt(migrateTreeSettings(settings.promptConfig,{adoptTree:true}));render();});
-                    }else if(settings.promptConfig.legacyBackup?.config){
-                        action(resources,'恢复旧版配置备份',async()=>{await commitPage();if(!window.confirm('恢复迁移前配置？当前树形设置将被替换。'))return;await savePanelPrompt(structuredClone(settings.promptConfig.legacyBackup.config));render();});
-                    }
-                    const saveTree=async next=>{await savePanelPrompt(next);paintWarnings();};
-                    macrosView=createResourceMacrosView({read:()=>readResourceMacros({omitCount:true}),save:async(snapshot,values)=>{const result=await withPromptLock(()=>saveResourceMacros(snapshot,values));paintWarnings();return result;},onError});body.append(macrosView.element);
-                    promptModules=createPromptModulesView({settings,save:saveTree,onError,parent:()=>root.closest('dialog')||root,expanded:memory.promptExpanded});body.append(promptModules.element);
-                }
                 const capture=section(body,'捕捉标签');
 
                 const start=field(capture,'起始标签',settings.startTag,()=>{});start.placeholder='image###';
                 const end=field(capture,'结束标签',settings.endTag,()=>{});end.placeholder='###';
                 const sample=node('pre',undefined,'miao-capture-sample');
-                const updateSample=()=>{sample.textContent=start.value+'\nprompt\n'+end.value;if(settings.promptConfig.mode==='builtin')paintWarnings();};start.addEventListener('input',updateSample);end.addEventListener('input',updateSample);updateSample();capture.append(sample);
-                if(settings.promptConfig.mode==='builtin')capture.append(warnings);
-                commitPage=async()=>{await commitRules();await macrosView?.commit();if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);};
+                const updateSample=()=>{sample.textContent=start.value+'\nprompt\n'+end.value;};start.addEventListener('input',updateSample);end.addEventListener('input',updateSample);updateSample();capture.append(sample);
+                commitPage=async()=>{await commitRules();await worldMacrosView?.commit();if(start.value!==settings.startTag||end.value!==settings.endTag)await saveCapture(start.value,end.value);};
             }
 
 
@@ -721,7 +698,8 @@ export function createSettingsPanel({settings,save,persistSettings,confirmDelete
             upload('导入世界书',installWorld);
             upload('导入正则',async file=>installRegex(JSON.parse(await file.text())));
             if(selectedSource()==='external'){
-                body.append(createResourceMacrosView({read:readWorldMacroSettings,save:saveWorldMacroSettings,onError,worldbook:true}).element);
+                worldMacrosView=createResourceMacrosView({read:readWorldMacroSettings,save:saveWorldMacroSettings,onError});
+                body.append(worldMacrosView.element);
                 body.append(createWorldOptionsView({read:readWorldOptions,save:saveWorldOptions,onError}).element);
             }
         }

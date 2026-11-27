@@ -2,12 +2,10 @@ import {worldOptions,patchWorldOptions} from './src/resources/world-options.js';
 import {planHistoryCleanup,isProtectedHistoryImage} from './src/images/image-cleanup.js';
 import {createErrorView} from './src/ui/error-view.js';
 import {summarizeError} from './src/platform/error-summary.js';
-import {defaultPromptSettings,fixedMacroSnapshot,updateFixedMacros,migratePromptSettings} from './src/prompts/prompt-settings.js';
-import {migrateTreeSettings} from './src/prompts/tree-settings.js';
-import {createPromptInjection} from './src/platform/prompt-injection.js';
+import {defaultPromptSettings,migrateExternalPromptSettings,migratePromptSettings} from './src/prompts/prompt-settings.js';
 import {worldMacros,patchWorldMacros} from './src/resources/world-macros.js';
 import {selectGenerationProfile,reconcileProfileSelection,eggDialogueLanguage} from './src/profiles/profile-selection.js';
-import {parseGenerationBody,generationCandidates,createEggMarkerCache} from './src/profiles/easter-egg-selection.js';
+import {parseGenerationBody,selectEggBlock,generationCandidates,createEggMarkerCache} from './src/profiles/easter-egg-selection.js';
 import {prepareGeneration,sendPrepared} from './src/generation/generation-lifecycle.js';
 import {generationTimeoutSeconds} from './src/generation/generation-timeout.js';
 import {fingerprintKey,runWithQueue,validateQueueURL} from './src/queue/cloud-queue.js';
@@ -113,9 +111,7 @@ let secondarySession=null,secondaryJob=null;
 let secondaryRequestPreview=null;
 const secondaryWorldInfo=new WeakMap();
 const knownSecondaryFloors=new WeakSet();
-const promptInjection=createPromptInjection({context:ctx,settings,onError:()=>notices.error('D0 提示词注入失败，请检查宿主兼容性','提示词')});
-const refreshPrompt=()=>{try{promptInjection.update();}catch{}};
-const save=()=>{if(settings.promptConfig)refreshPrompt();return ctx().saveSettingsDebounced();};
+const save=()=>ctx().saveSettingsDebounced();
 if(generationOptionsMigrated||connectionMigrated||generationModeMigrated)ctx().saveSettingsDebounced();
 const enqueue=run=>{const job=queue.then(run);queue=job.catch(()=>{});return job;};
 const persistSettings=()=>persistHostSettings({saveNow:async()=>{const host=await import('../../../../script.js');return host.saveSettings();},source:ctx().eventSource,event:ctx().eventTypes.SETTINGS_UPDATED});
@@ -132,11 +128,11 @@ async function saveGeneratedImage(data,folder,name){
 const resourceUpdater=createResourceUpdater({settings,localBase:base,save,onChange:()=>{eggMarkerCache.invalidate();settingsHost?.dispatchEvent(new Event('miao-resources-changed'));},onAvailable:({latest})=>notices.info(`${latest.worldName} 可更新，点此查看`,'喵喵文生图',{escapeHtml:true,timeOut:10000,onclick:()=>openSettings('resources')})});
 ensureProfileIds(settings.profiles);
 for(const warning of reconcileProfileSelection(settings))notices.warning(warning,'配置选择');
-const usesWorldMarker=()=>!secondaryEnabled(settings)&&settings.promptConfig?.mode==='external';
+const configuredEggMarker=()=>settings.promptConfig?.version===2?settings.promptConfig.params?.eggMarker:settings.promptConfig?.fixed?.彩蛋标签;
 const eggMarkerCache=createEggMarkerCache({
-    read:()=>usesWorldMarker()?readWorldMacroSettings():readResourceMacros(),
-    key:()=>usesWorldMarker()?JSON.stringify([settings.world,wi.world_names]):
-        settings.promptConfig?.version===2?settings.promptConfig.params.eggMarker:settings.promptConfig?.fixed?.彩蛋标签,
+    read:async()=>secondaryEnabled(settings)?configuredEggMarker()||'':(await readWorldMacroSettings()).macros
+        .findLast(m=>m.scope==='setvar'&&m.name==='彩蛋标签')?.value||'',
+    key:()=>secondaryEnabled(settings)?JSON.stringify(['secondary',configuredEggMarker()]):JSON.stringify(['world',settings.world,wi.world_names]),
 });
 const profilePreviews=createProfilePreviews({profiles:()=>settings.profiles,library:()=>settings.vibeLibrary,prompt:()=>settings.samplePrompt,onQueued:()=>notices.info('例图已加入生图队列','喵喵文生图'),enqueue,generate:requestImage,saveImage:(data,scope)=>saveGeneratedImage(data,scope.folder,`sample-${Date.now()}-${randomId()}`),persist:persistSettings,onChange:()=>settingsHost?.dispatchEvent(new Event('miao-profile-previews')),onError:error=>generationError(error)});
 const directUser=getCurrentUserHandle(),directVault=createKeyVault(directUser);
@@ -290,7 +286,6 @@ async function saveRoleBindings(snapshot,text){
 }
 const promptIdentity=prompt=>String(prompt).replace(/\s+/g,' ').trim();
 const matchingBlocks=(available,target)=>available.filter(block=>!!block.secondary===!!target.secondary&&promptIdentity(block.prompt)===promptIdentity(target.prompt));
-const usesExplicitEggMarker=()=>secondaryEnabled(settings)||settings.promptConfig?.mode==='builtin';
 function liveMessage(message,fallback){
     if(ctx().chat.includes(message))return message;
     // A known message ID must not fall back to a new message at the old index.
@@ -314,21 +309,25 @@ function taskTarget(task,inactive=false){
 function taskFor(message,block){
     return [...running.values()].find(task=>{const target=taskTarget(task);return target?.message===message&&target.block.start===block.start;});
 }
-function generate(message,block,{automatic=false,egg}={}) {
+function generate(message,block,{automatic=false,egg,requiresFinalEggTag=false}={}) {
     const chat=currentChat(),swipe=message.swipe_id??0;
     const start=()=>{
         const live=liveMessage(message);
         if(chat!==currentChat()||!live||(live.swipe_id??0)!==swipe)throw Error('聊天或分支已切换，请重新生成');
         const current=blocks(live).find(b=>b.start===block.start&&b.raw===block.raw);
         if(!current)throw Error('原 tag 已删除或修改，请重新生成');
-        return startGeneration(live,current,{automatic,egg:egg===true});
+        return startGeneration(live,current,{automatic,egg:egg===true,requiresFinalEggTag});
     };
-    if(block.secondary&&egg===undefined)egg=settings.eggProfileEnabled&&(block.egg??(blocks(message).filter(b=>b.secondary).at(-1)?.start===block.start));
+    if(block.secondary&&egg===undefined){
+        requiresFinalEggTag=block.egg==null;
+        egg=settings.eggProfileEnabled&&(block.egg??(blocks(message).filter(b=>b.secondary).at(-1)?.start===block.start));
+    }
     if(egg!==undefined||!settings.eggProfileEnabled){try{return start();}catch(error){generationError(error);return;}}
     return eggMarkerCache.read().then(marker=>{
-        const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
-        const explicit=usesExplicitEggMarker();
-        egg=(explicit?parsed.marked:parsed.blocks.at(-1))?.start===block.start;return start();
+        const parsed=parseGenerationBody(liveMessage(message)?.mes??'',settings.pattern,reasoningFormat(),marker);
+        const selection=selectEggBlock(parsed,{implicitEgg:!secondaryEnabled(settings)&&drawingOptions(settings.promptConfig).egg});
+        egg=selection.block?.start===block.start;requiresFinalEggTag=egg&&selection.implicit;
+        return start();
     }).catch(generationError);
 }
 function tagEditor(message,block){
@@ -368,12 +367,12 @@ function tagEditor(message,block){
         if(settings.mode!=='manual'||imageVersions(record).some(version=>version.url&&!version.deleted))generate(live,next.block);
     };
 }
-function startGeneration(message,block,{automatic=false,egg=false}={}) {
+function startGeneration(message,block,{automatic=false,egg=false,requiresFinalEggTag=false}={}) {
     message=liveMessage(message);if(!message)throw Error('原楼层已切换，请重新点击当前图片');
     const key=identity(message,block), chat=currentChat(), taskId=generationIdentity(message,block,chat);
     const existing=running.get(taskId)||taskFor(message,block);if(existing)return existing.promise;
     const {profile,profileId,profileName,source:profileSource}=selectGenerationProfile(settings,{egg});
-    const requiresFinalEggTag=profileSource==='egg'&&(block.secondary||!usesExplicitEggMarker());
+    requiresFinalEggTag=profileSource==='egg'&&requiresFinalEggTag;
     const request=buildRequest(profile,expandRoleTags(block.prompt,roleList(roleBindingSnapshot().text)));
     request.vibes=selectVibes(profile,settings.vibeLibrary);
     const storage={root:validateFolder(settings.folder),context:archiveContext(ctx())};
@@ -633,17 +632,13 @@ function observeChat(){
     observedChat=root;chatObserver.observe(observedChat,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['src','mesid']});
 }
 let promptConfigSaving=false;
-async function savePromptConfig(next,{useMainAPI=false}={}){
+async function savePromptConfig(next){
     if(promptConfigSaving)throw Error('提示词配置正在保存，请稍后重试');
     promptConfigSaving=true;
-    const previous=settings.promptConfig,previousSource=settings.tagSource;
+    const previous=settings.promptConfig;
     settings.promptConfig=next;
-    if(useMainAPI)settings.tagSource='main';
-    try{
-        promptInjection.update();await persistSettings();eggMarkerCache.invalidate();
-        if(useMainAPI){secondarySession=null;secondaryJob?.controller.abort();refreshFloating();renderAll();}
-    }
-    catch(error){if(settings.promptConfig===next){settings.promptConfig=previous;settings.tagSource=previousSource;refreshPrompt();}throw error;}
+    try{await persistSettings();eggMarkerCache.invalidate();}
+    catch(error){if(settings.promptConfig===next)settings.promptConfig=previous;throw error;}
     finally{promptConfigSaving=false;}
 }
 let savingSecondarySettings=false;
@@ -669,13 +664,12 @@ async function saveSecondarySettings(source,values,library){
         }
         if(library)settings.secondaryTagPresets=library;
         settings.tagSource=source;
-        promptInjection.update();
         await persistSettings();
         autoSession=null;secondarySession=null;secondaryJob?.controller.abort();
         if(previous!==source)refreshFloating();
         renderAll();
     }catch(error){
-        settings.tagSource=previous;settings.secondaryTagAPI=previousConnection;settings.secondaryTagPresets=previousLibrary;refreshPrompt();
+        settings.tagSource=previous;settings.secondaryTagAPI=previousConnection;settings.secondaryTagPresets=previousLibrary;
         await restoreKey?.().catch(()=>{});
         throw error;
     }finally{savingSecondarySettings=false;}
@@ -706,15 +700,6 @@ async function writeWorldBook(world,book){
     if(!wi.world_names.includes(world))throw Error('世界书列表刷新失败');
     if(ctx().eventTypes.WORLDINFO_UPDATED)await ctx().eventSource.emit(ctx().eventTypes.WORLDINFO_UPDATED,world,book);
     eggMarkerCache.invalidate();
-}
-async function readResourceMacros({omitCount=false}={}){
-    const snapshot=fixedMacroSnapshot(settings.promptConfig);
-    if(omitCount)snapshot.macros=snapshot.macros.filter(macro=>macro.name!=='张数');
-    return snapshot;
-}
-async function saveResourceMacros(snapshot,values){
-    const next=updateFixedMacros(settings.promptConfig,snapshot,values);
-    await savePromptConfig(next);return readResourceMacros({omitCount:!snapshot.macros.some(macro=>macro.name==='张数')});
 }
 async function readWorldMacroSettings(){
     const {world,book}=await readWorldBook();
@@ -807,7 +792,7 @@ async function testImage() {
     }catch(error){generationError(error);}
 }
 function saveCapture(start,end) {
-    const pattern=delimiterPattern(start,end);settings.startTag=start;settings.endTag=end;settings.pattern=pattern;save();promptInjection.update();renderAll();notices.success('捕捉标签已保存');
+    const pattern=delimiterPattern(start,end);settings.startTag=start;settings.endTag=end;settings.pattern=pattern;save();renderAll();notices.success('捕捉标签已保存');
 }
 async function downloadImage(url,name) {
     if(!name){try{name=decodeURIComponent(new URL(url,location.href).pathname.split('/').at(-1))||'miao-image.png';}catch{name='miao-image.png';}}
@@ -1154,7 +1139,7 @@ async function openSettings(initialTab,initialFavorite,initialPage) {
         },
         saveKey:async(input,{notify=true}={})=>{await saveCurrentKey({input,vault:directVault,settings,writeServerKey:key=>writeSecret(SECRET_KEYS.NOVEL,key),fingerprint:fingerprintKey,save});if(notify)notices.success(settings.rememberDirectKey?'NAI Key 已保存到酒馆和当前设备，刷新后可继续使用':'NAI Key 已保存，直连 Key 仅在当前页面暂存');},
         saveCustomConnection:async(values,{notify=true}={})=>{if(getCurrentUserHandle()!==directUser)throw Error('酒馆用户已切换，请刷新页面后重试');await saveCustomConnection({settings,vault:customVault,...values,fingerprint:fingerprintKey,save});if(notify)notices.success('自定义连接已保存');},
-        savePromptConfig,saveSecondarySettings,listSecondaryModels,saveDrawingRules,readWorldOptions,saveWorldOptions,readWorldMacroSettings,saveWorldMacroSettings,readRoleBindings:roleBindingSnapshot,saveRoleBindings,testImage,installDefaults,installWorld,installRegex,readResourceMacros,saveResourceMacros,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,
+        saveSecondarySettings,listSecondaryModels,saveDrawingRules,readWorldOptions,saveWorldOptions,readWorldMacroSettings,saveWorldMacroSettings,readRoleBindings:roleBindingSnapshot,saveRoleBindings,testImage,installDefaults,installWorld,installRegex,listImages,deleteImages,cleanOldImages,changeFolder,saveCapture,queueStatus,openImage,downloadImages,bindImage,
         secondaryKeyAvailable:()=>settings.secondaryTagAPI?.url?secondaryVault(settings.secondaryTagAPI.url).get().then(Boolean):false,
         saveSecondaryPresets:library=>saveSecondarySettings('secondary',undefined,library),
         exportSecondaryPreset:preset=>{const {blob,name}=secondaryPresetFile(preset);return prepareFileDownload(blob,name);},
@@ -1230,18 +1215,17 @@ async function autoLatest() {
     const message=latestImageMessage(ctx().chat),swipe=message?.swipe_id??0;
     if(!message||!canAutoGenerate(ctx().chat,message,settings.mode,generationChat===currentChat()))return;
     const output=drawingOptions(settings.promptConfig);
-    const marker=output.egg?await session.marker:'';
+    const marker=await session.marker;
     if(autoSession!==session||session.chat!==currentChat()||latestImageMessage(ctx().chat)!==message||(message.swipe_id??0)!==swipe)return;
     // Re-read live text after waiting for macros; never enqueue stale candidates.
     const parsed=parseGenerationBody(message.mes,settings.pattern,reasoningFormat(),marker);
     const streaming=generationChat===currentChat();
-    const eggEnabled=output.egg&&(!streaming||settings.eggProfileEnabled||!!parsed.marked);
+    const eggEnabled=!!parsed.marked||output.egg&&(!streaming||settings.eggProfileEnabled);
     let ordinaryCount=0;
-    for(const {block,egg} of generationCandidates(parsed,{streaming,eggEnabled,
-        implicitEgg:settings.promptConfig?.mode!=='builtin'&&settings.eggProfileEnabled})) {
+    for(const {block,egg,requiresFinalEggTag} of generationCandidates(parsed,{streaming,eggEnabled,implicitEgg:output.egg&&settings.eggProfileEnabled})) {
         if(!egg&&ordinaryCount++>=output.count.max)continue;
         const id=generationIdentity(message,block);
-        if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!session.attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&egg});
+        if(!session.existing.has(`${ctx().chat.indexOf(message)}:${identity(message,block)}`)&&!session.attempted.has(id)&&!state(message,identity(message,block)))generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&egg,requiresFinalEggTag});
     }
 }
 async function secondaryPromptText(host,message,preset){
@@ -1537,7 +1521,7 @@ async function init() {
     const c=ctx();
     for(const message of c.chat)knownSecondaryFloors.add(message);
     if(c.eventTypes.WORLDINFO_ENTRIES_LOADED)c.eventSource.on(c.eventTypes.WORLDINFO_ENTRIES_LOADED,groups=>{
-        if(!settings.enabled||(!secondaryEnabled(settings)&&settings.promptConfig?.mode!=='builtin')||!groups)return;
+        if(!settings.enabled||!secondaryEnabled(settings)||!groups)return;
         const lists=[groups.globalLore,groups.characterLore,groups.chatLore,groups.personaLore];
         const filtered=filterDrawingWorldEntries(lists,settings.world);
         // The host keeps the original arrays after emitting the event.
@@ -1565,19 +1549,19 @@ async function init() {
             if(name&&!book)throw Error('无法读取旧世界书');
             settings.promptConfig=book&&!newInstallation?migratePromptSettings(book):defaultPromptSettings();
         }catch{
-            settings.promptConfig=defaultPromptSettings('external');settings.promptConfig.migration={status:'failed'};
-            notices.warning('旧提示词迁移失败，已保留外部模式；请检查固定配置后再切换。','提示词');
+            settings.promptConfig=defaultPromptSettings();settings.promptConfig.migration={status:'failed'};
+            notices.warning('无法读取旧世界书的出图规则，请在资源页检查设置。','提示词');
         }
-        try{await persistSettings();}catch{settings.promptConfig.mode='external';notices.warning('提示词迁移保存失败，已保留外部模式，请重新保存设置。','提示词');}
+        try{await persistSettings();}catch{notices.warning('提示词配置未能保存，请在资源页重新保存。','提示词');}
     }else{
         try{
-            const previous=settings.promptConfig,next=migrateTreeSettings(previous);
+            const previous=settings.promptConfig,next=migrateExternalPromptSettings(previous);
             if(next!==previous){
-                // Keep a repaired v2 config usable when the host fails to save it.
-                if(previous.version===2)settings.promptConfig=next;
-                await savePromptConfig(next);
+                // Keep the migrated settings usable even if the host cannot persist them yet.
+                settings.promptConfig=next;
+                await persistSettings();
             }
-        }catch{notices.warning('提示词结构迁移或保存失败，已保留原配置，可重试保存。','提示词');}
+        }catch{notices.warning('提示词迁移或保存失败，可在资源页重试保存。','提示词');}
     }
     mountMenu();refreshFloating();save();
     const previousLimit=settings.secondaryTagAPI?.maxTags;
@@ -1592,8 +1576,6 @@ async function init() {
             }else await persistSettings();
         }catch{settings.secondaryTagAPI=previousConnection;}
     }
-    refreshPrompt();
-    for(const name of ['CHAT_LOADED','CHAT_CHANGED','GENERATION_AFTER_COMMANDS'])if(c.eventTypes[name])c.eventSource.on(c.eventTypes[name],refreshPrompt);
     if(c.eventTypes.WORLD_INFO_ACTIVATED)c.eventSource.on(c.eventTypes.WORLD_INFO_ACTIVATED,entries=>{
         if(secondarySession?.chat!==currentChat()||!Array.isArray(entries))return;
         const [lore]=filterDrawingWorldEntries([entries],settings.world);
@@ -1644,7 +1626,8 @@ async function init() {
             secondarySession={chat:currentChat(),type,message,text:message?.mes,swipe:message?.swipe_id??0,signal:options?.signal};
         }
         streamActive=false;generationChat=currentChat();
-        autoSession={chat:currentChat(),enabled:settings.enabled&&settings.mode!=='manual',attempted:new Set(),marker:drawingOptions(settings.promptConfig).egg?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
+        const mainAuto=settings.enabled&&settings.mode!=='manual'&&!secondaryEnabled(settings);
+        autoSession={chat:currentChat(),enabled:mainAuto,attempted:new Set(),marker:mainAuto?eggMarkerCache.read():Promise.resolve(''),existing:new Set(ctx().chat.flatMap((m,i)=>blocks(m).map(b=>`${i}:${identity(m,b)}`)))};
     });
     c.eventSource.on(c.eventTypes.GENERATION_ENDED,()=>{
         const same=generationChat===currentChat();streamActive=false;generationChat=null;

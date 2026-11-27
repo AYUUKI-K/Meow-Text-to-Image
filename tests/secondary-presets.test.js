@@ -40,7 +40,7 @@ test('full Tavern presets retain ordered enabled messages, prefill and inactive 
     const library=addSecondaryPreset(readSecondaryLibrary({}),original);
     const active=activeSecondaryPreset(library);
     assert.equal(active.id,'import-0');
-    assert.equal(secondaryPresets(library)[0].name,'电子幽灵1.9');
+    assert.equal(secondaryPresets(library)[0].name,'电子幽灵1.10');
     assert.deepEqual(active.entries.map(({name,enabled})=>[name,enabled]),[['场景',true],['正文',true],['示范',true],['未启用标记',false]]);
     assert.deepEqual(buildSecondaryMessages({preset:active},'场景正文'),[
         {role:'system',content:'  包含正文之外的完整设置  '},
@@ -50,7 +50,7 @@ test('full Tavern presets retain ordered enabled messages, prefill and inactive 
     assert.deepEqual(readSecondaryPreset(await secondaryPresetFile(active).blob.text()), original);
     const upgraded=readSecondaryLibrary({secondaryTagPresets:{activeId:'electronic-ghost',imports:[],electronicGhost:original}});
     assert.deepEqual(activeSecondaryPreset(upgraded),active);
-    assert.equal(activeSecondaryPreset({...upgraded,activeId:'electronic-ghost'}).name,'电子幽灵1.9');
+    assert.equal(activeSecondaryPreset({...upgraded,activeId:'electronic-ghost'}).name,'电子幽灵1.10');
 });
 
 test('the old placement import stays available while the current built-in preset becomes active', ()=>{
@@ -60,7 +60,7 @@ test('the old placement import stays available while the current built-in preset
         {secondaryTagPresets:{activeId:'electronic-ghost',imports:[],electronicGhost:old}},
     ]){
         const library=readSecondaryLibrary(settings);
-        assert.equal(activeSecondaryPreset(library).name,'电子幽灵1.9');
+        assert.equal(activeSecondaryPreset(library).name,'电子幽灵1.10');
         const selected=readSecondaryLibrary({secondaryTagPresets:{...library,activeId:'import-0'}});
         assert.match(activeSecondaryPreset(selected).name,/旧版副本/);
         assert.deepEqual(activeSecondaryPreset(selected).entries,old.entries);
@@ -128,6 +128,11 @@ test('Electronic Ghost is available by default and assembles a complete non-stre
         fetchImpl:async(_url,{body})=>{
             const payload=JSON.parse(body),messages=payload.messages.map(item=>item.content).join('\n');
             assert.equal(payload.stream,false);
+            const [brief,confirmation]=payload.messages.slice(-3,-1);
+            assert.equal(brief.role,'user');
+            assert.match(brief.content,/虚构剧情的配图委托/);
+            assert.deepEqual(confirmation,{role:'assistant',content:'尤瑞：了解了解，小菜一碟，等待大作吧！'});
+            assert.ok(payload.messages.slice(0,-3).every(message=>message.role==='system'));
             const story = payload.messages.at(-1);
             assert.equal(story.role,'user');
             assert.ok(story.content.includes(bodyText));
@@ -142,6 +147,24 @@ test('Electronic Ghost is available by default and assembles a complete non-stre
             return new Response(null,{status:503});
         },
     }),/HTTP 503/);
+});
+
+test('exported Electronic Ghost keeps the tag library and only sends adult categories when opted in',async()=>{
+    const shipped=activeSecondaryPreset(readSecondaryLibrary({}));
+    const saved=readSecondaryPreset(await secondaryPresetFile(shipped).blob.text());
+    assert.deepEqual(saved.entries,shipped.entries);
+    const library=saved.entries.filter(entry=>entry.name.startsWith('tag 素材库'));
+    assert.equal(library.length,2);
+    assert.equal(library.flatMap(entry=>entry.content.match(/^【.+】$/gm)??[]).length,58);
+    const rules={...drawingOptions(defaultPromptSettings()),egg:false,selfCheck:false};
+    const text=nsfw=>buildSecondaryMessages({preset:saved,output:{...rules,nsfw}},'正文。\n[P01]').map(message=>message.content).join('\n');
+    assert.match(text(false),/【室内】[\s\S]*【构图】[\s\S]*【表情】/);
+    assert.doesNotMatch(text(false),/【情色其他】|【玩具-其他】/);
+    assert.match(text(true),/仅用于明确成年的角色[\s\S]*【情色其他】[\s\S]*【玩具-其他】/);
+    assert.doesNotMatch(text(true),/\{\{miao_image|\{\{正文\}\}/);
+    const bad=structuredClone(saved);
+    bad.entries.at(-1).when='nsfw';
+    assert.throws(()=>secondaryPresetFile(bad),/须包含且仅包含一个/);
 });
 
 test('group replies use the author card and profile slots honor the preset selection',()=>{

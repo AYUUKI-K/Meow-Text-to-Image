@@ -19,20 +19,30 @@ export function parseGenerationBody(text,pattern,format={},marker=''){
     for(const {raw,start} of blocks){
         if(raw.includes('<'))xmlSource=xmlSource.slice(0,start)+raw.replace(/[^\r\n]/g,' ')+xmlSource.slice(start+raw.length);
     }
-    const position=positions[0],xml=eggBoundary(xmlSource);
-    const end=xml?.end??(positions.length===1?position+marker.length:undefined);
-    const next=end===undefined?null:blocks.find(block=>block.start>=end);
-    const marked=next&&!visible.slice(end,next.start).replace(/^\s*┈┈[^\r\n]+┈┈\s*$/,'').trim()?next:null;
-    return {blocks,marked};
+    const xml=eggBoundary(xmlSource);
+    const adjacent=end=>{
+        if(end===undefined)return null;
+        const next=blocks.find(block=>block.start>=end);
+        return next&&!visible.slice(end,next.start).replace(/^\s*┈┈[^\r\n]+┈┈\s*$/,'').trim()?next:null;
+    };
+    const marked=adjacent(positions.length===1?positions[0]+marker.length:undefined)??adjacent(xml?.end);
+    return {blocks,marked,hasMarker:!!xml||positions.length>0};
 }
 export function generationCandidates(parsed,{streaming=false,eggEnabled=false,implicitEgg=true}={}){
     const last=parsed.blocks.at(-1);
-    const bonus=implicitEgg?last:parsed.marked;
+    const {block:bonus,implicit}=selectEggBlock(parsed,{implicitEgg});
     const pending=bonus??last;
     return parsed.blocks.flatMap(block=>{
         if(eggEnabled&&streaming&&block===pending)return [];
-        return [{block,egg:eggEnabled&&block===bonus}];
+        const egg=eggEnabled&&block===bonus;
+        return [{block,egg,requiresFinalEggTag:egg&&implicit}];
     });
+}
+
+export function selectEggBlock(parsed,{implicitEgg=false}={}){
+    if(parsed.marked)return {block:parsed.marked,implicit:false};
+    const block=implicitEgg&&!parsed.hasMarker?parsed.blocks.at(-1):undefined;
+    return {block,implicit:!!block};
 }
 
 // Cache only resource metadata, never message content. Each auto session keeps
@@ -44,7 +54,7 @@ export function createEggMarkerCache({read,key}){
         read(){
             const current=key();
             if(!cached||cached.key!==current||cached.revision!==revision){
-                cached={key:current,revision,promise:Promise.resolve().then(read).then(snapshot=>snapshot.macros.findLast(m=>['setvar','parameter'].includes(m.scope)&&m.name==='彩蛋标签')?.value.trim()||'').catch(()=>'')};
+                cached={key:current,revision,promise:Promise.resolve().then(read).then(marker=>String(marker??'').trim()).catch(()=>'')};
             }
             return cached.promise;
         },

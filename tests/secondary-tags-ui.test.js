@@ -138,11 +138,11 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             }
             await nav.getByRole('button',{name:'资源',exact:true}).click();
             await page.getByRole('combobox',{name:'来源',exact:true}).selectOption('secondary');
-            await page.waitForFunction(()=>window.preview.injections?.miao_nai_image_instruction?.text==='');
+            await page.waitForFunction(()=>window.preview.settings.tagSource==='secondary');
             const presetPicker=page.getByRole('combobox',{name:'当前副 API 预设',exact:true});
             assert.equal(await presetPicker.inputValue(),'electronic-ghost');
             assert.equal(await presetPicker.locator('option').count(),1);
-            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵1.9（默认）');
+            assert.equal(await presetPicker.locator('option').first().textContent(),'电子幽灵1.10（默认）');
             const exportButton=page.getByRole('button',{name:'导出当前预设',exact:true});
             assert.equal(await exportButton.isEnabled(),true);
             const messages=page.locator('.miao-secondary-preset-messages');
@@ -275,7 +275,7 @@ test('the secondary tag API sees only completed reply text and saves tags to the
             await page.waitForTimeout(180);
             assert.equal(requests.length,0);
             assert.equal(await page.evaluate(()=>window.preview.calls.length),0);
-            assert.deepEqual(await page.evaluate(()=>window.preview.worldEntryCounts),[[1,2,1,1],[0,0,1,0],[0,0,1,0]]);
+            assert.deepEqual(await page.evaluate(()=>window.preview.worldEntryCounts),[[1,2,1,1],[1,2,1,1],[0,0,1,0]]);
             await page.evaluate(()=>window.preview.emit('GENERATION_ENDED',4));
             await page.waitForTimeout(100);
             assert.equal(requests.length,0,'an early ENDED event must not send a streaming draft');

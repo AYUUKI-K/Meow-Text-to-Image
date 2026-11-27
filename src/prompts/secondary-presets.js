@@ -16,16 +16,18 @@ function normalizePreset(preset) {
     if (Array.isArray(preset?.entries)) {
         if (!name || !preset.entries.length || preset.entries.length > 1000) throw Error('副 API 预设条目无效');
         const entries = preset.entries.map(entry => {
-            const {name, role, content, enabled} = entry ?? {};
+            const {name, role, content, enabled, when} = entry ?? {};
             if (typeof name !== 'string' || typeof content !== 'string' ||
                 !['system', 'user', 'assistant', null].includes(role) ||
+                (when !== undefined && when !== 'nsfw') ||
                 typeof enabled !== 'boolean' || enabled && content.trim() && !role) {
                 throw Error('副 API 预设含无效条目');
             }
-            return {name, role, content, enabled};
+            return {name, role, content, enabled, ...(when ? {when} : {})};
         });
         const sent = entries.filter(entry => entry.enabled && entry.content.trim());
-        if (sent.reduce((count, entry) => count + entry.content.split(replySlot).length - 1, 0) !== 1) {
+        if (sent.reduce((count, entry) => count + entry.content.split(replySlot).length - 1, 0) !== 1 ||
+            sent.some(entry => entry.when && entry.content.includes(replySlot))) {
             throw Error('启用的预设条目须包含且仅包含一个 {{正文}}');
         }
         return {name, entries};

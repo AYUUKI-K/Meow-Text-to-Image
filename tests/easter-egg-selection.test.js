@@ -18,7 +18,13 @@ test('an adjacent XML bonus remains the bonus when another body tag follows',()=
     const candidates=options=>generationCandidates(parsed,{eggEnabled:true,...options}).map(({block,egg})=>[block.prompt,egg]);
     assert.deepEqual(candidates({implicitEgg:false}),[['ordinary',false],['bonus',true],['tail',false]]);
     assert.deepEqual(candidates({implicitEgg:false,streaming:true}),[['ordinary',false],['tail',false]]);
-    assert.deepEqual(candidates({implicitEgg:true}),[['ordinary',false],['bonus',false],['tail',true]]);
+    assert.deepEqual(candidates({implicitEgg:true}),[['ordinary',false],['bonus',true],['tail',false]]);
+    assert.deepEqual(candidates({implicitEgg:true,streaming:true}),[['ordinary',false],['tail',false]]);
+    assert.equal(generationCandidates(parsed,{eggEnabled:true}).find(candidate=>candidate.egg).requiresFinalEggTag,false);
+    assert.equal(generationCandidates(parse('image###last###'),{eggEnabled:true}).at(-1).requiresFinalEggTag,true);
+    const missing=parse('image###ordinary###\n<meowfm>彩蛋正文</meowfm>');
+    assert.deepEqual(generationCandidates(missing,{eggEnabled:true}).map(({block,egg})=>[block.prompt,egg]),[['ordinary',false]]);
+    assert.equal(parse('<meowfm>彩蛋正文</meowfm>\n/content\nimage###bonus###\nimage###tail###').marked.prompt,'bonus');
     assert.equal(parse('image###quoted <meowfm> sample </meowfm>###\nimage###tail###').marked,null);
 });
 test('all reasoning types, comments and custom formats share body filtering and offsets',()=>{
@@ -51,9 +57,8 @@ test('incomplete, changed and custom-delimited tags are re-evaluated from curren
 });
 test('macro cache refreshes on world changes and invalidation while session promises remain stable; failures have no default marker',async()=>{
     let world='a',value='/content',calls=0;
-    const cache=createEggMarkerCache({key:()=>world,read:async()=>{calls++;return {macros:[{scope:'setvar',name:'彩蛋标签',value}]};}});
+    const cache=createEggMarkerCache({key:()=>world,read:async()=>{calls++;return value;}});
     const session=cache.read();assert.equal(await session,'/content');assert.equal(await cache.read(),'/content');assert.equal(calls,1);
     value='/new';cache.invalidate();assert.equal(await cache.read(),'/new');assert.equal(await session,'/content');world='b';await cache.read();assert.equal(calls,3);
-    for(const read of [async()=>({macros:[]}),async()=>{throw Error('unavailable');},async()=>({macros:[{scope:'setvar',name:'彩蛋标签',value:'  '}]})])assert.equal(await createEggMarkerCache({key:()=>'',read}).read(),'');
-    const repeated=createEggMarkerCache({key:()=>'',read:async()=>({macros:[{scope:'setvar',name:'彩蛋标签',value:'/old'},{scope:'setvar',name:'彩蛋标签',value:'/current'}]})});assert.equal(await repeated.read(),'/current');
+    for(const read of [async()=>undefined,async()=>{throw Error('unavailable');},async()=>'  '])assert.equal(await createEggMarkerCache({key:()=>'',read}).read(),'');
 });

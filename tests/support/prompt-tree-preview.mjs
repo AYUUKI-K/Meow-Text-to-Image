@@ -6,7 +6,7 @@ export function configurePromptTreeFixture({settings,preview}) {
     const variant=query.get('prompt-v1'),v2=query.get('prompt-v2');
     if(!variant&&!v2)return;
     const saved=sessionStorage.getItem('miao-preview-prompt-state');
-    const config=v2?defaultPromptSettings():defaultLegacyPromptSettings(variant==='external'?'external':'builtin');
+    const config=v2?{...defaultPromptSettings(),mode:'builtin'}:defaultLegacyPromptSettings(variant==='external'?'external':'builtin');
     if(v2){
         config.params={persona:'V2_FIXTURE',count:3,eggMarker:'/fixture_marker'};
         config.textOverridesById.composition={body:'V2_KEPT_COMPOSITION'};
