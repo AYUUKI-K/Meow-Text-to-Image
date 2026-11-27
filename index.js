@@ -34,7 +34,8 @@ import {secondaryEnabled,manualSecondaryGeneration,secondaryConnection,secondary
 import {assistantMessage,visibleAssistantMessage} from './src/chat/visible-message.js';
 import {readSecondaryLibrary,activeSecondaryPreset,secondaryPresetFile,listedSecondaryMacros} from './src/prompts/secondary-presets.js';
 import {readSecondaryTags,writeSecondaryTags,removeSecondarySwipe,secondaryBlocks,prepareSecondaryChat,secondaryProfiles} from './src/chat/secondary-tags.js';
-import {captureMacroValues,expandRoleTags,insertDrawingTags,numberedReply,roleList} from './src/chat/secondary-placement.js';
+import {captureMacroValues,expandRoleTags,numberedReply,roleList} from './src/chat/secondary-placement.js';
+import {planSecondaryUpdate,saveSecondaryUpdate} from './src/chat/secondary-application.js';
 import {drawingOptions,drawingNsfwRules,drawingSpecialization,limitDrawingCount,withDrawingOptions,worldDrawingPolicy} from './src/prompts/drawing-options.js';
 import {exportPreview,previewPNG} from './src/prompts/prompt-preview-transfer.js';
 import { getContext, extension_settings } from '../../../extensions.js';
@@ -63,7 +64,7 @@ import {createResourceUpdater} from './src/resources/resource-updates.js';
 import {archiveContext,validateArchivePath,archiveImageURL,imageArchiveLocation,rememberImage,archiveItems} from './src/images/image-archives.js';
 import {createProfilePreviews,ensureProfileIds,sampleSignature,SAMPLE_PROMPT} from './src/profiles/profile-previews.js';
 import {downloadImageSelection,downloadLocalPNG,downloadBrowserBlob} from './src/images/downloads.js';
-import {migrateSwipeImages,readSwipeImage,writeSwipeImage,moveSwipeImage,swipeImageRecords,removeSwipeImages} from './src/chat/swipe-history.js';
+import {blockSlot,promptIdentity,migrateSwipeImages,readSwipeImage,writeSwipeImage,moveSwipeImage,swipeImageRecords,removeSwipeImages} from './src/chat/swipe-history.js';
 import { defaults, parseBodyBlocks, maskReasoning, renderedBlockRange, buildRequest, latestImageMessage, canAutoGenerate, validateFolder, imageDay, imageURL, normalizeProfile, delimiterPattern } from './src/core/core.js';
 
 await (window.__TAURITAVERN__?.ready??window.__TAURITAVERN_MAIN_READY__);
@@ -248,7 +249,6 @@ function blocks(message,swipe=message.swipe_id??0) {
     const main=parseBodyBlocks(text,settings.pattern,reasoningFormat());
     return [...main,...secondaryBlocks(message,swipe,text,main.length)];
 }
-const blockSlot=block=>block.secondary?`secondary:${block.secondaryIndex}:${block.prompt}`:`body:${block.bodyIndex}:${block.prompt}`;
 function identity(message,block) { return `${message.swipe_id??0}:${blockSlot(block)}`; }
 function generationIdentity(message,block,chat=currentChat()) {
     message.miao_nai_image_id??=randomId();
@@ -284,7 +284,6 @@ async function saveRoleBindings(snapshot,text){
     }
     notices.success('当前存档的角色 tag 已保存');
 }
-const promptIdentity=prompt=>String(prompt).replace(/\s+/g,' ').trim();
 const matchingBlocks=(available,target)=>available.filter(block=>!!block.secondary===!!target.secondary&&promptIdentity(block.prompt)===promptIdentity(target.prompt));
 function liveMessage(message,fallback){
     if(ctx().chat.includes(message))return message;
@@ -1288,7 +1287,7 @@ async function runSecondaryTags(message,{manual=false}={}){
     const binding=roleBindingSnapshot();
     if(!text?.trim())return;
     const controller=new AbortController();
-    let anchors,requestedBodyCount,expectedText=text;
+    let expectedText=text;
     const current=()=>{
         if(!settings.enabled||!secondaryEnabled(settings)||settings.secondaryTagAPI!==connection||settings.secondaryTagPresets!==library||getCurrentUserHandle()!==directUser||
             settings.promptConfig!==promptConfig||capture.start!==settings.startTag||capture.end!==settings.endTag||chat!==currentChat()||
@@ -1335,105 +1334,72 @@ async function runSecondaryTags(message,{manual=false}={}){
                 },
             };
             const prepared=inline?numberedReply(body,secondaryRawBody(text,settings.pattern,reasoningFormat()),marker):{text:body};
-            anchors=prepared.anchors;
+            const anchors=prepared.anchors;
             if(inline&&!prepared.text)throw Error('没有可定位的正文段落');
             const available=inline?Math.min(remaining,anchors.paragraphs.length):remaining;
-            requestedBodyCount=limitDrawingCount({min:Math.max(0,output.count.min-existingOrdinary),max:output.count.max},available);
-            const requestOutput={...output,count:requestedBodyCount,
+            const count=limitDrawingCount({min:Math.max(0,output.count.min-existingOrdinary),max:output.count.max},available);
+            const requestOutput={...output,count,
                 egg:inline&&output.egg&&!!anchors.egg&&!existingEgg,
                 eggDialogue:eggDialogueLanguage(settings),
                 specialization:drawingSpecialization(promptConfig,output),nsfwRules:drawingNsfwRules(promptConfig,output)};
             if(!current()||controller.signal.aborted)return;
-            if(!requestedBodyCount.max&&!requestOutput.egg){
+            if(!count.max&&!requestOutput.egg){
                 if(inline&&!anchors.paragraphs.length&&remaining>0)throw Error('出站正则处理后的正文无法对应到存档段落');
                 return;
             }
             notices.info('副 API 正在生成绘图 tag…','喵喵文生图');
-            return requestSecondaryTags({...connection,maxTags:requestedBodyCount.max,preset,capture,output:requestOutput},key,prepared.text,{
+            const tags=await requestSecondaryTags({...connection,maxTags:count.max,preset,capture,output:requestOutput},key,prepared.text,{
                 signal:controller.signal,macros,roleTags,
                 onPrepared:messages=>{
                     if(!current()||controller.signal.aborted)throw new DOMException('Cancelled','AbortError');
                     secondaryRequestPreview={chat,message,text,swipe,preset:preset.id,messages};
                 },
             });
+            return {tags,anchors,count};
         };
         const returned=await Promise.race([request(),cancelled]);
         if(!returned||!current()||controller.signal.aborted)return;
         let roleError;
-        const tags=returned.filter(({prompt})=>{
+        const tags=returned.tags.filter(({prompt})=>{
             try{expandRoleTags(prompt,roleTags);return true;}
             catch(error){roleError??=error;return false;}
         });
         if(!tags.length&&roleError)throw roleError;
         if(roleError)notices.warning(`已跳过使用未知角色调用的图。${roleError.message}`,'副 API 出词');
-        if(inline){
-            const result=insertDrawingTags(text,anchors.paragraphs,tags,anchors.egg,requestedBodyCount.max);
-            const swipes=message.swipes,oldSwipe=swipes?.[swipe];
-            const nextBlocks=parseBodyBlocks(result.text,settings.pattern,reasoningFormat());
-            const previousTags=readSecondaryTags(message,swipe),known=new Set([...nextBlocks,...previousTags].map(block=>promptIdentity(block.prompt)));
-            const ordinary=result.starts.size-result.eggStarts.size;
-            const fallback=[];
-            for(const {prompt,title} of result.unplacedDrawings){
-                if(ordinary+fallback.length>=requestedBodyCount.max)break;
-                const identity=promptIdentity(prompt);
-                if(known.has(identity))continue;
-                known.add(identity);
-                fallback.push({prompt,egg:false,...(title?{title}:{})});
-            }
-            if(!result.starts.size&&!fallback.length)throw Error('副 API 未返回可回填或保留的绘图 tag');
-            const nextTags=[...previousTags,...fallback];
-            const retained=nextBlocks.filter(block=>!result.starts.has(block.start));
-            const moves=initialBlocks.filter(block=>!block.secondary).flatMap((old,index)=>{
-                const next=retained[index];
-                if(!next||next.raw!==old.raw||blockSlot(next)===blockSlot(old))return [];
-                const from=blockSlot(old),to=blockSlot(next),record=state(message,`${swipe}:${from}`);
-                return record?[{from,to,record}]:[];
-            });
-            expectedText=message.mes=result.text;
-            if(typeof oldSwipe==='string')swipes[swipe]=result.text;
-            if(fallback.length)writeSecondaryTags(message,swipe,nextTags);
-            for(const {from,to,record} of [...moves].reverse())moveSwipeImage(message,swipe,from,to,record);
-            try{if(await ctx().saveChat()===false)throw Error('保存失败');}
-            catch{
-                const active=(message.swipe_id??0)===swipe&&message.mes===result.text;
-                const ownsSwipe=message.swipes===swipes&&swipes?.[swipe]===result.text;
-                if(active)message.mes=text;
-                if(ownsSwipe)swipes[swipe]=oldSwipe;
-                if(fallback.length&&readSecondaryTags(message,swipe)===nextTags)writeSecondaryTags(message,swipe,previousTags);
-                if(active||ownsSwipe)for(const {from,to,record} of moves)moveSwipeImage(message,swipe,to,from,record);
-                expectedText=text;
-                throw Error('副 API 已返回 tag，但保存聊天失败');
-            }
-            if(current()&&secondaryRequestPreview?.message===message)secondaryRequestPreview.text=result.text;
-            if(current()&&result.starts.size)await refreshSecondaryMessage(message);
-            if(current()){
-                if(result.starts.size)notices.success(manual?'提示词已写入，点「生成插图」出图':`已写入 ${result.starts.size} 个绘图 tag`,'喵喵文生图');
-                if(fallback.length)notices.warning(`${fallback.length} 个提示词已保留在本楼出图卡片`,'副 API 出词');
-                if(result.unplaced>fallback.length)notices.warning(`${result.unplaced-fallback.length} 个 tag 段号无效、重复或超过张数上限，已跳过。`,'副 API 出词');
-                else if(ordinary+fallback.length<requestedBodyCount.min)notices.warning(`副 API 只返回了 ${ordinary+fallback.length} 张正文图，本轮至少请求了 ${requestedBodyCount.min} 张。`,'副 API 出词');
-                if(output.title&&result.missingTitles)notices.warning(`${result.missingTitles} 张图的副 API 返回缺少小标题。`,'副 API 出词');
-            }
-            if(!manual&&current()&&!controller.signal.aborted){
-                const inserted=nextBlocks.filter(block=>result.starts.has(block.start));
-                for(const block of inserted)generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&output.egg&&result.eggStarts.has(block.start)});
-            }
+        const {anchors,count}=returned;
+        const previousTags=readSecondaryTags(message,swipe);
+        const plan=planSecondaryUpdate({
+            text,drawings:tags,anchors,count,pattern:settings.pattern,format:reasoningFormat(),originalBlocks:initialBlocks,previousTags,
+        });
+        if(!plan.inserted.length&&!plan.sidecar.length){
+            if(inline)throw Error('副 API 未返回可回填或保留的绘图 tag');
             return;
         }
-        const previous=readSecondaryTags(message,swipe),known=new Set(previous.map(tag=>promptIdentity(tag.prompt)));
-        const added=tags.filter(tag=>{
-            const prompt=promptIdentity(tag.prompt);
-            if(known.has(prompt))return false;
-            known.add(prompt);return true;
-        });
-        if(!added.length)return;
-        const next=[...previous,...added.slice(0,Math.max(0,output.count.max-previous.length))];
-        writeSecondaryTags(message,swipe,next);
-        try{if(await ctx().saveChat()===false)throw Error('保存失败');}
-        catch{if(readSecondaryTags(message,swipe)===next)writeSecondaryTags(message,swipe,previous);throw Error('副 API 已返回 tag，但保存聊天失败');}
-        if(current())notices.success(manual?'提示词已写入，点「生成插图」出图':`已生成 ${added.length} 个绘图 tag`,'喵喵文生图');
-        if(!manual&&current()&&!controller.signal.aborted){
-            for(const block of blocks(message).filter(block=>block.secondary&&block.secondaryIndex>=previous.length)){
-                generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&block.secondaryIndex===next.length-1});
+        expectedText=plan.text;
+        try{
+            await saveSecondaryUpdate(message,swipe,plan,{
+                readImage:slot=>state(message,`${swipe}:${slot}`),saveChat:()=>ctx().saveChat(),
+            });
+        }catch(error){expectedText=text;throw error;}
+        if(!current())return;
+        if(secondaryRequestPreview?.message===message)secondaryRequestPreview.text=plan.text;
+        if(plan.inserted.length)await refreshSecondaryMessage(message);
+        if(!current())return;
+        if(inline){
+            if(plan.inserted.length)notices.success(manual?'提示词已写入，点「生成插图」出图':`已写入 ${plan.inserted.length} 个绘图 tag`,'喵喵文生图');
+            if(plan.sidecar.length)notices.warning(`${plan.sidecar.length} 个提示词已保留在本楼出图卡片`,'副 API 出词');
+            if(plan.skipped)notices.warning(`${plan.skipped} 个 tag 段号无效、重复或超过张数上限，已跳过。`,'副 API 出词');
+            else if(plan.ordinary<count.min)notices.warning(`副 API 只返回了 ${plan.ordinary} 张正文图，本轮至少请求了 ${count.min} 张。`,'副 API 出词');
+            if(output.title&&plan.missingTitles)notices.warning(`${plan.missingTitles} 张图的副 API 返回缺少小标题。`,'副 API 出词');
+        }else notices.success(manual?'提示词已写入，点「生成插图」出图':`已生成 ${plan.sidecar.length} 个绘图 tag`,'喵喵文生图');
+        if(!manual&&!controller.signal.aborted){
+            for(const {block,egg} of plan.inserted)generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&egg});
+            if(plan.sidecar.length){
+                const end=previousTags.length+plan.sidecar.length;
+                for(const block of blocks(message).filter(block=>block.secondary&&block.secondaryIndex>=previousTags.length&&block.secondaryIndex<end)){
+                    const legacyEgg=!inline&&block.secondaryIndex===end-1;
+                    generate(message,block,{automatic:true,egg:settings.eggProfileEnabled&&legacyEgg,requiresFinalEggTag:legacyEgg});
+                }
             }
         }
     }catch(error){

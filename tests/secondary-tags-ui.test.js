@@ -744,6 +744,24 @@ test('manual secondary gestures extract the visible floor and only the image but
                     mirror:Object.keys(message.swipe_info[1].extra.miao_nai_image)};
             });
             assert.deepEqual(rolledBack,{active:'另一分支',slots:['body:0:existing view'],mirror:['1:body:0:existing view']});
+
+            // A successful automatic reply can still need a card when the model
+            // returned tags without usable anchors. It must enter the image queue.
+            const beforeAuto=await page.evaluate(async text=>{
+                const p=window.preview,id=p.chat.length;
+                const calls=p.calls.length;
+                p.context.saveChat=async()=>true;
+                p.chat.push({name:'Reply',mes:text});
+                document.getElementById('chat').insertAdjacentHTML('beforeend',`<div class="mes" mesid="${id}"><div class="mes_text"></div></div>`);
+                p.context.updateMessageBlock(id,p.chat[id]);
+                await p.emit('MESSAGE_RECEIVED',id,'normal');
+                return {id,calls};
+            },fallbackText);
+            await imageCards(beforeAuto.id).locator(':scope>img').waitFor();
+            assert.deepEqual(await page.evaluate(({id,calls})=>{
+                const p=window.preview,request=p.calls.at(-1);
+                return [p.chat[id].mes,p.calls.length-calls,request.width??request.parameters.width];
+            },beforeAuto),[fallbackText,1,normalWidth]);
             await page.close();
         }
     }finally{await browser?.close();server.kill();}

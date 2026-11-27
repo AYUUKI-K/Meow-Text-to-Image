@@ -1,5 +1,7 @@
 const ID='miao_nai_image',STORE='miao_nai_image_swipes';
-const promptOf=slot=>slot.replace(/^(?:body:)?\d+:/,'').replace(/\s+/g,' ').trim();
+export const promptIdentity=prompt=>String(prompt).replace(/\s+/g,' ').trim();
+export const blockSlot=block=>block.secondary?`secondary:${block.secondaryIndex}:${block.prompt}`:`body:${block.bodyIndex}:${block.prompt}`;
+const promptOf=slot=>promptIdentity(slot.replace(/^(?:body:)?\d+:/,''));
 const containsImage=(record,url)=>record.url===url||record.versions?.some(v=>v.url===url);
 // ST replaces message.extra when switching/regenerating swipes. This ledger
 // lives on the message itself; mirrors keep native swipe snapshots compatible.
